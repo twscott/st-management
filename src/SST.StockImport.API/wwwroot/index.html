@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SST 股票匯入系統 - 手動操作</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft JhengHei', Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px; margin-bottom: 20px; }
+        .header h1 { font-size: 28px; margin-bottom: 10px; }
+        .header p { opacity: 0.9; }
+        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .card h2 { color: #333; margin-bottom: 20px; font-size: 20px; border-bottom: 2px solid #667eea; padding-bottom: 10px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+        .form-group textarea { min-height: 100px; font-family: 'Consolas', monospace; }
+        .btn { padding: 12px 25px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.3s; }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-primary:hover { background: #5568d3; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+        .btn-success { background: #48bb78; color: white; }
+        .btn-success:hover { background: #38a169; }
+        .btn-warning { background: #ed8936; color: white; }
+        .btn-warning:hover { background: #dd6b20; }
+        .result { margin-top: 15px; padding: 15px; border-radius: 5px; display: none; }
+        .result.success { background: #c6f6d5; border: 1px solid #48bb78; color: #22543d; }
+        .result.error { background: #fed7d7; border: 1px solid #f56565; color: #742a2a; }
+        .result pre { margin-top: 10px; background: rgba(0,0,0,0.05); padding: 10px; border-radius: 5px; overflow-x: auto; }
+        .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
+        .quick-action { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; cursor: pointer; transition: all 0.3s; }
+        .quick-action:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4); }
+        .quick-action h3 { font-size: 18px; margin-bottom: 8px; }
+        .quick-action p { opacity: 0.9; font-size: 13px; }
+        .links { display: flex; gap: 15px; margin-top: 15px; }
+        .links a { color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 8px 15px; border-radius: 5px; transition: all 0.3s; }
+        .links a:hover { background: rgba(255,255,255,0.3); }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 SST 股票匯入系統</h1>
+            <p>Taiwan Stock Trading - 股票資料匯入與排程管理</p>
+            <div class="links">
+                <a href="/swagger" target="_blank">📘 API 文件</a>
+                <a href="/hangfire" target="_blank">⏰ 排程監控</a>
+                <a href="/api/health" target="_blank">💚 系統狀態</a>
+                <a href="#" onclick="stopAPI(); return false;" style="background: #f56565;">🛑 停止 API</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>⚡ 快速操作</h2>
+            <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 12px; border-radius: 5px; margin-bottom: 15px; color: #856404;">
+                ⚠️ <strong>重要提醒：</strong>GoodInfo 為民間網站，資料較不穩定，建議使用批次匯入並設定重試機制。避免單筆匯入造成 quota 浪費。
+            </div>
+            <div class="quick-actions">
+                <div class="quick-action" onclick="importMarket('TSE')" style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);">
+                    <h3>🏢 上市股票（TWSE）</h3>
+                    <p>從證交所匯入上市股票交易資料</p>
+                </div>
+                <div class="quick-action" onclick="importMarket('OTC')" style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);">
+                    <h3>🏪 上櫃股票（OTC）</h3>
+                    <p>從證交所匯入上櫃股票交易資料</p>
+                </div>
+                <div class="quick-action" onclick="importMarket('EMERGING')" style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);">
+                    <h3>🌱 興櫃股票</h3>
+                    <p>從證交所匯入興櫃股票交易資料</p>
+                </div>
+                <div class="quick-action" onclick="showGoodInfoOptions()" style="background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);">
+                    <h3>📊 GoodInfo 資料</h3>
+                    <p>基本面、籌碼面、財報、技術面</p>
+                </div>
+            </div>
+            <div class="quick-actions" style="margin-top: 15px;">
+                <div class="quick-action" onclick="retryFailed()" style="background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);">
+                    <h3>🔄 重試失敗股票</h3>
+                    <p>自動重試最近失敗的股票</p>
+                </div>
+                <div class="quick-action" onclick="viewRecentJobs()" style="background: linear-gradient(135deg, #607D8B 0%, #455A64 100%);">
+                    <h3>📋 查看任務狀態</h3>
+                    <p>查看最近的匯入任務記錄</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- GoodInfo 選項彈出視窗 -->
+        <div id="goodInfoModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;" onclick="closeGoodInfoModal()">
+            <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:30px; border-radius:10px; max-width:600px; width:90%;" onclick="event.stopPropagation()">
+                <h2 style="margin-bottom:20px;">📊 選擇 GoodInfo 資料類型</h2>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:20px;">
+                    <div class="quick-action" onclick="importGoodInfo('BASE')" style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);">
+                        <h3>📈 基本面資料</h3>
+                        <p>本益比、股價淨值比、殖利率、EPS</p>
+                    </div>
+                    <div class="quick-action" onclick="importGoodInfo('CHIP')" style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);">
+                        <h3>💰 籌碼面資料</h3>
+                        <p>三大法人、融資融券餘額</p>
+                    </div>
+                    <div class="quick-action" onclick="importGoodInfo('FINANCE')" style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);">
+                        <h3>📑 財報資料</h3>
+                        <p>營收、獲利、資產負債</p>
+                    </div>
+                    <div class="quick-action" onclick="importGoodInfo('TECHNICAL')" style="background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);">
+                        <h3>📉 技術面資料</h3>
+                        <p>MA5/20/60、RSI、MACD</p>
+                    </div>
+                </div>
+                <button class="btn btn-warning" onclick="closeGoodInfoModal()" style="width:100%;">取消</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📦 批次匯入（TWSE 證交所資料）</h2>
+            <div style="background: #d1ecf1; border: 1px solid #17a2b8; padding: 12px; border-radius: 5px; margin-bottom: 15px; color: #0c5460;">
+                💡 <strong>提示：</strong>從證交所匯入官方交易資料，速度快且穩定。GoodInfo 資料請使用上方的「GoodInfo 資料」按鈕。
+            </div>
+            <div class="form-group">
+                <label>股票代碼清單（每行一個或逗號分隔）</label>
+                <textarea id="batchStocks" placeholder="2330&#10;2317&#10;2454&#10;或：2330,2317,2454"></textarea>
+            </div>
+            <div class="form-group">
+                <label>市場類別</label>
+                <select id="batchMarket">
+                    <option value="ALL">全部</option>
+                    <option value="TSE">上市 (TSE)</option>
+                    <option value="OTC">上櫃 (OTC)</option>
+                    <option value="EMERGING">興櫃</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>並發數量</label>
+                <input type="number" id="batchConcurrency" value="3" min="1" max="10" />
+            </div>
+            <button class="btn btn-success" onclick="doImportBatch()">執行批次匯入</button>
+            <div id="batchResult" class="result"></div>
+        </div>
+
+        <div class="card">
+            <h2>📊 查看最近任務</h2>
+            <button class="btn btn-warning" onclick="viewRecentJobs()">載入最近 10 筆任務</button>
+            <div id="jobsResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        async function callAPI(method, url, body = null) {
+            try {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (body) options.body = JSON.stringify(body);
+                
+                console.log('Calling API:', method, url, body);
+                const response = await fetch(API_BASE + url, options);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                console.log('API Response:', data);
+                return data;
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+
+        function toTaipeiTime(dateString) {
+            if (!dateString) return '';
+            const utcDate = new Date(dateString + 'Z'); // 確保解析為 UTC
+            const taipeiDate = new Date(utcDate.getTime() + (8 * 60 * 60 * 1000));
+            return taipeiDate.toLocaleString('zh-TW', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit',
+                hour12: false 
+            });
+        }
+
+        function showResult(elementId, data, isError = false) {
+            const el = document.getElementById(elementId);
+            el.className = 'result ' + (isError ? 'error' : 'success');
+            
+            let message = isError ? '❌ 執行失敗' : '✅ 執行成功';
+            let details = '';
+            
+            if (!isError && data.jobId) {
+                const startTime = data.startTime ? `<br><strong>開始時間:</strong> ${toTaipeiTime(data.startTime)} (台北時間)` : '';
+                const endTime = data.endTime ? `<br><strong>完成時間:</strong> ${toTaipeiTime(data.endTime)} (台北時間)` : '';
+                
+                details = `
+                    <div style="margin-top: 10px;">
+                        <strong>任務 ID:</strong> ${data.jobId}<br>
+                        <strong>總數:</strong> ${data.totalCount} | 
+                        <strong>成功:</strong> ${data.successCount} | 
+                        <strong>失敗:</strong> ${data.failedCount}<br>
+                        <strong>耗時:</strong> ${data.durationSeconds?.toFixed(2)} 秒
+                        ${startTime}
+                        ${endTime}
+                    </div>
+                `;
+            }
+            
+            el.innerHTML = `
+                <strong>${message}</strong>
+                ${details}
+                <details style="margin-top: 10px;">
+                    <summary style="cursor: pointer; color: #667eea;">點擊查看完整回應</summary>
+                    <pre style="margin-top: 5px;">${JSON.stringify(data, null, 2)}</pre>
+                </details>
+            `;
+            el.style.display = 'block';
+            el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showLoading(elementId, message = '執行中，請稍候...') {
+            const el = document.getElementById(elementId);
+            el.className = 'result';
+            el.style.background = '#e3f2fd';
+            el.style.border = '1px solid #2196f3';
+            el.innerHTML = `
+                <strong>⏳ ${message}</strong>
+                <div style="margin-top: 10px; color: #1976d2;">
+                    <div style="animation: pulse 1.5s ease-in-out infinite;">🔄 資料匯入中...</div>
+                    <small style="display: block; margin-top: 5px;">請勿關閉視窗，匯入完成後會自動顯示結果</small>
+                </div>
+            `;
+            el.style.display = 'block';
+            el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showGoodInfoOptions() {
+            document.getElementById('goodInfoModal').style.display = 'block';
+        }
+
+        function closeGoodInfoModal() {
+            document.getElementById('goodInfoModal').style.display = 'none';
+        }
+
+        async function importGoodInfo(dataType) {
+            closeGoodInfoModal();
+            
+            const typeNames = {
+                BASE: '基本面資料（本益比、股價淨值比、殖利率）',
+                CHIP: '籌碼面資料（三大法人、融資融券）',
+                FINANCE: '財報資料（營收、獲利）',
+                TECHNICAL: '技術面資料（MA、RSI、MACD）'
+            };
+
+            const stocks = prompt(`請輸入股票代碼（逗號分隔），留空則匯入全市場：\n例如：2330,2317,2454`, '2330,2317,2454');
+            if (stocks === null) return;
+
+            const stockCodes = stocks.trim() || null;
+            const market = 'ALL';
+            const concurrency = 2;
+
+            showLoading('batchResult', `正在從 GoodInfo 匯入${typeNames[dataType]}...`);
+            try {
+                const url = `/api/import/goodinfo/${dataType}?market=${market}&maxDegreeOfParallelism=${concurrency}${stockCodes ? '&stockCodes=' + encodeURIComponent(stockCodes) : ''}`;
+                const result = await callAPI('POST', url);
+                showResult('batchResult', result);
+            } catch (err) {
+                showResult('batchResult', { error: err.message, details: err.toString() }, true);
+            }
+        }
+
+        async function importMarket(market) {
+            const marketNames = { TSE: '上市', OTC: '上櫃', EMERGING: '興櫃' };
+            
+            showLoading('batchResult', `正在匯入${marketNames[market]}股票...請稍候，這可能需要數分鐘`);
+            
+            try {
+                const result = await callAPI('POST', `/api/import/market/${market}?maxDegreeOfParallelism=5`);
+                showResult('batchResult', result);
+            } catch (err) {
+                showResult('batchResult', { error: err.message, details: err.toString() }, true);
+            }
+        }
+
+        async function doImportBatch() {
+            const stocksText = document.getElementById('batchStocks').value.trim();
+            const market = document.getElementById('batchMarket').value;
+            const concurrency = parseInt(document.getElementById('batchConcurrency').value);
+
+            if (!stocksText) {
+                alert('請輸入股票代碼');
+                return;
+            }
+
+            const stocks = stocksText.split(/[\n,]+/).map(s => s.trim()).filter(s => s);
+            
+            if (stocks.length === 0) {
+                alert('請輸入有效的股票代碼');
+                return;
+            }
+
+            const body = {
+                stockCodes: stocks,
+                market: market,
+                maxDegreeOfParallelism: concurrency,
+                tradeDate: new Date().toISOString().split('T')[0]
+            };
+
+            showLoading('batchResult', `正在匯入 ${stocks.length} 支股票...`);
+            try {
+                const result = await callAPI('POST', '/api/import', body);
+                showResult('batchResult', result);
+            } catch (err) {
+                showResult('batchResult', { error: err.message, details: err.toString() }, true);
+            }
+        }
+
+        async function retryFailed() {
+            if (!confirm('確定要重試所有最近失敗的股票嗎？\n\n系統會自動搜尋最近 50 個任務中的失敗股票。')) return;
+            
+            showLoading('batchResult', '正在搜尋失敗股票並重試...');
+            try {
+                const result = await callAPI('POST', '/api/import/retry/auto');
+                showResult('batchResult', result);
+            } catch (err) {
+                showResult('batchResult', { error: err.message, details: err.toString() }, true);
+            }
+        }
+
+        async function viewRecentJobs() {
+            showLoading('jobsResult', '載入中...');
+            try {
+                const result = await callAPI('GET', '/api/jobs/recent?limit=10');
+                
+                if (result.value && result.value.length > 0) {
+                    let html = '<strong>✅ 最近 10 筆任務</strong><div style="margin-top: 10px;">';
+                    result.value.forEach(job => {
+                        const statusColor = job.status === 'COMPLETED' ? '#48bb78' : job.status === 'FAILED' ? '#f56565' : '#ed8936';
+                        const timeStr = toTaipeiTime(job.startTime);
+                        
+                        html += `
+                            <div style="border: 1px solid #e2e8f0; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <strong>Job ID: ${job.id.substring(0, 8)}...</strong>
+                                    <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 12px;">${job.status}</span>
+                                </div>
+                                <div style="margin-top: 5px; font-size: 13px; color: #666;">
+                                    市場: ${job.market} | 
+                                    成功: ${job.successCount}/${job.totalCount} | 
+                                    失敗: ${job.failedCount}<br>
+                                    時間: ${timeStr} (台北時間)
+                                </div>
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                    
+                    const el = document.getElementById('jobsResult');
+                    el.className = 'result success';
+                    el.innerHTML = html;
+                    el.style.display = 'block';
+                } else {
+                    showResult('jobsResult', { message: '沒有找到任務記錄' });
+                }
+            } catch (err) {
+                showResult('jobsResult', { error: err.message, details: err.toString() }, true);
+            }
+        }
+
+        async function stopAPI() {
+            if (!confirm('確定要停止 API 服務嗎？\n\n停止後需要手動重新啟動。')) return;
+            
+            try {
+                const response = await fetch('/api/system/shutdown', { method: 'POST' });
+                if (response.ok) {
+                    alert('✅ API 服務已停止\n\n請使用 PowerShell 重新啟動：\ncd D:\\vibeCoding\\sst\\src\\SST.StockImport.API\ndotnet run');
+                    window.close();
+                } else {
+                    alert('❌ 停止 API 失敗');
+                }
+            } catch (err) {
+                // API 已經停止，fetch 會失敗
+                alert('✅ API 服務已停止\n\n請使用 PowerShell 重新啟動：\ncd D:\\vibeCoding\\sst\\src\\SST.StockImport.API\ndotnet run');
+            }
+        }
+
+        // 頁面載入時測試 API 連接
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const health = await callAPI('GET', '/api/health');
+                console.log('✅ API 連接正常:', health);
+            } catch (err) {
+                console.error('❌ API 連接失敗:', err);
+                alert('警告：無法連接到 API。請確認 API 服務已啟動。');
+            }
+        });
+    </script>
+</body>
+</html>

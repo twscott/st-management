@@ -1,253 +1,299 @@
-using System.Net;
-using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
-using Polly;
-using Polly.Retry;
-using SST.StockImport.Core.DTOs;
-using SST.StockImport.Core.Interfaces;
+using OpenQA.Selenium;
+using OpenQA.Selenium.Chrome;
 
 namespace SST.StockImport.Services.Scrapers;
 
 /// <summary>
-/// GoodInfo.tw 股票數據爬蟲實作
+/// GoodInfo.tw 爬蟲服務 - 使用 Selenium WebDriver 處理需要 JavaScript 的頁面
+/// 注意：GoodInfo 有強力的反爬蟲機制，必須：
+/// 1. 控制請求速度 (8-10 秒間隔)
+/// 2. 隱藏自動化特徵
+/// 3. 容忍部分連結失敗（資料不穩定是正常的）
 /// </summary>
-public class GoodInfoScraper : IStockDataScraper
+public class GoodInfoScraper : IDisposable
 {
     private readonly ILogger<GoodInfoScraper> _logger;
-    private readonly HttpClient _httpClient;
-    private readonly UserAgentRotator _userAgentRotator;
-    private readonly AntiScrapingDelayStrategy _delayStrategy;
-    private readonly AsyncRetryPolicy _retryPolicy;
-
-    private const string GoodInfoBaseUrl = "https://goodinfo.tw";
-    private const string StockDetailUrl = "https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID={0}";
+    private readonly GoodInfoScraperConfig _config;
+    private IWebDriver? _driver;
+    private readonly Random _random = new();
 
     public GoodInfoScraper(
         ILogger<GoodInfoScraper> logger,
-        IHttpClientFactory httpClientFactory)
+        GoodInfoScraperConfig? config = null)
     {
         _logger = logger;
-        _httpClient = httpClientFactory.CreateClient("GoodInfo");
-        _userAgentRotator = new UserAgentRotator();
-        _delayStrategy = new AntiScrapingDelayStrategy
-        {
-            BaseDelayMs = 1000,
-            RandomRangeMs = 500,
-            MinIntervalMs = 800
-        };
-
-        // Polly 重試策略：最多重試 3 次，指數退避
-        _retryPolicy = Policy
-            .Handle<HttpRequestException>()
-            .Or<TaskCanceledException>()
-            .WaitAndRetryAsync(
-                retryCount: 3,
-                sleepDurationProvider: retryAttempt => 
-                    TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)) + 
-                    TimeSpan.FromMilliseconds(new Random().Next(0, 1000)),
-                onRetry: (exception, timeSpan, retryCount, context) =>
-                {
-                    _logger.LogWarning(
-                        exception,
-                        "Retry {RetryCount} after {Delay}ms due to {ExceptionType}",
-                        retryCount, timeSpan.TotalMilliseconds, exception.GetType().Name);
-                });
+        _config = config ?? new GoodInfoScraperConfig();
     }
 
     /// <summary>
-    /// 爬取單一股票數據
+    /// 下載指定 URL 的資料（點擊下載按鈕）
     /// </summary>
-    public async Task<StockDataDto?> ScrapeStockDataAsync(
-        string stockCode,
-        DateTime tradeDate,
-        CancellationToken cancellationToken = default)
+    public async Task<bool> DownloadDataAsync(GoodInfoDownloadRequest request)
     {
         try
         {
-            // 反爬蟲延遲
-            await _delayStrategy.DelayAsync(cancellationToken);
+            _logger.LogInformation("開始下載 GoodInfo 資料: {Name} from {Url}", request.Name, request.Url);
 
-            // 執行爬蟲（含重試）
-            return await _retryPolicy.ExecuteAsync(async () =>
+            // 初始化 WebDriver (如果尚未初始化)
+            EnsureDriverInitialized();
+
+            // 導航到目標頁面
+            _driver!.Navigate().GoToUrl(request.Url);
+            _logger.LogDebug("已導航到: {Url}", request.Url);
+
+            // 等待頁面載入
+            await Task.Delay(_config.PageLoadDelayMs);
+
+            // 尋找並點擊下載按鈕
+            IWebElement? button = null;
+            if (!string.IsNullOrEmpty(request.CssSelector))
             {
-                var html = await FetchHtmlAsync(stockCode, cancellationToken);
-                if (string.IsNullOrEmpty(html))
-                {
-                    _logger.LogWarning("Failed to fetch HTML for stock {StockCode}", stockCode);
-                    return null;
-                }
+                button = _driver.FindElement(By.CssSelector(request.CssSelector));
+                _logger.LogDebug("使用 CSS Selector 找到按鈕: {Selector}", request.CssSelector);
+            }
+            else if (!string.IsNullOrEmpty(request.XPath))
+            {
+                button = _driver.FindElement(By.XPath(request.XPath));
+                _logger.LogDebug("使用 XPath 找到按鈕: {XPath}", request.XPath);
+            }
+            else
+            {
+                _logger.LogWarning("未指定 CssSelector 或 XPath，無法找到下載按鈕");
+                return false;
+            }
 
-                return ParseStockData(html, stockCode, tradeDate);
-            });
+            // 點擊下載
+            if (button != null)
+            {
+                button.Click();
+                _logger.LogDebug("已點擊下載按鈕");
+            }
+
+            // 等待下載完成
+            await Task.Delay(_config.DownloadWaitMs);
+
+            _logger.LogInformation("成功下載 GoodInfo 資料: {Name}", request.Name);
+            return true;
+        }
+        catch (NoSuchElementException ex)
+        {
+            _logger.LogWarning(ex, "找不到下載按鈕: {Name} - {Message}", request.Name, ex.Message);
+            return false;
+        }
+        catch (WebDriverException ex)
+        {
+            _logger.LogError(ex, "WebDriver 錯誤: {Name}", request.Name);
+            return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error scraping stock {StockCode}", stockCode);
-            return null;
+            _logger.LogError(ex, "下載 GoodInfo 資料失敗: {Name}", request.Name);
+            return false;
         }
     }
 
     /// <summary>
-    /// 批次爬取股票數據
-    /// 注意：GoodInfo 有 quota 限制，建議 maxDegreeOfParallelism 設為 2-3
+    /// 批次下載多個 GoodInfo 連結
+    /// 注意：會在每個請求之間加入延遲，避免被封鎖
     /// </summary>
-    public async Task<List<StockDataDto>> ScrapeBatchAsync(
-        IEnumerable<string> stockCodes,
-        DateTime tradeDate,
-        int maxDegreeOfParallelism = 2,
-        CancellationToken cancellationToken = default)
+    public async Task<GoodInfoBatchResult> DownloadBatchAsync(List<GoodInfoDownloadRequest> requests)
     {
-        var results = new List<StockDataDto>();
-        var semaphore = new SemaphoreSlim(maxDegreeOfParallelism);
-
-        var tasks = stockCodes.Select(async stockCode =>
+        var result = new GoodInfoBatchResult
         {
-            await semaphore.WaitAsync(cancellationToken);
+            TotalRequests = requests.Count,
+            StartTime = DateTime.Now
+        };
+
+        _logger.LogInformation("開始批次下載 {Count} 個 GoodInfo 連結", requests.Count);
+
+        for (int i = 0; i < requests.Count; i++)
+        {
+            var request = requests[i];
+            _logger.LogInformation("處理 [{Current}/{Total}]: {Name}", i + 1, requests.Count, request.Name);
+
             try
             {
-                var data = await ScrapeStockDataAsync(stockCode, tradeDate, cancellationToken);
-                if (data != null)
+                var success = await DownloadDataAsync(request);
+                
+                if (success)
                 {
-                    lock (results)
-                    {
-                        results.Add(data);
-                    }
+                    result.SuccessCount++;
+                    result.SuccessfulDownloads.Add(request.Name);
+                }
+                else
+                {
+                    result.FailedCount++;
+                    result.FailedDownloads.Add((request.Name, "下載失敗"));
                 }
             }
-            finally
+            catch (Exception ex)
             {
-                semaphore.Release();
+                result.FailedCount++;
+                result.FailedDownloads.Add((request.Name, ex.Message));
+                _logger.LogError(ex, "處理 {Name} 時發生錯誤", request.Name);
             }
-        });
 
-        await Task.WhenAll(tasks);
-        return results;
-    }
-
-    /// <summary>
-    /// 取得指定市場的所有股票代碼
-    /// </summary>
-    public async Task<List<string>> GetStockCodesAsync(
-        string market,
-        CancellationToken cancellationToken = default)
-    {
-        // TODO: 實作從 GoodInfo 或其他來源取得股票清單
-        // 目前先返回空清單，後續可從資料庫或 API 取得
-        _logger.LogWarning("GetStockCodesAsync not fully implemented, returning empty list");
-        
-        return market.ToUpper() switch
-        {
-            "TSE" => await GetTseStockCodesAsync(cancellationToken),
-            "OTC" => await GetOtcStockCodesAsync(cancellationToken),
-            "EMERGING" => await GetEmergingStockCodesAsync(cancellationToken),
-            _ => new List<string>()
-        };
-    }
-
-    /// <summary>
-    /// 抓取 HTML 內容
-    /// </summary>
-    private async Task<string> FetchHtmlAsync(string stockCode, CancellationToken cancellationToken)
-    {
-        var url = string.Format(StockDetailUrl, stockCode);
-        var request = new HttpRequestMessage(HttpMethod.Get, url);
-
-        // 設定 Headers（模擬真實瀏覽器）
-        request.Headers.Add("User-Agent", _userAgentRotator.GetRandom());
-        request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
-        request.Headers.Add("Accept-Language", "zh-TW,zh;q=0.9,en;q=0.8");
-        request.Headers.Add("Accept-Encoding", "gzip, deflate, br");
-        request.Headers.Add("DNT", "1");
-        request.Headers.Add("Connection", "keep-alive");
-        request.Headers.Add("Upgrade-Insecure-Requests", "1");
-        request.Headers.Add("Sec-Fetch-Dest", "document");
-        request.Headers.Add("Sec-Fetch-Mode", "navigate");
-        request.Headers.Add("Sec-Fetch-Site", "none");
-        request.Headers.Add("Cache-Control", "max-age=0");
-
-        var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        return await response.Content.ReadAsStringAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// 解析 HTML 取得股票數據
-    /// </summary>
-    private StockDataDto? ParseStockData(string html, string stockCode, DateTime tradeDate)
-    {
-        try
-        {
-            var doc = new HtmlDocument();
-            doc.LoadHtml(html);
-
-            // TODO: 根據 GoodInfo.tw 實際 HTML 結構解析
-            // 這裡需要分析 GoodInfo 的頁面結構來提取數據
-            // 目前提供基本架構，實際 XPath 需要根據網站調整
-
-            // 範例：假設有特定的 table 結構
-            // var priceTable = doc.DocumentNode.SelectSingleNode("//table[@id='price-table']");
-            // var rows = priceTable?.SelectNodes(".//tr");
-
-            // 暫時返回模擬數據供測試
-            _logger.LogWarning("ParseStockData using mock data - needs real implementation");
-
-            return new StockDataDto
+            // 在請求之間加入隨機延遲 (8-10 秒)，避免被封鎖
+            if (i < requests.Count - 1)
             {
-                StockCode = stockCode,
-                TradeDate = tradeDate,
-                Market = DetermineMarket(stockCode),
-                OpenPrice = 100.0m,
-                ClosePrice = 105.0m,
-                HighPrice = 108.0m,
-                LowPrice = 99.0m,
-                Volume = 10000000,
-                TradeCount = 5000
-            };
+                var delayMs = _config.RequestDelayMs + _random.Next(-1000, 1000);
+                _logger.LogDebug("等待 {Delay}ms 後處理下一個請求...", delayMs);
+                await Task.Delay(delayMs);
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error parsing HTML for stock {StockCode}", stockCode);
-            return null;
-        }
+
+        result.EndTime = DateTime.Now;
+        result.TotalDuration = result.EndTime - result.StartTime;
+
+        _logger.LogInformation(
+            "批次下載完成: 成功 {Success}/{Total}, 失敗 {Failed}, 耗時 {Duration:mm\\:ss}",
+            result.SuccessCount, result.TotalRequests, result.FailedCount, result.TotalDuration);
+
+        return result;
     }
 
     /// <summary>
-    /// 根據股票代碼判斷市場類別
+    /// 確保 WebDriver 已初始化
     /// </summary>
-    private string DetermineMarket(string stockCode)
+    private void EnsureDriverInitialized()
     {
-        // 台股規則：
-        // 上市（TSE）：4 位數字（1000-9999），但 7 開頭通常是 OTC
-        // 上櫃（OTC）：4 位數字，通常 7 開頭或特定範圍
-        // 興櫃（EMERGING）：通常 4 位數字配合特定識別
+        if (_driver != null)
+            return;
 
-        if (stockCode.Length == 4 && int.TryParse(stockCode, out var code))
+        _logger.LogInformation("初始化 Chrome WebDriver");
+
+        var options = new ChromeOptions();
+
+        // 設定下載路徑
+        if (!string.IsNullOrEmpty(_config.DownloadPath))
         {
-            if (code >= 7000 && code < 8000)
-                return "OTC";
-            if (code >= 1000 && code < 7000)
-                return "TSE";
+            options.AddUserProfilePreference("download.default_directory", _config.DownloadPath);
+            options.AddUserProfilePreference("download.prompt_for_download", false);
+            options.AddUserProfilePreference("download.directory_upgrade", true);
+            options.AddUserProfilePreference("safebrowsing.enabled", true);
+            _logger.LogDebug("設定下載路徑: {Path}", _config.DownloadPath);
         }
 
-        return "EMERGING";
+        // 防止被偵測為自動化程式
+        options.AddArgument("--disable-blink-features=AutomationControlled");
+        options.AddExcludedArgument("enable-automation");
+        options.AddAdditionalOption("useAutomationExtension", false);
+
+        // 設定 User-Agent (模擬真實瀏覽器)
+        var userAgent = _config.UserAgents[_random.Next(_config.UserAgents.Count)];
+        options.AddArgument($"user-agent={userAgent}");
+        _logger.LogDebug("使用 User-Agent: {UserAgent}", userAgent);
+
+        // Headless 模式 (可選)
+        if (_config.UseHeadlessMode)
+        {
+            options.AddArgument("--headless=new");
+            options.AddArgument("--window-size=1920,1080");
+            _logger.LogDebug("使用 Headless 模式");
+        }
+
+        // 其他優化設定
+        options.AddArgument("--disable-gpu");
+        options.AddArgument("--no-sandbox");
+        options.AddArgument("--disable-dev-shm-usage");
+
+        _driver = new ChromeDriver(options);
+        _driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(10);
+
+        // 隱藏 webdriver 屬性
+        var jsExecutor = (IJavaScriptExecutor)_driver;
+        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})");
+
+        _logger.LogInformation("Chrome WebDriver 初始化完成");
     }
 
-    private Task<List<string>> GetTseStockCodesAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// 釋放資源
+    /// </summary>
+    public void Dispose()
     {
-        // TODO: 從資料來源取得上市股票清單
-        return Task.FromResult(new List<string> { "2330", "2317", "2454" });
+        if (_driver != null)
+        {
+            _logger.LogInformation("關閉 Chrome WebDriver");
+            _driver.Quit();
+            _driver.Dispose();
+            _driver = null;
+        }
     }
+}
 
-    private Task<List<string>> GetOtcStockCodesAsync(CancellationToken cancellationToken)
-    {
-        // TODO: 從資料來源取得上櫃股票清單
-        return Task.FromResult(new List<string> { "7227", "7415" });
-    }
+/// <summary>
+/// GoodInfo 下載請求
+/// </summary>
+public class GoodInfoDownloadRequest
+{
+    public string Name { get; set; } = string.Empty;
+    public string Url { get; set; } = string.Empty;
+    public string? CssSelector { get; set; }
+    public string? XPath { get; set; }
+}
 
-    private Task<List<string>> GetEmergingStockCodesAsync(CancellationToken cancellationToken)
+/// <summary>
+/// GoodInfo 批次下載結果
+/// </summary>
+public class GoodInfoBatchResult
+{
+    public int TotalRequests { get; set; }
+    public int SuccessCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<string> SuccessfulDownloads { get; set; } = new();
+    public List<(string Name, string Error)> FailedDownloads { get; set; } = new();
+    public DateTime StartTime { get; set; }
+    public DateTime EndTime { get; set; }
+    public TimeSpan TotalDuration { get; set; }
+}
+
+/// <summary>
+/// GoodInfo 爬蟲設定
+/// </summary>
+public class GoodInfoScraperConfig
+{
+    /// <summary>
+    /// 頁面載入後等待時間 (毫秒)
+    /// </summary>
+    public int PageLoadDelayMs { get; set; } = 3000;
+
+    /// <summary>
+    /// 每個請求之間的延遲 (毫秒) - 預設 8 秒
+    /// 注意：這是關鍵參數，太快會被 GoodInfo 封鎖
+    /// </summary>
+    public int RequestDelayMs { get; set; } = 8000;
+
+    /// <summary>
+    /// 下載完成後等待時間 (毫秒)
+    /// </summary>
+    public int DownloadWaitMs { get; set; } = 1000;
+
+    /// <summary>
+    /// 失敗後重試延遲 (毫秒)
+    /// </summary>
+    public int RetryDelayMs { get; set; } = 10000;
+
+    /// <summary>
+    /// 檔案下載路徑
+    /// </summary>
+    public string? DownloadPath { get; set; }
+
+    /// <summary>
+    /// 是否使用 Headless 模式
+    /// 注意：關閉 Headless 模式可能更不容易被偵測
+    /// </summary>
+    public bool UseHeadlessMode { get; set; } = false;
+
+    /// <summary>
+    /// User-Agent 輪替列表
+    /// </summary>
+    public List<string> UserAgents { get; set; } = new()
     {
-        // TODO: 從資料來源取得興櫃股票清單
-        return Task.FromResult(new List<string>());
-    }
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    };
 }

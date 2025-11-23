@@ -103,7 +103,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// 開發環境不強制 HTTPS（避免 Hangfire Dashboard 錯誤）
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
+// 啟用靜態文件（手動操作頁面）
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // 啟用 Hangfire Dashboard
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
@@ -143,6 +151,15 @@ RecurringJob.AddOrUpdate<IImportService>(
 
 // 啟用 Controllers
 app.MapControllers();
+
+// 系統控制端點
+app.MapPost("/api/system/shutdown", async (IHostApplicationLifetime lifetime) =>
+{
+    Log.Warning("API shutdown requested via /api/system/shutdown endpoint");
+    await Task.Delay(500); // 給予時間回應請求
+    lifetime.StopApplication();
+    return Results.Ok(new { message = "API is shutting down..." });
+});
 
     app.Run();
     Log.Information("SST Stock Import API stopped cleanly");

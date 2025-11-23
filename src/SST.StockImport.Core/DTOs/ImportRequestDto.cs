@@ -6,9 +6,20 @@ namespace SST.StockImport.Core.DTOs;
 public class ImportRequestDto
 {
     /// <summary>
-    /// 市場類別：TSE、OTC、EMERGING、ALL
+    /// 市場類別：TSE（上市）、OTC（上櫃）、EMERGING（興櫃）、ALL
     /// </summary>
     public string Market { get; set; } = "ALL";
+
+    /// <summary>
+    /// 資料來源：TWSE（證交所）、GOODINFO（GoodInfo.tw）
+    /// </summary>
+    public string DataSource { get; set; } = "TWSE";
+
+    /// <summary>
+    /// GoodInfo 資料類型：BASE（基本面）、CHIP（籌碼面）、FINANCE（財報）、TECHNICAL（技術面）
+    /// 僅當 DataSource = GOODINFO 時有效
+    /// </summary>
+    public string? GoodInfoDataType { get; set; }
 
     /// <summary>
     /// 交易日期（若為空則使用最近的交易日）

@@ -1,7 +1,9 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SST.StockImport.Core.DTOs;
 using SST.StockImport.Core.Entities;
 using SST.StockImport.Core.Interfaces;
+using SST.StockImport.Services.Scrapers;
 
 namespace SST.StockImport.Services;
 
@@ -12,22 +14,28 @@ public class ImportService : IImportService
 {
     private readonly ILogger<ImportService> _logger;
     private readonly IStockDataScraper _scraper;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ITradeDataRepository _tradeDataRepository;
     private readonly IImportJobRepository _importJobRepository;
     private readonly IAlertLogRepository _alertLogRepository;
+    private readonly TWSEScraper _twseScraper;
 
     public ImportService(
         ILogger<ImportService> logger,
         IStockDataScraper scraper,
+        IServiceScopeFactory scopeFactory,
         ITradeDataRepository tradeDataRepository,
         IImportJobRepository importJobRepository,
-        IAlertLogRepository alertLogRepository)
+        IAlertLogRepository alertLogRepository,
+        TWSEScraper twseScraper)
     {
         _logger = logger;
         _scraper = scraper;
+        _scopeFactory = scopeFactory;
         _tradeDataRepository = tradeDataRepository;
         _importJobRepository = importJobRepository;
         _alertLogRepository = alertLogRepository;
+        _twseScraper = twseScraper;
     }
 
     /// <summary>
@@ -60,8 +68,14 @@ public class ImportService : IImportService
             }
             else
             {
-                // 根據市場取得股票清單
-                stockCodes = (await _scraper.GetStockCodesAsync(request.Market)).ToList();
+                // 根據市場取得股票清單（優先使用證交所官方 API）
+                _logger.LogInformation("Fetching stock list from TWSE API for market: {Market}", request.Market);
+                stockCodes = (await _twseScraper.GetStockCodesAsync(request.Market)).ToList();
+                
+                if (!stockCodes.Any())
+                {
+                    _logger.LogWarning("No stocks found from TWSE API, market: {Market}", request.Market);
+                }
             }
 
             result.TotalCount = stockCodes.Count;
@@ -90,7 +104,7 @@ public class ImportService : IImportService
                 tradeDate, 
                 request.MaxDegreeOfParallelism);
 
-            // 處理爬取結果
+            // 處理爬取結果（使用獨立 scope 避免 DbContext 並發問題）
             var semaphore = new SemaphoreSlim(request.MaxDegreeOfParallelism);
             var tasks = scrapedData.Select(async stockData =>
             {
@@ -101,6 +115,11 @@ public class ImportService : IImportService
                     {
                         return (success: false, stockCode: "unknown", reason: "Scraping returned null");
                     }
+
+                    // 為每個操作創建獨立的 scope 和 repository
+                    using var scope = _scopeFactory.CreateScope();
+                    var tradeDataRepo = scope.ServiceProvider.GetRequiredService<ITradeDataRepository>();
+                    var alertLogRepo = scope.ServiceProvider.GetRequiredService<IAlertLogRepository>();
 
                     try
                     {
@@ -119,7 +138,7 @@ public class ImportService : IImportService
                             UpdatedAt = DateTime.UtcNow
                         };
 
-                        await _tradeDataRepository.UpsertAsync(tradeData);
+                        await tradeDataRepo.UpsertAsync(tradeData);
                         
                         _logger.LogDebug("Successfully imported {StockCode}", stockData.StockCode);
                         return (success: true, stockCode: stockData.StockCode, reason: string.Empty);
@@ -129,7 +148,24 @@ public class ImportService : IImportService
                         var errorMsg = $"Database error: {ex.Message}";
                         _logger.LogError(ex, "Failed to save {StockCode}", stockData.StockCode);
                         
-                        await LogErrorAsync(jobId, stockData.StockCode, "Database Error", errorMsg);
+                        // 記錄錯誤
+                        try
+                        {
+                            var alert = new AlertLog
+                            {
+                                JobId = jobId,
+                                StockCode = stockData.StockCode,
+                                AlertType = AlertType.Error,
+                                Message = errorMsg,
+                                CreatedAt = DateTime.UtcNow
+                            };
+                            await alertLogRepo.CreateAsync(alert);
+                        }
+                        catch (Exception logEx)
+                        {
+                            _logger.LogError(logEx, "Failed to log error for {StockCode}", stockData.StockCode);
+                        }
+                        
                         return (success: false, stockCode: stockData.StockCode, reason: errorMsg);
                     }
                 }

@@ -1,224 +1,235 @@
 using Microsoft.AspNetCore.Mvc;
 using SST.StockImport.Core.DTOs;
-using SST.StockImport.Core.Interfaces;
+using SST.StockImport.Services.Scrapers;
 
 namespace SST.StockImport.API.Controllers;
 
 /// <summary>
-/// 股票資料匯入 API
+/// 股票資料匯入 API - 僅提供爬蟲測試功能
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
 public class ImportController : ControllerBase
 {
-    private readonly IImportService _importService;
     private readonly ILogger<ImportController> _logger;
+    private readonly TWSEScraper _twseScraper;
+    private readonly TPExScraper _tpexScraper;
+    private readonly GoodInfoScraper _goodInfoScraper;
 
     public ImportController(
-        IImportService importService,
-        ILogger<ImportController> logger)
+        ILogger<ImportController> logger,
+        TWSEScraper twseScraper,
+        TPExScraper tpexScraper,
+        GoodInfoScraper goodInfoScraper)
     {
-        _importService = importService;
         _logger = logger;
+        _twseScraper = twseScraper;
+        _tpexScraper = tpexScraper;
+        _goodInfoScraper = goodInfoScraper;
     }
 
+    #region 爬蟲測試端點 (Scraper Test Endpoints)
+
     /// <summary>
-    /// 匯入股票資料（支援單股、多股、全市場）
+    /// 測試上市股票爬蟲 (TSE) - 直接抓取不寫資料庫
     /// </summary>
-    /// <param name="request">匯入請求</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>匯入結果</returns>
-    /// <response code="200">匯入成功</response>
-    /// <response code="400">請求參數錯誤</response>
-    /// <response code="500">伺服器錯誤</response>
-    [HttpPost]
-    [ProducesResponseType(typeof(ImportResultDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-    public async Task<ActionResult<ImportResultDto>> ImportStockData(
-        [FromBody] ImportRequestDto request,
-        CancellationToken cancellationToken)
+    [HttpGet("test/tse")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> TestTSEScraper([FromQuery] DateTime? targetDate = null)
     {
         try
         {
-            _logger.LogInformation(
-                "Received import request: Market={Market}, Date={Date}, Stocks={StockCount}",
-                request.Market,
-                request.TradeDate,
-                request.StockCodes?.Count ?? 0);
+            var date = targetDate ?? DateTime.Today;
+            _logger.LogInformation("測試 TSE 爬蟲，日期: {Date}", date);
 
-            // 從 HTTP Context 取得 IP 位址
-            if (string.IsNullOrEmpty(request.TriggerIpAddress))
+            var startTime = DateTime.Now;
+            var data = await _twseScraper.ScrapeBatchAsync(null, date);
+            var duration = DateTime.Now - startTime;
+
+            return Ok(new
             {
-                request.TriggerIpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
-            }
-
-            // 預設執行者為 USER
-            if (string.IsNullOrEmpty(request.ExecutorType))
-            {
-                request.ExecutorType = "USER";
-            }
-
-            if (string.IsNullOrEmpty(request.ExecutorIdentity))
-            {
-                request.ExecutorIdentity = "API_User";
-            }
-
-            var result = await _importService.ImportStockDataAsync(request, cancellationToken);
-
-            if (result.IsSuccess)
-            {
-                _logger.LogInformation(
-                    "Import completed successfully. JobId={JobId}, Success={Success}, Failed={Failed}",
-                    result.JobId, result.SuccessCount, result.FailedCount);
-            }
-            else
-            {
-                _logger.LogWarning(
-                    "Import completed with errors. JobId={JobId}, Success={Success}, Failed={Failed}",
-                    result.JobId, result.SuccessCount, result.FailedCount);
-            }
-
-            return Ok(result);
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Invalid import request");
-            return BadRequest(new { error = ex.Message });
+                Market = "TSE",
+                TargetDate = date,
+                Count = data.Count,
+                Duration = duration.ToString(@"mm\:ss"),
+                SampleData = data.Take(10).Select(d => new
+                {
+                    d.StockCode,
+                    d.ClosePrice,
+                    d.Volume,
+                    d.OpenPrice,
+                    d.HighPrice,
+                    d.LowPrice
+                })
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Import request failed");
-            return StatusCode(500, new { error = "Internal server error", message = ex.Message });
+            _logger.LogError(ex, "TSE 爬蟲測試失敗");
+            return StatusCode(500, new { Error = ex.Message, StackTrace = ex.StackTrace });
         }
     }
 
     /// <summary>
-    /// 快速匯入單支股票
+    /// 測試上櫃/興櫃股票爬蟲 (TPEx) - 直接解析不寫資料庫
     /// </summary>
-    /// <param name="stockCode">股票代碼</param>
-    /// <param name="tradeDate">交易日期（選填，預設今天）</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>匯入結果</returns>
-    [HttpPost("stock/{stockCode}")]
-    [ProducesResponseType(typeof(ImportResultDto), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ImportResultDto>> ImportSingleStock(
-        string stockCode,
-        [FromQuery] DateTime? tradeDate,
-        CancellationToken cancellationToken = default)
-    {
-        var request = new ImportRequestDto
-        {
-            StockCodes = new List<string> { stockCode },
-            TradeDate = tradeDate,
-            Market = "ALL",
-            ExecutorType = "USER",
-            ExecutorIdentity = "API_User",
-            TriggerIpAddress = HttpContext.Connection.RemoteIpAddress?.ToString()
-        };
-
-        return await ImportStockData(request, cancellationToken);
-    }
-
-    /// <summary>
-    /// 依市場匯入所有股票
-    /// </summary>
-    /// <param name="market">市場類別：TSE、OTC、EMERGING、ALL</param>
-    /// <param name="tradeDate">交易日期（選填，預設今天）</param>
-    /// <param name="maxDegreeOfParallelism">最大並行數（預設5）</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>匯入結果</returns>
-    [HttpPost("market/{market}")]
-    [ProducesResponseType(typeof(ImportResultDto), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ImportResultDto>> ImportByMarket(
-        string market,
-        [FromQuery] DateTime? tradeDate,
-        [FromQuery] int maxDegreeOfParallelism,
-        CancellationToken cancellationToken = default)
-    {
-        var request = new ImportRequestDto
-        {
-            Market = market.ToUpper(),
-            TradeDate = tradeDate,
-            MaxDegreeOfParallelism = maxDegreeOfParallelism,
-            ExecutorType = "USER",
-            ExecutorIdentity = "API_User",
-            TriggerIpAddress = HttpContext.Connection.RemoteIpAddress?.ToString()
-        };
-
-        return await ImportStockData(request, cancellationToken);
-    }
-
-    /// <summary>
-    /// 重試失敗的股票
-    /// </summary>
-    /// <param name="jobId">原始作業 ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>重試結果</returns>
-    /// <response code="200">重試完成</response>
-    /// <response code="404">作業不存在</response>
-    [HttpPost("retry/{jobId}")]
-    [ProducesResponseType(typeof(ImportResultDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ImportResultDto>> RetryFailedStocks(
-        string jobId,
-        CancellationToken cancellationToken = default)
+    [HttpPost("test/tpex")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> TestTPExScraper(
+        [FromQuery] string market = "OTC",
+        IFormFile csvFile = null!)
     {
         try
         {
-            _logger.LogInformation("Retrying failed stocks for JobId={JobId}", jobId);
+            if (csvFile == null || csvFile.Length == 0)
+            {
+                return BadRequest(new { Error = "請上傳 CSV 檔案" });
+            }
 
-            var result = await _importService.RetryFailedStocksAsync(jobId, cancellationToken);
+            _logger.LogInformation("測試 TPEx 爬蟲，市場: {Market}，檔案: {FileName}", market, csvFile.FileName);
 
-            _logger.LogInformation(
-                "Retry completed. JobId={JobId}, Success={Success}, Failed={Failed}",
-                result.JobId, result.SuccessCount, result.FailedCount);
+            var startTime = DateTime.Now;
+            List<StockDataDto> data;
 
-            return Ok(result);
-        }
-        catch (ArgumentException ex)
-        {
-            _logger.LogWarning(ex, "Job not found: {JobId}", jobId);
-            return NotFound(new { error = ex.Message });
+            // 寫入臨時檔案
+            var tempFile = Path.GetTempFileName();
+            try
+            {
+                using (var stream = csvFile.OpenReadStream())
+                using (var fileStream = System.IO.File.Create(tempFile))
+                {
+                    await stream.CopyToAsync(fileStream);
+                }
+
+                data = _tpexScraper.ParseCsvFile(tempFile, market.ToUpper());
+            }
+            finally
+            {
+                if (System.IO.File.Exists(tempFile))
+                    System.IO.File.Delete(tempFile);
+            }
+
+            var duration = DateTime.Now - startTime;
+
+            return Ok(new
+            {
+                Market = market.ToUpper(),
+                FileName = csvFile.FileName,
+                Count = data.Count,
+                Duration = duration.ToString(@"mm\:ss"),
+                SampleData = data.Take(10).Select(d => new
+                {
+                    d.StockCode,
+                    d.ClosePrice,
+                    d.Volume,
+                    d.OpenPrice,
+                    d.HighPrice,
+                    d.LowPrice
+                })
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Retry failed for JobId={JobId}", jobId);
-            return StatusCode(500, new { error = "Internal server error", message = ex.Message });
+            _logger.LogError(ex, "TPEx 爬蟲測試失敗");
+            return StatusCode(500, new { Error = ex.Message, StackTrace = ex.StackTrace });
         }
     }
 
     /// <summary>
-    /// 查詢匯入作業狀態
+    /// 測試 GoodInfo 爬蟲 - 批次下載
     /// </summary>
-    /// <param name="jobId">作業 ID</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>作業狀態</returns>
-    /// <response code="200">查詢成功</response>
-    /// <response code="404">作業不存在</response>
-    [HttpGet("status/{jobId}")]
-    [ProducesResponseType(typeof(ImportResultDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ImportResultDto>> GetImportStatus(
-        string jobId,
-        CancellationToken cancellationToken = default)
+    [HttpPost("test/goodinfo")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> TestGoodInfoScraper([FromQuery] string category = "margin")
     {
         try
         {
-            var result = await _importService.GetImportStatusAsync(jobId, cancellationToken);
+            _logger.LogInformation("測試 GoodInfo 爬蟲，類別: {Category}", category);
 
-            if (result == null)
+            List<GoodInfoDownloadRequest> requests = category.ToLower() switch
             {
-                return NotFound(new { error = $"Job {jobId} not found" });
-            }
+                "all" => GoodInfoUrlConfig.GetAllRequests(),
+                "common" => GoodInfoUrlConfig.GetCommonAnalysisRequests(),
+                "margin" => GoodInfoUrlConfig.GetMarginRequests(),
+                _ => throw new ArgumentException($"無效的類別: {category}，請使用 all/common/margin")
+            };
 
-            return Ok(result);
+            var result = await _goodInfoScraper.DownloadBatchAsync(requests);
+
+            return Ok(new
+            {
+                Category = category,
+                TotalRequests = result.TotalRequests,
+                SuccessCount = result.SuccessCount,
+                FailedCount = result.FailedCount,
+                Duration = result.TotalDuration.ToString(@"mm\:ss"),
+                SuccessfulDownloads = result.SuccessfulDownloads,
+                FailedDownloads = result.FailedDownloads
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get status for JobId={JobId}", jobId);
-            return StatusCode(500, new { error = "Internal server error", message = ex.Message });
+            _logger.LogError(ex, "GoodInfo 爬蟲測試失敗");
+            return StatusCode(500, new { Error = ex.Message, StackTrace = ex.StackTrace });
         }
     }
+
+    /// <summary>
+    /// 取得 GoodInfo 下載連結清單
+    /// </summary>
+    [HttpGet("test/goodinfo/links")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult GetGoodInfoLinks([FromQuery] string? category = null)
+    {
+        try
+        {
+            List<GoodInfoDownloadRequest> requests = category?.ToLower() switch
+            {
+                "common" => GoodInfoUrlConfig.GetCommonAnalysisRequests(),
+                "margin" => GoodInfoUrlConfig.GetMarginRequests(),
+                _ => GoodInfoUrlConfig.GetAllRequests()
+            };
+
+            return Ok(new
+            {
+                Category = category ?? "all",
+                Count = requests.Count,
+                Links = requests.Select(r => new
+                {
+                    r.Name,
+                    r.Url,
+                    HasCssSelector = !string.IsNullOrEmpty(r.CssSelector),
+                    HasXPath = !string.IsNullOrEmpty(r.XPath)
+                })
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "取得 GoodInfo 連結清單失敗");
+            return StatusCode(500, new { Error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 健康檢查
+    /// </summary>
+    [HttpGet("health")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult Health()
+    {
+        return Ok(new
+        {
+            Status = "Healthy",
+            Timestamp = DateTime.Now,
+            Services = new
+            {
+                TWSEScraper = _twseScraper != null,
+                TPExScraper = _tpexScraper != null,
+                GoodInfoScraper = _goodInfoScraper != null
+            }
+        });
+    }
+
+    #endregion
 }
