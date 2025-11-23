@@ -1,50 +1,87 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# SST 管理系統 Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. 簡潔至上 (Simplicity First)
+- **YAGNI 原則**：只實作當前需要的功能，不做過度設計
+- **最小可行功能**：每個功能模組只包含核心必要邏輯
+- **刪除優於重構**：移除不需要的功能和冗餘代碼
+- **資料庫精簡**：只保留必要的資料表和欄位，避免數據冗餘
+- **理由**：此為重寫專案，需大幅縮減原系統規模，移除大部分功能
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. 代碼品質 (Code Quality)
+- **測試覆蓋**：核心業務邏輯必須有單元測試
+- **代碼審查**：所有變更必須經過審查才能合併
+- **命名清晰**：使用有意義的變數和函數名稱
+- **文檔完整**：複雜邏輯必須有註解說明
+- **理由**：避免原系統的 bug 問題，確保新系統穩定性
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. 模組化與可維護性 (Modularity)
+- **關注點分離**：UI、業務邏輯、資料存取層明確分離
+- **獨立模組**：每個功能模組可獨立開發、測試、部署
+- **依賴注入**：減少模組間耦合，提高可測試性
+- **清晰介面**：模組間透過定義良好的介面通信
+- **理由**：提升長期可維護性，避免原系統難以維護的問題
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. 性能優先 (Performance)
+- **響應時間**：股票數據查詢響應時間 < 500ms
+- **並發處理**：支援至少 100 個並發用戶
+- **數據快取**：頻繁訪問的數據使用快取機制
+- **查詢優化**：資料庫查詢必須有適當索引和優化
+- **理由**：股票分析需要即時數據處理和快速響應
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. 漸進式擴展 (Progressive Scalability)
+- **核心先行**：先實作核心股票分析功能
+- **功能插件化**：新功能以插件方式擴展，不影響核心
+- **API 設計**：預留 API 擴展點，但不過度設計
+- **資料結構彈性**：資料模型支援未來擴展但保持簡潔
+- **理由**：系統需要靈活應對未來需求，但避免過度工程
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+## 技術約束 (Technical Constraints)
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### 技術棧要求
+- **後端框架**：使用現代 .NET (ASP.NET Core) 取代舊版 .NET Framework
+- **前端技術**：現代化 Web 技術（待規劃階段確定）
+- **資料庫**：優化資料庫結構，移除不需要的表和欄位
+- **部署環境**：支援容器化部署 (Docker)
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### 相容性要求
+- **資料遷移**：必須提供從舊系統遷移核心數據的方案
+- **功能選擇**：明確記錄保留和移除的功能清單
+- **向後兼容**：不需要考慮舊 API 的相容性（全新系統）
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+## 開發流程 (Development Workflow)
+
+### 規格驅動開發
+- **文件先行**：所有功能必須先完成規格文件（spec.md）
+- **技術規劃**：規格完成後進行技術設計（plan.md）
+- **任務分解**：設計完成後生成任務清單（tasks.md）
+- **實作執行**：按任務清單逐步實作
+
+### 質量關卡
+- **規格審查**：規格文件必須明確、可測試、無歧義
+- **代碼審查**：所有代碼變更必須經過審查
+- **測試門檻**：核心功能必須通過單元測試和整合測試
+- **性能驗證**：關鍵路徑必須通過性能測試
+
+### Bug 管理
+- **優先修復**：原系統已知 bug 在新系統中不得重現
+- **回歸測試**：修復的 bug 必須加入測試案例
+- **文檔記錄**：重要 bug 修復必須記錄在變更日誌
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+### 憲章效力
+- 本憲章優先於所有其他開發實踐和慣例
+- 任何修改需要文檔記錄、審批和遷移計畫
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+### 合規性檢查
+- 所有 Pull Request 必須驗證是否符合本憲章原則
+- 複雜度增加必須有充分理由和文檔說明
+- 使用 `.specify/memory/constitution.md` 指導開發決策
+
+### 例外處理
+- 違反原則需要在 `plan.md` 的 "Complexity Tracking" 區段說明理由
+- 技術債務必須記錄並排期償還
+
+**Version**: 1.0.0 | **Ratified**: 2025-11-23 | **Last Amended**: 2025-11-23

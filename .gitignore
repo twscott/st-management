@@ -1,0 +1,76 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.log
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio
+.vs/
+.vscode/
+*.rsuser
+*.userprefs
+
+## Rider
+.idea/
+*.sln.iml
+
+## User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## Test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+## NuGet
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+
+## Logs
+logs/
+*.log
+
+## Database
+*.db
+*.db-shm
+*.db-wal
+
+## Original Project (舊系統檔案)
+original/
+Original/
+舊系統/
+old/
+Old/
+backup/
+Backup/
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Sensitive
+appsettings.*.json
+!appsettings.json
+!appsettings.Development.json
+
+## EF Core Migrations (optional - 根據需求決定是否追蹤)
+# **/Migrations/

@@ -1,0 +1,6 @@
+@SST.StockImport.API_HostAddress = http://localhost:5008
+
+GET {{SST.StockImport.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

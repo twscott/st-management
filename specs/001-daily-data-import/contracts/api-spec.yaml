@@ -1,0 +1,668 @@
+openapi: 3.0.3
+info:
+  title: SST 股票數據匯入 API
+  description: |
+    每日股票交易數據匯入系統的 REST API 規格。
+    
+    **核心功能**：
+    - 觸發上市/上櫃/興櫃股票數據匯入
+    - 查詢匯入任務進度和狀態
+    - 取消正在進行的匯入操作
+    - 重試失敗的股票
+    - 查詢任務歷史和警報日誌
+    - 配置自動排程
+    
+    **版本**: 1.0.0
+  version: 1.0.0
+  contact:
+    name: SST Development Team
+    email: dev@sst-system.com
+
+servers:
+  - url: http://localhost:5000/api
+    description: Local development server
+  - url: https://api.sst-system.com/api
+    description: Production server
+
+tags:
+  - name: Import
+    description: 股票數據匯入操作
+  - name: Job
+    description: 任務追蹤和查詢
+  - name: Schedule
+    description: 自動排程配置
+
+paths:
+  /import/trigger:
+    post:
+      tags:
+        - Import
+      summary: 觸發股票數據匯入
+      description: |
+        手動觸發指定市場的股票數據匯入。
+        
+        **行為**：
+        - 非同步執行，立即返回任務ID
+        - 並發限制：每個市場同時只能有一個進行中的任務
+        - 審計記錄：記錄觸發者身份和IP位址
+      operationId: triggerImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportTriggerRequest'
+            examples:
+              triggerTSE:
+                summary: 觸發上市股票匯入
+                value:
+                  market: TSE
+              triggerAll:
+                summary: 觸發所有市場匯入
+                value:
+                  market: ALL
+      responses:
+        '202':
+          description: 匯入任務已接受，非同步執行中
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportTriggerResponse'
+              example:
+                jobId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                market: "TSE"
+                status: "RUNNING"
+                startTime: "2025-11-23T13:35:00Z"
+                message: "匯入任務已啟動"
+        '409':
+          description: 該市場已有進行中的匯入任務
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "CONFLICT"
+                message: "市場 TSE 已有進行中的匯入任務（Job ID: xxx）"
+                timestamp: "2025-11-23T13:35:00Z"
+        '400':
+          description: 請求參數錯誤
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "BAD_REQUEST"
+                message: "無效的市場類別：INVALID_MARKET"
+                timestamp: "2025-11-23T13:35:00Z"
+
+  /import/jobs/{jobId}:
+    get:
+      tags:
+        - Job
+      summary: 查詢匯入任務狀態
+      description: |
+        查詢指定任務的當前狀態、進度和結果。
+        
+        **輪詢建議**：前端可每2秒輪詢一次直到狀態變為 COMPLETED/FAILED/CANCELLED
+      operationId: getJobStatus
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: 任務UUID
+          schema:
+            type: string
+            format: uuid
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+      responses:
+        '200':
+          description: 任務狀態查詢成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatusResponse'
+              examples:
+                running:
+                  summary: 執行中
+                  value:
+                    jobId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    market: "TSE"
+                    status: "RUNNING"
+                    startTime: "2025-11-23T13:35:00Z"
+                    progressPercent: 45
+                    successCount: 450
+                    failedCount: 5
+                    totalCount: 1000
+                    currentStock: "2330"
+                completed:
+                  summary: 完成
+                  value:
+                    jobId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    market: "TSE"
+                    status: "COMPLETED"
+                    startTime: "2025-11-23T13:35:00Z"
+                    endTime: "2025-11-23T14:05:00Z"
+                    durationSeconds: 1800
+                    progressPercent: 100
+                    successCount: 995
+                    failedCount: 5
+                    totalCount: 1000
+                    failedStocks: ["1234", "5678", "9012", "3456", "7890"]
+        '404':
+          description: 任務不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /import/jobs/{jobId}/cancel:
+    post:
+      tags:
+        - Import
+      summary: 取消匯入任務
+      description: |
+        取消正在進行的匯入任務。
+        
+        **行為**：
+        - 立即停止下載新股票
+        - 保留已成功寫入資料庫的數據
+        - 更新任務狀態為 CANCELLED
+        - 失敗的股票可稍後透過重試功能補完
+      operationId: cancelImport
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 取消請求已接受
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "任務取消請求已發送"
+                  jobId:
+                    type: string
+                    format: uuid
+        '404':
+          description: 任務不存在
+        '409':
+          description: 任務已完成或已取消，無法再取消
+
+  /import/jobs/{jobId}/retry:
+    post:
+      tags:
+        - Import
+      summary: 重試失敗的股票
+      description: |
+        重新匯入指定任務中失敗的股票。
+        
+        **前提條件**：
+        - 原任務狀態必須為 COMPLETED 或 FAILED
+        - 原任務必須有失敗的股票清單
+        
+        **行為**：
+        - 創建新的任務，僅處理失敗股票
+        - 關聯到原任務（記錄在 retryOfJobId 欄位）
+      operationId: retryFailedStocks
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: 原始任務ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '202':
+          description: 重試任務已啟動
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  newJobId:
+                    type: string
+                    format: uuid
+                    description: 新創建的重試任務ID
+                  originalJobId:
+                    type: string
+                    format: uuid
+                    description: 原始任務ID
+                  retryCount:
+                    type: integer
+                    description: 重試的股票數量
+                  failedStocks:
+                    type: array
+                    items:
+                      type: string
+                    description: 失敗的股票代碼清單
+        '400':
+          description: 原任務沒有失敗的股票或狀態不允許重試
+        '404':
+          description: 原任務不存在
+
+  /import/jobs/{jobId}/failed-report:
+    get:
+      tags:
+        - Job
+      summary: 下載失敗報告
+      description: |
+        下載指定任務的失敗股票詳細報告（CSV格式）。
+        
+        **報告內容**：
+        - 股票代碼
+        - 股票名稱（若可用）
+        - 失敗原因
+        - 錯誤訊息
+        - 失敗時間
+        - 重試次數
+        
+        **用途**：
+        - 供管理員下載分析
+        - Excel/Sheets 可直接開啟
+        - 可作為後續手動處理的參考
+      operationId: downloadFailedReport
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          description: 任務ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: CSV格式的失敗報告
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                股票代碼,失敗原因,錯誤訊息,失敗時間
+                2330,HTTP 429,請求過於頻繁,2025-11-23 13:45:22
+                2317,網路逾時,連線逾時30秒,2025-11-23 13:46:15
+                3008,解析錯誤,HTML結構變更,2025-11-23 13:47:08
+        '404':
+          description: 任務不存在或無失敗記錄
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /import/jobs:
+    get:
+      tags:
+        - Job
+      summary: 查詢任務歷史
+      description: 分頁查詢匯入任務歷史記錄
+      operationId: listJobs
+      parameters:
+        - name: market
+          in: query
+          description: 篩選市場類別
+          schema:
+            type: string
+            enum: [TSE, OTC, EMERGING, ALL]
+        - name: status
+          in: query
+          description: 篩選任務狀態
+          schema:
+            type: string
+            enum: [RUNNING, COMPLETED, FAILED, CANCELLED]
+        - name: executorType
+          in: query
+          description: 篩選執行者類型
+          schema:
+            type: string
+            enum: [USER, SCHEDULER]
+        - name: startDate
+          in: query
+          description: 開始日期（ISO 8601）
+          schema:
+            type: string
+            format: date
+          example: "2025-11-01"
+        - name: endDate
+          in: query
+          description: 結束日期（ISO 8601）
+          schema:
+            type: string
+            format: date
+          example: "2025-11-30"
+        - name: page
+          in: query
+          description: 頁碼（從1開始）
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          description: 每頁筆數
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+
+  /import/jobs/{jobId}/alerts:
+    get:
+      tags:
+        - Job
+      summary: 查詢任務的警報日誌
+      description: 查詢指定任務的錯誤和警告記錄
+      operationId: getJobAlerts
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: alertType
+          in: query
+          description: 篩選警報類型
+          schema:
+            type: string
+            enum: [ERROR, WARNING, INFO]
+      responses:
+        '200':
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                    format: uuid
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AlertLog'
+
+  /schedule/config:
+    get:
+      tags:
+        - Schedule
+      summary: 查詢排程配置
+      description: 查詢當前的自動排程配置
+      operationId: getScheduleConfig
+      responses:
+        '200':
+          description: 查詢成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleConfig'
+    
+    put:
+      tags:
+        - Schedule
+      summary: 更新排程配置
+      description: |
+        更新自動排程配置。
+        
+        **注意**：
+        - 使用 Cron 表達式格式
+        - 修改後立即生效
+        - 僅在交易日執行（非交易日自動跳過）
+      operationId: updateScheduleConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleConfig'
+            example:
+              enabled: true
+              cronExpression: "35 13 * * 1-5"
+              markets: ["TSE", "OTC"]
+              timezone: "Asia/Taipei"
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleConfig'
+        '400':
+          description: 無效的 Cron 表達式
+
+components:
+  schemas:
+    ImportTriggerRequest:
+      type: object
+      required:
+        - market
+      properties:
+        market:
+          type: string
+          enum: [TSE, OTC, EMERGING, ALL]
+          description: |
+            目標市場：
+            - TSE: 上市股票
+            - OTC: 上櫃股票
+            - EMERGING: 興櫃股票
+            - ALL: 所有市場（依序執行）
+          example: TSE
+
+    ImportTriggerResponse:
+      type: object
+      properties:
+        jobId:
+          type: string
+          format: uuid
+          description: 任務唯一識別碼
+        market:
+          type: string
+          enum: [TSE, OTC, EMERGING, ALL]
+        status:
+          type: string
+          enum: [RUNNING]
+          description: 初始狀態固定為 RUNNING
+        startTime:
+          type: string
+          format: date-time
+          description: 任務開始時間（ISO 8601）
+        message:
+          type: string
+          example: "匯入任務已啟動"
+
+    JobStatusResponse:
+      type: object
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        market:
+          type: string
+          enum: [TSE, OTC, EMERGING, ALL]
+        status:
+          type: string
+          enum: [RUNNING, COMPLETED, FAILED, CANCELLED]
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+          nullable: true
+        durationSeconds:
+          type: integer
+          description: 執行時長（秒）
+          nullable: true
+        progressPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 進度百分比
+        successCount:
+          type: integer
+          description: 成功匯入股票數
+        failedCount:
+          type: integer
+          description: 失敗股票數
+        totalCount:
+          type: integer
+          description: 總股票數
+        currentStock:
+          type: string
+          description: 當前正在處理的股票代碼（RUNNING 時）
+          nullable: true
+        failedStocks:
+          type: array
+          items:
+            type: string
+          description: 失敗的股票代碼清單（COMPLETED/FAILED 時）
+          nullable: true
+        errorMessage:
+          type: string
+          description: 失敗原因（FAILED 時）
+          nullable: true
+        executorType:
+          type: string
+          enum: [USER, SCHEDULER]
+        executorIdentity:
+          type: string
+          description: 執行者識別（UserId 或 "HangfireScheduler"）
+        triggerIpAddress:
+          type: string
+          description: 觸發IP位址（USER 時）
+          nullable: true
+
+    JobListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: 總筆數
+        page:
+          type: integer
+          description: 當前頁碼
+        pageSize:
+          type: integer
+          description: 每頁筆數
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobStatusResponse'
+
+    AlertLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        jobId:
+          type: string
+          format: uuid
+          nullable: true
+        alertType:
+          type: string
+          enum: [ERROR, WARNING, INFO]
+        stockCode:
+          type: string
+          nullable: true
+          description: 相關股票代碼（若適用）
+        message:
+          type: string
+          description: 警報訊息
+        stackTrace:
+          type: string
+          nullable: true
+          description: 錯誤堆疊（ERROR 時）
+        createdAt:
+          type: string
+          format: date-time
+          description: 發生時間
+
+    ScheduleConfig:
+      type: object
+      required:
+        - enabled
+        - cronExpression
+        - markets
+      properties:
+        enabled:
+          type: boolean
+          description: 是否啟用自動排程
+        cronExpression:
+          type: string
+          description: |
+            Cron 表達式（分 時 日 月 週）
+            範例：
+            - "35 13 * * 1-5" = 週一至週五 13:35
+            - "0 14 * * *" = 每天 14:00
+          example: "35 13 * * 1-5"
+        markets:
+          type: array
+          items:
+            type: string
+            enum: [TSE, OTC, EMERGING]
+          description: 自動匯入的市場清單
+          example: ["TSE", "OTC"]
+        timezone:
+          type: string
+          description: 時區（IANA 時區數據庫格式）
+          default: "Asia/Taipei"
+          example: "Asia/Taipei"
+        lastRun:
+          type: string
+          format: date-time
+          nullable: true
+          description: 上次執行時間（唯讀）
+        nextRun:
+          type: string
+          format: date-time
+          nullable: true
+          description: 下次預定執行時間（唯讀）
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: 錯誤代碼
+          example: "BAD_REQUEST"
+        message:
+          type: string
+          description: 錯誤訊息（中文）
+          example: "請求參數錯誤"
+        details:
+          type: object
+          additionalProperties: true
+          description: 額外錯誤細節
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+          description: 錯誤發生時間
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT 認證（未來實作）
+        
+        目前版本假設權限控制由其他模組負責，
+        此 API 僅記錄執行者身份用於審計。
+
+security:
+  - bearerAuth: []
