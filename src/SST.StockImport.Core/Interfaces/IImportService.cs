@@ -36,4 +36,31 @@ public interface IImportService
     Task<ImportResultDto?> GetImportStatusAsync(
         string jobId, 
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 執行兩階段匯入：第一階段執行完整匯入，第二階段自動重試失敗的股票
+    /// 參考原始系統的 button22_Click() 和 execAllButtons() 邏輯
+    /// </summary>
+    /// <param name="request">匯入請求</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>兩階段匯入結果</returns>
+    Task<TwoPhaseImportResultDto> ExecuteTwoPhaseImportAsync(
+        ImportRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 執行三階段完整匯入流程：
+    /// Phase 1: 三個交易所數據匯入 (TSE + OTC + Emerging)
+    /// Phase 2: 統計計算 (calc5Avg, calcStock60Days, pan3Analysis, fenPanAVG)
+    /// Phase 3: GoodInfo 匯入（預留）
+    /// 參考原始系統的 button4_Click() 和 execAll4() 邏輯
+    /// </summary>
+    /// <param name="tradeDate">交易日期</param>
+    /// <param name="includeGoodInfo">是否執行 Phase 3 GoodInfo 匯入</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>三階段匯入結果</returns>
+    Task<ThreePhaseImportResultDto> ExecuteThreePhaseCompleteImportAsync(
+        DateTime tradeDate,
+        bool includeGoodInfo = false,
+        CancellationToken cancellationToken = default);
 }

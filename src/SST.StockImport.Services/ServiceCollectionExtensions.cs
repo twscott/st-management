@@ -47,6 +47,7 @@ public static class ServiceCollectionExtensions
 
         // 註冊業務邏輯服務
         services.AddScoped<IImportService, ImportService>();
+        services.AddScoped<IStatisticsService, StatisticsService>();
 
         return services;
     }

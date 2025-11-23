@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SST.StockImport.Core\SST.StockImport.Core.csproj" />
+    <ProjectReference Include="..\SST.StockImport.Infrastructure\SST.StockImport.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

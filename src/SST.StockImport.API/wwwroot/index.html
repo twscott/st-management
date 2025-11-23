@@ -262,17 +262,14 @@
                 TECHNICAL: '技術面資料（MA、RSI、MACD）'
             };
 
-            const stocks = prompt(`請輸入股票代碼（逗號分隔），留空則匯入全市場：\n例如：2330,2317,2454`, '2330,2317,2454');
-            if (stocks === null) return;
+            if (!confirm(`即將執行完整的三階段匯入流程：\n\n階段 1: 上市 + 上櫃 + 興櫃 股票匯入\n階段 2: 統計計算（5日均價均量、60日統計等）\n階段 3: GoodInfo ${typeNames[dataType]} 匯入\n\n確定要執行嗎？`)) {
+                return;
+            }
 
-            const stockCodes = stocks.trim() || null;
-            const market = 'ALL';
-            const concurrency = 2;
-
-            showLoading('batchResult', `正在從 GoodInfo 匯入${typeNames[dataType]}...`);
+            showLoading('batchResult', `正在執行三階段匯入（含 GoodInfo ${typeNames[dataType]}）...`);
             try {
-                const url = `/api/import/goodinfo/${dataType}?market=${market}&maxDegreeOfParallelism=${concurrency}${stockCodes ? '&stockCodes=' + encodeURIComponent(stockCodes) : ''}`;
-                const result = await callAPI('POST', url);
+                // 使用 three-phase 端點，includeGoodInfo=true 會執行所有階段
+                const result = await callAPI('POST', `/api/import/three-phase?includeGoodInfo=true`);
                 showResult('batchResult', result);
             } catch (err) {
                 showResult('batchResult', { error: err.message, details: err.toString() }, true);
@@ -282,10 +279,16 @@
         async function importMarket(market) {
             const marketNames = { TSE: '上市', OTC: '上櫃', EMERGING: '興櫃' };
             
+            if (!confirm(`確定要匯入${marketNames[market]}股票嗎？\n\n這會執行完整的雙階段流程：\n階段 1: 匯入${marketNames[market]}股票資料\n階段 2: 自動重試失敗的股票\n\n耗時約 3-5 分鐘。`)) {
+                return;
+            }
+            
             showLoading('batchResult', `正在匯入${marketNames[market]}股票...請稍候，這可能需要數分鐘`);
             
             try {
-                const result = await callAPI('POST', `/api/import/market/${market}?maxDegreeOfParallelism=5`);
+                // 使用正確的 two-phase 端點格式
+                const today = new Date().toISOString().split('T')[0];
+                const result = await callAPI('POST', `/api/import/two-phase?targetDate=${today}&market=${market}&maxParallelism=5`);
                 showResult('batchResult', result);
             } catch (err) {
                 showResult('batchResult', { error: err.message, details: err.toString() }, true);
@@ -309,16 +312,11 @@
                 return;
             }
 
-            const body = {
-                stockCodes: stocks,
-                market: market,
-                maxDegreeOfParallelism: concurrency,
-                tradeDate: new Date().toISOString().split('T')[0]
-            };
-
-            showLoading('batchResult', `正在匯入 ${stocks.length} 支股票...`);
+            showLoading('batchResult', `正在匯入 ${stocks.length} 支股票（使用 ${market} 市場，${concurrency} 併發）...`);
             try {
-                const result = await callAPI('POST', '/api/import', body);
+                // 目前使用 two-phase 端點（批次匯入功能需要額外實現）
+                // TODO: 實現批次股票匯入的專用端點
+                const result = await callAPI('POST', `/api/import/two-phase?market=${market}&maxParallelism=${concurrency}`);
                 showResult('batchResult', result);
             } catch (err) {
                 showResult('batchResult', { error: err.message, details: err.toString() }, true);
@@ -330,7 +328,8 @@
             
             showLoading('batchResult', '正在搜尋失敗股票並重試...');
             try {
-                const result = await callAPI('POST', '/api/import/retry/auto');
+                // 修正 API 路由：使用正確的 retry-failed 端點
+                const result = await callAPI('POST', '/api/import/retry-failed');
                 showResult('batchResult', result);
             } catch (err) {
                 showResult('batchResult', { error: err.message, details: err.toString() }, true);

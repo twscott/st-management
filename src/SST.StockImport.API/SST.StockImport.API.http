@@ -1,6 +1,79 @@
 @SST.StockImport.API_HostAddress = http://localhost:5008
+@baseUrl = {{SST.StockImport.API_HostAddress}}/api
 
-GET {{SST.StockImport.API_HostAddress}}/weatherforecast/
+### 健康檢查
+GET {{baseUrl}}/import/health
+Accept: application/json
+
+###
+
+### 兩階段匯入 - 上市股票 (TSE)
+POST {{baseUrl}}/import/two-phase?market=TSE&targetDate=2024-11-22&maxParallelism=5
+Content-Type: application/json
+
+###
+
+### ⚠️ 【推薦】三階段完整匯入 - 包含必要的統計計算
+# 🔴 重要：此為正確的匯入流程，Phase 2 統計計算完成後才會執行 Phase 3
+# Phase 1: 三個交易所數據匯入 (TSE + OTC + Emerging)
+# Phase 2: 統計計算 (calc5Avg, calcStock60Days, pan3Analysis, fenPanAVG) - 必須完成
+# Phase 3: GoodInfo 匯入 - 只有在 Phase 2 成功後才執行
+POST {{baseUrl}}/import/three-phase?targetDate=2024-11-22&includeGoodInfo=true
+Content-Type: application/json
+
+###
+
+### 三階段完整匯入（僅 Phase 1 + Phase 2，不含 GoodInfo）
+# 適用於：只想執行交易所匯入和統計計算，不執行 GoodInfo 匯入
+POST {{baseUrl}}/import/three-phase?targetDate=2024-11-22&includeGoodInfo=false
+Content-Type: application/json
+
+###
+
+### 三階段完整匯入 - 今天的日期（含 GoodInfo）
+POST {{baseUrl}}/import/three-phase?includeGoodInfo=true
+Content-Type: application/json
+
+###
+
+### 自動查找失敗股票並重試
+POST {{baseUrl}}/import/retry-failed
+Content-Type: application/json
+
+###
+
+### 自動查找失敗股票並重試 - 指定 JobId
+POST {{baseUrl}}/import/retry-failed?jobId=your-job-id-here
+Content-Type: application/json
+
+###
+
+### 查看任務狀態
+GET {{baseUrl}}/import/status/your-job-id-here
+Accept: application/json
+
+###
+
+### 測試 TSE 爬蟲
+GET {{baseUrl}}/import/test/tse?targetDate=2024-11-22
+Accept: application/json
+
+###
+
+### 測試 GoodInfo 爬蟲 - 融資融券
+POST {{baseUrl}}/import/test/goodinfo?category=margin
+Content-Type: application/json
+
+###
+
+### 測試 GoodInfo 爬蟲 - 常用分析
+POST {{baseUrl}}/import/test/goodinfo?category=common
+Content-Type: application/json
+
+###
+
+### 取得 GoodInfo 連結清單
+GET {{baseUrl}}/import/test/goodinfo/links?category=all
 Accept: application/json
 
 ###

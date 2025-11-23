@@ -42,7 +42,7 @@ public class TWSEScraper : IStockDataScraper
     }
 
     /// <summary>
-    /// 批次取得上市股票交易資料（從證交所 Open Data CSV）
+    /// 批次取得股票交易資料（支援 TSE/OTC/EMERGING）
     /// </summary>
     public async Task<List<StockDataDto>> ScrapeBatchAsync(
         IEnumerable<string> stockCodes,
@@ -52,33 +52,295 @@ public class TWSEScraper : IStockDataScraper
     {
         try
         {
-            _logger.LogInformation("Downloading TSE stock data from Open Data API...");
+            // 根據股票代碼的市場類型分組（通過查詢或假設前綴）
+            // 簡化：如果沒有提供市場資訊，嘗試下載 TSE 資料
+            _logger.LogInformation("Downloading stock data from Open Data APIs...");
 
-            // 下載 CSV 資料（證交所使用 UTF-8 編碼）
-            var response = await _httpClient.GetAsync(TseStockDataUrl, cancellationToken);
-            response.EnsureSuccessStatusCode();
-            
-            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-            var csvContent = System.Text.Encoding.UTF8.GetString(bytes);
-            
-            _logger.LogDebug("Downloaded CSV content length: {Length}", csvContent.Length);
+            var result = new List<StockDataDto>();
 
-            // 解析 CSV 並轉換為 StockDataDto
-            var allStocks = ParseTseCsv(csvContent, tradeDate);
-            
+            // 下載 TSE（上市）資料
+            try
+            {
+                _logger.LogInformation("Downloading TSE stock data...");
+                var response = await _httpClient.GetAsync(TseStockDataUrl, cancellationToken);
+                response.EnsureSuccessStatusCode();
+                
+                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                var csvContent = System.Text.Encoding.UTF8.GetString(bytes);
+                
+                var tseStocks = ParseTseCsv(csvContent, tradeDate);
+                result.AddRange(tseStocks);
+                _logger.LogInformation("Parsed {Count} TSE stocks", tseStocks.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download TSE stock data");
+            }
+
+            // 下載 OTC（上櫃）資料
+            try
+            {
+                _logger.LogInformation("Downloading OTC stock data...");
+                var otcStocks = await DownloadOtcStocksAsync(tradeDate, cancellationToken);
+                result.AddRange(otcStocks);
+                _logger.LogInformation("Parsed {Count} OTC stocks", otcStocks.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download OTC stock data");
+            }
+
+            // 下載 EMERGING（興櫃）資料
+            try
+            {
+                _logger.LogInformation("Downloading EMERGING stock data...");
+                var emergingStocks = await DownloadEmergingStocksAsync(tradeDate, cancellationToken);
+                result.AddRange(emergingStocks);
+                _logger.LogInformation("Parsed {Count} EMERGING stocks", emergingStocks.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to download EMERGING stock data");
+            }
+
             // 如果有指定股票代碼，只回傳這些股票
             if (stockCodes?.Any() == true)
             {
                 var codeSet = new HashSet<string>(stockCodes);
-                allStocks = allStocks.Where(s => codeSet.Contains(s.StockCode)).ToList();
+                result = result.Where(s => codeSet.Contains(s.StockCode)).ToList();
             }
 
-            _logger.LogInformation("Parsed {Count} TSE stocks from CSV", allStocks.Count);
-            return allStocks;
+            _logger.LogInformation("Total parsed {Count} stocks (filtered: {Filtered})", 
+                result.Count, stockCodes?.Count() ?? 0);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to download or parse TSE stock data");
+            _logger.LogError(ex, "Failed to download or parse stock data");
+            return new List<StockDataDto>();
+        }
+    }
+
+    /// <summary>
+    /// 下載上櫃（OTC）股票資料
+    /// 使用櫃買中心 Open Data API
+    /// </summary>
+    private async Task<List<StockDataDto>> DownloadOtcStocksAsync(
+        DateTime tradeDate,
+        CancellationToken cancellationToken)
+    {
+        // 櫃買中心 Open Data API URL (JSON格式)
+        // https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes
+        var otcApiUrl = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes";
+        
+        try
+        {
+            var response = await _httpClient.GetStringAsync(otcApiUrl, cancellationToken);
+            var jsonDoc = JsonDocument.Parse(response);
+
+            var stocks = new List<StockDataDto>();
+
+            // 檢查 JSON 結構（可能是直接陣列或包含 data 屬性）
+            JsonElement dataArray;
+            if (jsonDoc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                dataArray = jsonDoc.RootElement;
+            }
+            else if (jsonDoc.RootElement.TryGetProperty("data", out var data))
+            {
+                dataArray = data;
+            }
+            else
+            {
+                _logger.LogWarning("OTC API response structure unknown");
+                return stocks;
+            }
+
+            foreach (var item in dataArray.EnumerateArray())
+            {
+                try
+                {
+                    // 櫃買中心 API 欄位（可能是陣列或物件）
+                    string? stockCode = null;
+                    string? closePrice = null;
+                    string? openPrice = null;
+                    string? highPrice = null;
+                    string? lowPrice = null;
+                    string? volume = null;
+
+                    if (item.ValueKind == JsonValueKind.Array && item.GetArrayLength() >= 8)
+                    {
+                        // 陣列格式：[代號, 名稱, 收盤, 漲跌, 開盤, 最高, 最低, 成交量, ...]
+                        stockCode = item[0].GetString()?.Trim();
+                        closePrice = item[2].GetString()?.Trim();
+                        openPrice = item[4].GetString()?.Trim();
+                        highPrice = item[5].GetString()?.Trim();
+                        lowPrice = item[6].GetString()?.Trim();
+                        volume = item[7].GetString()?.Trim();
+                    }
+                    else if (item.ValueKind == JsonValueKind.Object)
+                    {
+                        // 物件格式
+                        stockCode = GetJsonStringValue(item, "SecuritiesCompanyCode", "代號", "Code");
+                        closePrice = GetJsonStringValue(item, "Close", "收盤價");
+                        openPrice = GetJsonStringValue(item, "Open", "開盤價");
+                        highPrice = GetJsonStringValue(item, "High", "最高價");
+                        lowPrice = GetJsonStringValue(item, "Low", "最低價");
+                        volume = GetJsonStringValue(item, "Volume", "成交量");
+                    }
+
+                    // 只處理4位數字的股票代碼
+                    if (string.IsNullOrEmpty(stockCode) || 
+                        stockCode.Length != 4 || 
+                        !stockCode.All(char.IsDigit))
+                        continue;
+
+                    stocks.Add(new StockDataDto
+                    {
+                        StockCode = stockCode,
+                        TradeDate = tradeDate,
+                        Market = "OTC",
+                        OpenPrice = ParseDecimal(openPrice),
+                        ClosePrice = ParseDecimal(closePrice),
+                        HighPrice = ParseDecimal(highPrice),
+                        LowPrice = ParseDecimal(lowPrice),
+                        Volume = (long)ParseDecimal(volume), // OTC volume is in 張
+                        TradeCount = 0 // OTC API 不提供筆數
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogTrace(ex, "Failed to parse OTC stock item");
+                }
+            }
+
+            return stocks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to download OTC data from API");
+            return new List<StockDataDto>();
+        }
+    }
+
+    /// <summary>
+    /// 從 JSON 物件取得字串值（嘗試多個可能的屬性名稱）
+    /// </summary>
+    private string? GetJsonStringValue(JsonElement element, params string[] propertyNames)
+    {
+        foreach (var name in propertyNames)
+        {
+            if (element.TryGetProperty(name, out var prop))
+            {
+                return prop.GetString()?.Trim();
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 下載興櫃（EMERGING）股票資料
+    /// 使用櫃買中心興櫃 Open Data API
+    /// </summary>
+    private async Task<List<StockDataDto>> DownloadEmergingStocksAsync(
+        DateTime tradeDate,
+        CancellationToken cancellationToken)
+    {
+        // 櫃買中心興櫃 Open Data API URL
+        // https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics
+        var emergingApiUrl = "https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics";
+        
+        try
+        {
+            var response = await _httpClient.GetStringAsync(emergingApiUrl, cancellationToken);
+            var jsonDoc = JsonDocument.Parse(response);
+
+            var stocks = new List<StockDataDto>();
+
+            // 檢查 JSON 結構
+            JsonElement dataArray;
+            if (jsonDoc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                dataArray = jsonDoc.RootElement;
+            }
+            else if (jsonDoc.RootElement.TryGetProperty("data", out var data))
+            {
+                dataArray = data;
+            }
+            else
+            {
+                _logger.LogWarning("EMERGING API response structure unknown");
+                return stocks;
+            }
+
+            foreach (var item in dataArray.EnumerateArray())
+            {
+                try
+                {
+                    // 興櫃 API 欄位（可能是陣列或物件）
+                    string? stockCode = null;
+                    string? closePrice = null;
+                    string? openPrice = null;
+                    string? highPrice = null;
+                    string? lowPrice = null;
+                    string? volume = null;
+
+                    if (item.ValueKind == JsonValueKind.Array && item.GetArrayLength() >= 8)
+                    {
+                        // 陣列格式：[代號, 名稱, 開盤, 最高, 最低, 均價, 成交金額, 成交股數, ...]
+                        // 興櫃欄位：代號[0], 名稱[1], 開盤[2], 最高[3], 最低[4], 均價[5], 成交金額[6], 成交股數[7]
+                        stockCode = item[0].GetString()?.Trim();
+                        openPrice = item[2].GetString()?.Trim();
+                        highPrice = item[3].GetString()?.Trim();
+                        lowPrice = item[4].GetString()?.Trim();
+                        closePrice = item[5].GetString()?.Trim(); // 使用均價作為收盤價
+                        volume = item[7].GetString()?.Trim(); // 成交股數
+                    }
+                    else if (item.ValueKind == JsonValueKind.Object)
+                    {
+                        // 物件格式
+                        stockCode = GetJsonStringValue(item, "SecuritiesCompanyCode", "代號", "Code", "code");
+                        openPrice = GetJsonStringValue(item, "Open", "開盤價", "OpeningPrice");
+                        highPrice = GetJsonStringValue(item, "Highest", "High", "最高價", "HighestPrice");
+                        lowPrice = GetJsonStringValue(item, "Lowest", "Low", "最低價", "LowestPrice");
+                        closePrice = GetJsonStringValue(item, "Average", "Close", "均價", "AveragePrice", "收盤價");
+                        volume = GetJsonStringValue(item, "TransactionVolume", "Volume", "成交股數", "TradeVolume");
+                    }
+
+                    // 只處理4位數字的股票代碼
+                    if (string.IsNullOrEmpty(stockCode) || 
+                        stockCode.Length != 4 || 
+                        !stockCode.All(char.IsDigit))
+                        continue;
+
+                    // 興櫃成交量單位是「股」，需要轉換為「張」（除以 1000）
+                    var volumeInShares = ParseDecimal(volume);
+                    var volumeInLots = (long)(volumeInShares / 1000);
+
+                    stocks.Add(new StockDataDto
+                    {
+                        StockCode = stockCode,
+                        TradeDate = tradeDate,
+                        Market = "EMERGING",
+                        OpenPrice = ParseDecimal(openPrice),
+                        ClosePrice = ParseDecimal(closePrice),
+                        HighPrice = ParseDecimal(highPrice),
+                        LowPrice = ParseDecimal(lowPrice),
+                        Volume = volumeInLots, // 轉換為張數
+                        TradeCount = 0 // 興櫃 API 不提供筆數
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogTrace(ex, "Failed to parse EMERGING stock item");
+                }
+            }
+
+            return stocks;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to download EMERGING data from API");
             return new List<StockDataDto>();
         }
     }
@@ -178,7 +440,7 @@ public class TWSEScraper : IStockDataScraper
         return fields;
     }
 
-    private decimal ParseDecimal(string value)
+    private decimal ParseDecimal(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Contains("--") || value.Contains("X"))
             return 0;
@@ -209,7 +471,7 @@ public class TWSEScraper : IStockDataScraper
             {
                 "TSE" => await GetTseStockCodesAsync(cancellationToken),
                 "OTC" => await GetOtcStockCodesAsync(cancellationToken),
-                "EMERGING" => new List<string>(), // 興櫃目前暫不支援
+                "EMERGING" => await GetEmergingStockCodesAsync(cancellationToken),
                 "ALL" => await GetAllStockCodesAsync(cancellationToken),
                 _ => new List<string>()
             };
@@ -352,21 +614,102 @@ public class TWSEScraper : IStockDataScraper
     }
 
     /// <summary>
-    /// 取得所有股票代碼（上市+上櫃）
+    /// 取得興櫃股票代碼清單（從櫃買中心 Open Data API）
+    /// </summary>
+    private async Task<List<string>> GetEmergingStockCodesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("Fetching EMERGING stock list from TPEx Open Data API...");
+
+            // 櫃買中心興櫃 Open Data API
+            var url = $"https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics?_={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+            
+            _logger.LogDebug("Requesting URL: {Url}", url);
+            
+            var response = await _httpClient.GetStringAsync(url, cancellationToken);
+            
+            _logger.LogDebug("EMERGING API response length: {Length}", response.Length);
+            
+            var jsonDoc = JsonDocument.Parse(response);
+            
+            // 興櫃 Open Data 的 JSON 結構
+            JsonElement dataArray;
+            
+            if (jsonDoc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                dataArray = jsonDoc.RootElement;
+            }
+            else if (jsonDoc.RootElement.TryGetProperty("data", out var data))
+            {
+                dataArray = data;
+            }
+            else
+            {
+                _logger.LogWarning("EMERGING API response structure unknown. Available properties: {Props}", 
+                    string.Join(", ", jsonDoc.RootElement.EnumerateObject().Select(p => p.Name)));
+                return new List<string>();
+            }
+
+            var stockCodes = new List<string>();
+            foreach (var item in dataArray.EnumerateArray())
+            {
+                // 股票代碼在第一個欄位
+                string? stockCode = null;
+                
+                if (item.ValueKind == JsonValueKind.Array && item.GetArrayLength() > 0)
+                {
+                    stockCode = item[0].GetString()?.Trim();
+                }
+                else if (item.ValueKind == JsonValueKind.Object)
+                {
+                    // 如果是物件，嘗試常見的欄位名稱
+                    if (item.TryGetProperty("SecuritiesCompanyCode", out var codeElem) ||
+                        item.TryGetProperty("代號", out codeElem) ||
+                        item.TryGetProperty("Code", out codeElem) ||
+                        item.TryGetProperty("code", out codeElem))
+                    {
+                        stockCode = codeElem.GetString()?.Trim();
+                    }
+                }
+
+                // 只保留4位純數字的股票代碼
+                if (!string.IsNullOrEmpty(stockCode) && 
+                    stockCode.Length == 4 && 
+                    stockCode.All(char.IsDigit))
+                {
+                    stockCodes.Add(stockCode);
+                }
+            }
+
+            _logger.LogInformation("Found {Count} EMERGING stocks", stockCodes.Count);
+            return stockCodes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get EMERGING stock codes from Open Data API");
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// 取得所有股票代碼（上市+上櫃+興櫃）
     /// </summary>
     private async Task<List<string>> GetAllStockCodesAsync(CancellationToken cancellationToken)
     {
         var tseTask = GetTseStockCodesAsync(cancellationToken);
         var otcTask = GetOtcStockCodesAsync(cancellationToken);
+        var emergingTask = GetEmergingStockCodesAsync(cancellationToken);
 
-        await Task.WhenAll(tseTask, otcTask);
+        await Task.WhenAll(tseTask, otcTask, emergingTask);
 
         var allCodes = new List<string>();
         allCodes.AddRange(tseTask.Result);
         allCodes.AddRange(otcTask.Result);
+        allCodes.AddRange(emergingTask.Result);
 
-        _logger.LogInformation("Total stocks: {Count} (TSE: {TSE}, OTC: {OTC})",
-            allCodes.Count, tseTask.Result.Count, otcTask.Result.Count);
+        _logger.LogInformation("Total stocks: {Count} (TSE: {TSE}, OTC: {OTC}, EMERGING: {EMERGING})",
+            allCodes.Count, tseTask.Result.Count, otcTask.Result.Count, emergingTask.Result.Count);
 
         return allCodes;
     }

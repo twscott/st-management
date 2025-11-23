@@ -5,7 +5,11 @@
 
 ## Summary
 
-本功能實作每日股票交易數據的自動匯入系統，從 GoodInfo.tw 網站爬取台灣上市、上櫃、興櫃股票的每日收盤數據（OHLC + 成交量）。系統支援手動觸發和自動排程執行，具備完整的數據驗證、錯誤處理、重試機制和審計日誌。核心技術挑戰包括：反爬蝴機制處理、並行下載優化、資料筆數異常檢測、單一市場事務管理。技術方案採用 ASP.NET Core Web API + 背景任務服務，使用 HTTP 客戶端進行網頁爬取，以 Entity Framework Core 進行資料庫操作。
+本功能實作每日股票交易數據的自動匯入系統，從 GoodInfo.tw 網站爬取台灣上市、上櫃、興櫃股票的每日收盤數據（OHLC + 成交量）。系統支援手動觸發和自動排程執行，具備完整的數據驗證、錯誤處理、重試機制和審計日誌。核心技術挑戰包括：反爬蝴機制處理、並行下載優化、資料筆數異常檢測、單一市場事務管理。
+
+**重要更新（2025-11-23）**：根據舊系統 button4_Click 流程，系統必須在完成三個交易所（TSE/OTC/Emerging）的數據匯入後，執行統計計算階段（Phase 2）：calc5Avg（5日均價均量）、calcStock60Days（60日統計）、pan3Analysis（三階段盤勢分析）、fenPanAVG（分盤均值）。統計計算完成後才能執行 GoodInfo 匯入（Phase 3）。這確保了數據完整性和衍生指標的正確性。
+
+技術方案採用 ASP.NET Core Web API + 背景任務服務，使用 HTTP 客戶端進行網頁爬取，以 Entity Framework Core 進行資料庫操作。新增 StatisticsService 負責統計計算，透過 ImportService 的 ExecuteThreePhaseCompleteImportAsync 方法編排完整流程。
 
 ## Technical Context
 

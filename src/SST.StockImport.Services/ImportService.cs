@@ -19,6 +19,7 @@ public class ImportService : IImportService
     private readonly IImportJobRepository _importJobRepository;
     private readonly IAlertLogRepository _alertLogRepository;
     private readonly TWSEScraper _twseScraper;
+    private readonly IStatisticsService _statisticsService;
 
     public ImportService(
         ILogger<ImportService> logger,
@@ -27,7 +28,8 @@ public class ImportService : IImportService
         ITradeDataRepository tradeDataRepository,
         IImportJobRepository importJobRepository,
         IAlertLogRepository alertLogRepository,
-        TWSEScraper twseScraper)
+        TWSEScraper twseScraper,
+        IStatisticsService statisticsService)
     {
         _logger = logger;
         _scraper = scraper;
@@ -36,6 +38,7 @@ public class ImportService : IImportService
         _importJobRepository = importJobRepository;
         _alertLogRepository = alertLogRepository;
         _twseScraper = twseScraper;
+        _statisticsService = statisticsService;
     }
 
     /// <summary>
@@ -98,11 +101,12 @@ public class ImportService : IImportService
             };
             await _importJobRepository.CreateAsync(job);
 
-            // 批次爬取資料
-            var scrapedData = await _scraper.ScrapeBatchAsync(
+            // 批次爬取資料（使用 TWSEScraper 統一處理，它支援 TSE/OTC/EMERGING）
+            var scrapedData = await _twseScraper.ScrapeBatchAsync(
                 stockCodes, 
                 tradeDate, 
-                request.MaxDegreeOfParallelism);
+                request.MaxDegreeOfParallelism,
+                cancellationToken);
 
             // 處理爬取結果（使用獨立 scope 避免 DbContext 並發問題）
             var semaphore = new SemaphoreSlim(request.MaxDegreeOfParallelism);
@@ -323,6 +327,232 @@ public class ImportService : IImportService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Retry failed for JobId: {JobId}", jobId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 執行兩階段匯入：第一階段執行完整匯入，第二階段自動重試失敗的股票
+    /// 參考原始系統的 button22_Click() 和 execAllButtons() 邏輯
+    /// </summary>
+    public async Task<TwoPhaseImportResultDto> ExecuteTwoPhaseImportAsync(
+        ImportRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var overallStartTime = DateTime.UtcNow;
+        var result = new TwoPhaseImportResultDto
+        {
+            StartTime = overallStartTime
+        };
+
+        try
+        {
+            _logger.LogInformation(
+                "Starting TWO-PHASE import for Market: {Market}, Date: {Date}",
+                request.Market, request.TradeDate);
+
+            // ========== 第一階段：完整匯入 ==========
+            _logger.LogInformation("PHASE 1: Starting full import...");
+            var phase1StartTime = DateTime.UtcNow;
+
+            var phase1Result = await ImportStockDataAsync(request, cancellationToken);
+            result.Phase1JobId = phase1Result.JobId;
+            result.Phase1Result = phase1Result;
+
+            var phase1Duration = DateTime.UtcNow - phase1StartTime;
+            _logger.LogInformation(
+                "PHASE 1 completed in {Duration}. Success: {Success}/{Total}, Failed: {Failed}",
+                phase1Duration.ToString(@"mm\:ss"),
+                phase1Result.SuccessCount,
+                phase1Result.TotalCount,
+                phase1Result.FailedCount);
+
+            // ========== 第二階段：重試失敗的股票 ==========
+            if (phase1Result.FailedCount > 0)
+            {
+                _logger.LogInformation(
+                    "PHASE 2: Retrying {Count} failed stocks from Phase 1...",
+                    phase1Result.FailedCount);
+
+                // 等待一段時間避免過於頻繁的請求
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+
+                var phase2StartTime = DateTime.UtcNow;
+
+                // 使用 Phase 1 的失敗清單進行重試
+                var retryResult = await RetryFailedStocksAsync(phase1Result.JobId, cancellationToken);
+                result.Phase2JobId = retryResult.JobId;
+                result.Phase2Result = retryResult;
+
+                var phase2Duration = DateTime.UtcNow - phase2StartTime;
+                _logger.LogInformation(
+                    "PHASE 2 completed in {Duration}. Retry Success: {Success}/{Total}, Still Failed: {Failed}",
+                    phase2Duration.ToString(@"mm\:ss"),
+                    retryResult.SuccessCount,
+                    retryResult.TotalCount,
+                    retryResult.FailedCount);
+
+                // 計算最終統計
+                result.FinalSuccessCount = phase1Result.SuccessCount + retryResult.SuccessCount;
+                result.FinalFailedCount = retryResult.FailedCount;
+                result.FinalFailedStocks = retryResult.FailedStocks;
+            }
+            else
+            {
+                _logger.LogInformation("PHASE 2: Skipped - No failed stocks in Phase 1");
+                result.FinalSuccessCount = phase1Result.SuccessCount;
+                result.FinalFailedCount = 0;
+                result.FinalFailedStocks = new List<string>();
+            }
+
+            result.EndTime = DateTime.UtcNow;
+            result.TotalDuration = result.EndTime.Value - overallStartTime;
+            result.IsSuccess = result.FinalFailedCount == 0;
+
+            _logger.LogInformation(
+                "TWO-PHASE import completed. Total Duration: {Duration}, Final Success: {Success}, Final Failed: {Failed}",
+                result.TotalDuration.Value.ToString(@"mm\:ss"),
+                result.FinalSuccessCount,
+                result.FinalFailedCount);
+
+            // 如果第二階段後還有失敗，記錄警告
+            if (result.FinalFailedCount > 0)
+            {
+                _logger.LogWarning(
+                    "After 2 phases, {Count} stocks still failed: {Stocks}",
+                    result.FinalFailedCount,
+                    string.Join(", ", result.FinalFailedStocks!.Take(20)));
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.EndTime = DateTime.UtcNow;
+            result.IsSuccess = false;
+            result.ErrorMessage = $"Two-phase import exception: {ex.Message}";
+
+            _logger.LogError(ex, "Two-phase import failed");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 執行三階段完整匯入流程（新增方法）
+    /// Phase 1: 三個交易所資料匯入（上市+上櫃+興櫃）
+    /// Phase 2: 執行統計計算（對應原系統 button4_Click > execAll4）
+    /// Phase 3: GoodInfo 補充匯入
+    /// </summary>
+    /// <param name="tradeDate">交易日期</param>
+    /// <param name="executeGoodInfoImport">是否執行 Phase 3 的 GoodInfo 匯入</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>三階段匯入結果</returns>
+    public async Task<ThreePhaseImportResultDto> ExecuteThreePhaseCompleteImportAsync(
+        DateTime tradeDate,
+        bool executeGoodInfoImport = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new ThreePhaseImportResultDto
+        {
+            TradeDate = tradeDate,
+            StartTime = DateTime.UtcNow
+        };
+
+        try
+        {
+            _logger.LogInformation(
+                "========== 開始執行三階段完整匯入流程 ==========");
+            _logger.LogInformation("交易日期: {TradeDate}", tradeDate);
+
+            // ========== Phase 1: 三個交易所資料匯入 ==========
+            _logger.LogInformation("");
+            _logger.LogInformation("========== Phase 1: 三個交易所資料匯入 ==========");
+            
+            var phase1Request = new ImportRequestDto
+            {
+                Market = "ALL", // 匯入所有市場
+                TradeDate = tradeDate,
+                MaxDegreeOfParallelism = 10,
+                ExecutorType = "USER",
+                ExecutorIdentity = "ThreePhaseImport"
+            };
+
+            result.Phase1Result = await ExecuteTwoPhaseImportAsync(phase1Request, cancellationToken);
+            result.Phase1JobId = result.Phase1Result.Phase1JobId;
+
+            _logger.LogInformation(
+                "Phase 1 完成。成功: {Success}, 失敗: {Failed}, 耗時: {Duration}",
+                result.Phase1Result.FinalSuccessCount,
+                result.Phase1Result.FinalFailedCount,
+                result.Phase1Result.TotalDuration?.ToString(@"mm\:ss"));
+
+            // ========== Phase 2: 執行統計計算 (execAll4) ==========
+            _logger.LogInformation("");
+            _logger.LogInformation("========== Phase 2: 執行統計計算 (對應 execAll4) ==========");
+            _logger.LogInformation("⚠️ 重要：此階段必須完成才能執行 GoodInfo 匯入");
+            
+            result.Phase2StartTime = DateTime.UtcNow;
+
+            result.Phase2StatisticsResult = await _statisticsService.CalculateAllStatisticsAsync(
+                tradeDate,
+                cancellationToken);
+
+            result.Phase2EndTime = DateTime.UtcNow;
+
+            if (result.Phase2StatisticsResult.IsSuccess)
+            {
+                _logger.LogInformation(
+                    "✅ Phase 2 完成。所有統計計算成功，耗時: {Duration}",
+                    result.Phase2StatisticsResult.TotalDuration?.ToString(@"mm\:ss"));
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "⚠️ Phase 2 部分失敗。成功: {Success}/{Total}, 失敗: {Failed}",
+                    result.Phase2StatisticsResult.SuccessCount,
+                    result.Phase2StatisticsResult.AllResults.Count,
+                    result.Phase2StatisticsResult.FailureCount);
+                
+                // 如果統計計算失敗，記錄警告但不中斷流程
+                _logger.LogWarning("警告：統計計算未完全成功，可能影響 GoodInfo 匯入品質");
+            }
+
+            // ========== Phase 3: GoodInfo 補充匯入 (可選) ==========
+            if (executeGoodInfoImport)
+            {
+                _logger.LogInformation("");
+                _logger.LogInformation("========== Phase 3: GoodInfo 補充匯入 ==========");
+                _logger.LogWarning("⚠️ 注意：GoodInfo 匯入功能尚未實作");
+                
+                // TODO: 實作 GoodInfo 匯入
+                // result.Phase3Result = await ImportFromGoodInfoAsync(tradeDate, cancellationToken);
+                // result.Phase3JobId = result.Phase3Result.JobId;
+            }
+            else
+            {
+                _logger.LogInformation("");
+                _logger.LogInformation("Phase 3: GoodInfo 匯入已跳過（executeGoodInfoImport = false）");
+            }
+
+            // ========== 最終統計 ==========
+            result.EndTime = DateTime.UtcNow;
+            result.IsSuccess = result.Phase1Result.IsSuccess && 
+                              result.Phase2StatisticsResult.IsSuccess &&
+                              (result.Phase3Result?.IsSuccess ?? true);
+
+            _logger.LogInformation("");
+            _logger.LogInformation("========== 三階段匯入執行完成 ==========");
+            _logger.LogInformation(result.GetExecutionSummary());
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.EndTime = DateTime.UtcNow;
+            result.IsSuccess = false;
+            result.ErrorMessage = $"三階段匯入異常: {ex.Message}";
+
+            _logger.LogError(ex, "三階段匯入執行失敗");
             throw;
         }
     }
