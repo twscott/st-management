@@ -65,7 +65,7 @@ public class HealthController : ControllerBase
             }
 
             // 執行簡單查詢測試
-            var jobCount = await _dbContext.ImportJobs.CountAsync();
+            var tradeDataCount = await _dbContext.TradeData.CountAsync();
 
             return Ok(new
             {
@@ -74,7 +74,7 @@ public class HealthController : ControllerBase
                 timestamp = DateTime.UtcNow,
                 statistics = new
                 {
-                    totalJobs = jobCount
+                    totalTradeData = tradeDataCount
                 }
             });
         }

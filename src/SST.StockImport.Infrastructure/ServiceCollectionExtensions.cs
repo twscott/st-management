@@ -37,8 +37,11 @@ public static class ServiceCollectionExtensions
 
         // 註冊 Repositories
         services.AddScoped<ITradeDataRepository, TradeDataRepository>();
-        services.AddScoped<IImportJobRepository, ImportJobRepository>();
+        services.AddScoped<IStock60DaysRepository, Stock60DaysRepository>();
         services.AddScoped<IAlertLogRepository, AlertLogRepository>();
+        services.AddScoped<IBuyInRepository, BuyInRepository>();
+        services.AddScoped<IRecommandStockRepository, RecommandStockRepository>();
+        services.AddScoped<IInvestBaseRepository, InvestBaseRepository>();
 
         return services;
     }

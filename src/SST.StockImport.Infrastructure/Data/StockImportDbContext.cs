@@ -5,6 +5,7 @@ namespace SST.StockImport.Infrastructure.Data;
 
 /// <summary>
 /// 股票匯入系統資料庫上下文
+/// 對應舊系統: sst 資料庫 (MySQL MyISAM)
 /// </summary>
 public class StockImportDbContext : DbContext
 {
@@ -14,123 +15,50 @@ public class StockImportDbContext : DbContext
     }
 
     /// <summary>
-    /// 每日交易數據
+    /// 每日交易數據表 (tradedata)
     /// </summary>
     public DbSet<TradeData> TradeData { get; set; } = null!;
 
     /// <summary>
-    /// 60日統計數據
+    /// 60日統計數據表 (stock60days)
     /// </summary>
     public DbSet<Stock60Days> Stock60Days { get; set; } = null!;
 
     /// <summary>
-    /// 警報日誌
+    /// 買入記錄表 (buyin)
     /// </summary>
-    public DbSet<AlertLog> AlertLogs { get; set; } = null!;
+    public DbSet<BuyIn> BuyIn { get; set; } = null!;
 
     /// <summary>
-    /// 匯入任務
+    /// 推薦股票表 (recommandstock)
     /// </summary>
-    public DbSet<ImportJob> ImportJobs { get; set; } = null!;
+    public DbSet<RecommandStock> RecommandStock { get; set; } = null!;
+
+    /// <summary>
+    /// 投資基準表 (investbase)
+    /// </summary>
+    public DbSet<InvestBase> InvestBase { get; set; } = null!;
+
+    /// <summary>
+    /// 警報日誌表 (alertlog)
+    /// </summary>
+    public DbSet<AlertLog> AlertLogs { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        // TradeData 配置
-        modelBuilder.Entity<TradeData>(entity =>
-        {
-            // 複合主鍵
-            entity.HasKey(e => new { e.StockCode, e.TradeDate });
+        // 註解: 大部分 Entity 使用 Data Annotations 定義主鍵、索引和欄位屬性
+        // 複合主鍵必須使用 Fluent API 配置（EF Core 限制）
 
-            // 索引
-            entity.HasIndex(e => new { e.Market, e.TradeDate })
-                .HasDatabaseName("idx_market_date");
-            
-            entity.HasIndex(e => e.TradeDate)
-                .HasDatabaseName("idx_trade_date");
+        // Stock60Days: 複合主鍵 (StockID, StockDate) - 必須使用 HasKey
+        modelBuilder.Entity<Stock60Days>()
+            .HasKey(s => new { s.StockID, s.StockDate });
 
-            // 精度配置
-            entity.Property(e => e.OpenPrice).HasPrecision(10, 2);
-            entity.Property(e => e.ClosePrice).HasPrecision(10, 2);
-            entity.Property(e => e.HighPrice).HasPrecision(10, 2);
-            entity.Property(e => e.LowPrice).HasPrecision(10, 2);
-
-            // 預設值
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-            
-            entity.Property(e => e.UpdatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)");
-        });
-
-        // Stock60Days 配置
-        modelBuilder.Entity<Stock60Days>(entity =>
-        {
-            entity.HasKey(e => e.StockCode);
-
-            // 索引
-            entity.HasIndex(e => e.LastUpdate)
-                .HasDatabaseName("idx_last_update");
-
-            // 精度配置
-            entity.Property(e => e.Avg5Price).HasPrecision(10, 2);
-            entity.Property(e => e.Avg20Price).HasPrecision(10, 2);
-            entity.Property(e => e.Avg60Price).HasPrecision(10, 2);
-
-            // 預設值
-            entity.Property(e => e.UpdatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)");
-        });
-
-        // AlertLog 配置
-        modelBuilder.Entity<AlertLog>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            // 索引
-            entity.HasIndex(e => e.JobId)
-                .HasDatabaseName("idx_job_id");
-            
-            entity.HasIndex(e => e.AlertType)
-                .HasDatabaseName("idx_alert_type");
-            
-            entity.HasIndex(e => e.CreatedAt)
-                .HasDatabaseName("idx_created_at");
-            
-            entity.HasIndex(e => e.StockCode)
-                .HasDatabaseName("idx_stock_code");
-
-            // 預設值
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-
-            // 外鍵關係
-            entity.HasOne(e => e.ImportJob)
-                .WithMany(j => j.AlertLogs)
-                .HasForeignKey(e => e.JobId)
-                .HasPrincipalKey(j => j.Id)
-                .OnDelete(DeleteBehavior.SetNull);
-        });
-
-        // ImportJob 配置
-        modelBuilder.Entity<ImportJob>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            // 索引
-            entity.HasIndex(e => new { e.Market, e.Status })
-                .HasDatabaseName("idx_market_status");
-            
-            entity.HasIndex(e => e.StartTime)
-                .HasDatabaseName("idx_start_time");
-            
-            entity.HasIndex(e => new { e.ExecutorType, e.ExecutorIdentity })
-                .HasDatabaseName("idx_executor");
-
-            // 預設值
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
-        });
+        // TradeData: 主鍵 trade_ID (AUTO_INCREMENT), 唯一索引 (StockID, TransDate)
+        // BuyIn: 主鍵 BuyIn_ID (AUTO_INCREMENT)
+        // RecommandStock: 主鍵 RecommandID (AUTO_INCREMENT), 唯一索引 StockID
+        // InvestBase: 主鍵 StockID
+        // AlertLog: 主鍵 Log_ID (AUTO_INCREMENT), 唯一索引 (StockID, CREATED)
     }
 }

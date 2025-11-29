@@ -24,28 +24,24 @@ public class TradeDataRepository : ITradeDataRepository
     {
         var existing = await _context.TradeData
             .FirstOrDefaultAsync(t => 
-                t.StockCode == tradeData.StockCode && 
-                t.TradeDate == tradeData.TradeDate);
+                t.StockID == tradeData.StockID && 
+                t.TransDate == tradeData.TransDate);
 
         if (existing != null)
         {
-            // 更新現有記錄
-            existing.Market = tradeData.Market;
-            existing.OpenPrice = tradeData.OpenPrice;
-            existing.ClosePrice = tradeData.ClosePrice;
-            existing.HighPrice = tradeData.HighPrice;
-            existing.LowPrice = tradeData.LowPrice;
-            existing.Volume = tradeData.Volume;
-            existing.TradeCount = tradeData.TradeCount;
-            existing.UpdatedAt = DateTime.UtcNow;
+            // 更新現有記錄 - 複製所有重要欄位
+            existing.OpenPriec = tradeData.OpenPriec;
+            existing.StockPrice = tradeData.StockPrice;
+            existing.HPrice = tradeData.HPrice;
+            existing.LPrice = tradeData.LPrice;
+            existing.Vol = tradeData.Vol;
+            existing.TransVol = tradeData.TransVol;
 
             _context.TradeData.Update(existing);
         }
         else
         {
             // 新增記錄
-            tradeData.CreatedAt = DateTime.UtcNow;
-            tradeData.UpdatedAt = DateTime.UtcNow;
             await _context.TradeData.AddAsync(tradeData);
         }
 
@@ -67,38 +63,36 @@ public class TradeDataRepository : ITradeDataRepository
         {
             var batch = dataList.Skip(i).Take(batchSize).ToList();
 
-            // 取得該批次的所有股票代碼和日期組合
-            var keys = batch.Select(t => new { t.StockCode, t.TradeDate }).ToList();
+            // 取得該批次的所有股票代碼和日期組合（先載入到記憶體以支援 client evaluation）
+            var stockIds = batch.Select(t => t.StockID).Distinct().ToList();
+            var dates = batch.Select(t => t.TransDate).Distinct().ToList();
             
+            // 查詢所有可能的現有記錄（使用可翻譯的 Contains 查詢）
             var existingData = await _context.TradeData
-                .Where(t => keys.Any(k => k.StockCode == t.StockCode && k.TradeDate == t.TradeDate))
+                .Where(t => stockIds.Contains(t.StockID) && dates.Contains(t.TransDate))
                 .ToListAsync(cancellationToken);
 
-            var existingDict = existingData.ToDictionary(t => $"{t.StockCode}_{t.TradeDate:yyyyMMdd}");
+            var existingDict = existingData.ToDictionary(t => $"{t.StockID}_{t.TransDate:yyyyMMdd}");
 
             foreach (var tradeData in batch)
             {
-                var key = $"{tradeData.StockCode}_{tradeData.TradeDate:yyyyMMdd}";
+                var key = $"{tradeData.StockID}_{tradeData.TransDate:yyyyMMdd}";
                 
                 if (existingDict.TryGetValue(key, out var existing))
                 {
                     // 更新
-                    existing.Market = tradeData.Market;
-                    existing.OpenPrice = tradeData.OpenPrice;
-                    existing.ClosePrice = tradeData.ClosePrice;
-                    existing.HighPrice = tradeData.HighPrice;
-                    existing.LowPrice = tradeData.LowPrice;
-                    existing.Volume = tradeData.Volume;
-                    existing.TradeCount = tradeData.TradeCount;
-                    existing.UpdatedAt = DateTime.UtcNow;
+                    existing.OpenPriec = tradeData.OpenPriec;
+                    existing.StockPrice = tradeData.StockPrice;
+                    existing.HPrice = tradeData.HPrice;
+                    existing.LPrice = tradeData.LPrice;
+                    existing.Vol = tradeData.Vol;
+                    existing.TransVol = tradeData.TransVol;
                     
                     _context.TradeData.Update(existing);
                 }
                 else
                 {
                     // 新增
-                    tradeData.CreatedAt = DateTime.UtcNow;
-                    tradeData.UpdatedAt = DateTime.UtcNow;
                     _context.TradeData.Add(tradeData);
                 }
             }
@@ -118,10 +112,10 @@ public class TradeDataRepository : ITradeDataRepository
     {
         return await _context.TradeData
             .Where(t => 
-                t.StockCode == stockCode && 
-                t.TradeDate >= startDate && 
-                t.TradeDate <= endDate)
-            .OrderBy(t => t.TradeDate)
+                t.StockID == stockCode && 
+                t.TransDate >= startDate && 
+                t.TransDate <= endDate)
+            .OrderBy(t => t.TransDate)
             .ToListAsync(cancellationToken);
     }
 
@@ -133,10 +127,10 @@ public class TradeDataRepository : ITradeDataRepository
         string? market = null,
         CancellationToken cancellationToken = default)
     {
-        var query = _context.TradeData.Where(t => t.TradeDate == tradeDate);
+        var query = _context.TradeData.Where(t => t.TransDate == tradeDate);
         
-        if (!string.IsNullOrEmpty(market))
-            query = query.Where(t => t.Market == market);
+        // 注意：TradeData 沒有 Market 欄位，market 參數目前未使用
+        // 如需按市場篩選，應使用 StockType 欄位
         
         return await query.CountAsync(cancellationToken);
     }
@@ -148,8 +142,8 @@ public class TradeDataRepository : ITradeDataRepository
     {
         var entity = await _context.TradeData
             .FirstOrDefaultAsync(t => 
-                t.StockCode == stockCode && 
-                t.TradeDate == tradeDate);
+                t.StockID == stockCode && 
+                t.TransDate == tradeDate);
 
         if (entity == null)
             return false;

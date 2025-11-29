@@ -16,7 +16,7 @@ public class ImportService : IImportService
     private readonly IStockDataScraper _scraper;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ITradeDataRepository _tradeDataRepository;
-    private readonly IImportJobRepository _importJobRepository;
+    // private readonly IImportJobRepository _importJobRepository; // ⚠️ 已移除 ImportJob 功能
     private readonly IAlertLogRepository _alertLogRepository;
     private readonly TWSEScraper _twseScraper;
     private readonly IStatisticsService _statisticsService;
@@ -26,7 +26,7 @@ public class ImportService : IImportService
         IStockDataScraper scraper,
         IServiceScopeFactory scopeFactory,
         ITradeDataRepository tradeDataRepository,
-        IImportJobRepository importJobRepository,
+        // IImportJobRepository importJobRepository, // ⚠️ 已移除 ImportJob 功能
         IAlertLogRepository alertLogRepository,
         TWSEScraper twseScraper,
         IStatisticsService statisticsService)
@@ -35,7 +35,7 @@ public class ImportService : IImportService
         _scraper = scraper;
         _scopeFactory = scopeFactory;
         _tradeDataRepository = tradeDataRepository;
-        _importJobRepository = importJobRepository;
+        // _importJobRepository = importJobRepository; // ⚠️ 已移除 ImportJob 功能
         _alertLogRepository = alertLogRepository;
         _twseScraper = twseScraper;
         _statisticsService = statisticsService;
@@ -87,19 +87,9 @@ public class ImportService : IImportService
                 "Starting import JobId: {JobId}, Market: {Market}, Date: {TradeDate}, Total: {Total}",
                 jobId, request.Market, tradeDate, stockCodes.Count);
 
-            // 建立匯入作業記錄
-            var job = new ImportJob
-            {
-                Id = jobId,
-                Market = request.Market,
-                Status = JobStatus.Running,
-                StartTime = startTime,
-                TotalCount = stockCodes.Count,
-                ExecutorType = request.ExecutorType,
-                ExecutorIdentity = request.ExecutorIdentity,
-                TriggerIpAddress = request.TriggerIpAddress
-            };
-            await _importJobRepository.CreateAsync(job);
+            // 建立匁入作業記錄 - ⚠️ 已移除 ImportJob 功能
+            // var job = new ImportJob { ... };
+            // await _importJobRepository.CreateAsync(job);
 
             // 批次爬取資料（使用 TWSEScraper 統一處理，它支援 TSE/OTC/EMERGING）
             var scrapedData = await _twseScraper.ScrapeBatchAsync(
@@ -129,17 +119,16 @@ public class ImportService : IImportService
                     {
                         var tradeData = new TradeData
                         {
-                            StockCode = stockData.StockCode,
-                            TradeDate = stockData.TradeDate,
-                            Market = stockData.Market,
-                            OpenPrice = stockData.OpenPrice,
-                            ClosePrice = stockData.ClosePrice,
-                            HighPrice = stockData.HighPrice,
-                            LowPrice = stockData.LowPrice,
-                            Volume = stockData.Volume,
-                            TradeCount = stockData.TradeCount,
-                            CreatedAt = DateTime.UtcNow,
-                            UpdatedAt = DateTime.UtcNow
+                            StockID = stockData.StockCode,
+                            TransDate = stockData.TradeDate,
+                            // Market = stockData.Market, // ⚠️ TradeData 無 Market 欄位
+                            OpenPriec = stockData.OpenPrice,
+                            StockPrice = stockData.ClosePrice,
+                            HPrice = stockData.HighPrice,
+                            LPrice = stockData.LowPrice,
+                            Vol = stockData.Volume,
+                            TransVol = stockData.TradeCount ?? 0 // int? → int 轉換
+                            // CreatedAt/UpdatedAt 不存在
                         };
 
                         await tradeDataRepo.UpsertAsync(tradeData);
@@ -157,11 +146,11 @@ public class ImportService : IImportService
                         {
                             var alert = new AlertLog
                             {
-                                JobId = jobId,
-                                StockCode = stockData.StockCode,
-                                AlertType = AlertType.Error,
-                                Message = errorMsg,
-                                CreatedAt = DateTime.UtcNow
+                                // JobId = jobId, // ⚠️ AlertLog 已無 JobId 欄位
+                                StockID = stockData.StockCode,
+                                AlertType = errorMsg, // AlertLog.AlertType 是 string，用於記錄錯誤訊息
+                                AlertTitle = "Import Error",
+                                Created = DateTime.UtcNow
                             };
                             await alertLogRepo.CreateAsync(alert);
                         }
@@ -185,19 +174,16 @@ public class ImportService : IImportService
             var successResults = results.Where(r => r.success).ToList();
             var failedResults = results.Where(r => !r.success).ToList();
 
-            result.SuccessCount = successResults.Count;
-            result.FailedCount = failedResults.Count;
+            result.SuccessCount = successResults.Count();
+            result.FailedCount = failedResults.Count();
             result.FailedStocks = failedResults.Select(r => r.stockCode).ToList();
             result.FailureReasons = failedResults.Select(r => r.reason).ToList();
             result.EndTime = DateTime.UtcNow;
             result.IsSuccess = result.FailedCount == 0;
 
-            // 更新作業狀態
-            var finalStatus = result.FailedCount == 0 ? JobStatus.Completed :
-                             result.SuccessCount == 0 ? JobStatus.Failed :
-                             JobStatus.Completed; // 部分成功也視為 Completed
-
-            await UpdateJobAsync(jobId, finalStatus, result.SuccessCount, result.FailedCount);
+            // 更新作業狀態 - ⚠️ 已移除 ImportJob 功能
+            // var finalStatus = result.FailedCount == 0 ? JobStatus.Completed : ...
+            // await UpdateJobAsync(jobId, finalStatus, result.SuccessCount, result.FailedCount);
 
             _logger.LogInformation(
                 "Import completed. JobId: {JobId}, Success: {Success}/{Total}, Failed: {Failed}",
@@ -211,7 +197,7 @@ public class ImportService : IImportService
             
             _logger.LogError(ex, "Import failed, JobId: {JobId}", jobId);
             
-            await UpdateJobAsync(jobId, JobStatus.Failed, 0, result.TotalCount, ex.Message);
+            // await UpdateJobAsync(jobId, JobStatus.Failed, 0, result.TotalCount, ex.Message); // ⚠️ 已移除
         }
 
         return result;
@@ -224,6 +210,10 @@ public class ImportService : IImportService
         string? jobId,
         CancellationToken cancellationToken = default)
     {
+        // ⚠️ TODO: 需要重構此方法以移除對 ImportJob 的依賴
+        throw new NotImplementedException("RetryFailedStocksAsync requires refactoring - ImportJob removed");
+        
+        /* 原始代碼 - 需要重構
         try
         {
             _logger.LogInformation("Starting retry for failed stocks from JobId: {JobId}", jobId ?? "LATEST");
@@ -329,6 +319,7 @@ public class ImportService : IImportService
             _logger.LogError(ex, "Retry failed for JobId: {JobId}", jobId);
             throw;
         }
+        */ 
     }
 
     /// <summary>
@@ -564,6 +555,11 @@ public class ImportService : IImportService
         string jobId,
         CancellationToken cancellationToken = default)
     {
+        // ⚠️ TODO: 需要重構此方法以移除對 ImportJob 的依賴
+        await Task.CompletedTask; // Suppress async warning
+        throw new NotImplementedException("GetImportStatusAsync requires refactoring - ImportJob removed");
+        
+        /* 原始代碼 - 需要重構
         try
         {
             var job = await _importJobRepository.GetByIdAsync(jobId);
@@ -594,11 +590,13 @@ public class ImportService : IImportService
             _logger.LogError(ex, "Failed to get import status for JobId: {JobId}", jobId);
             throw;
         }
+        */
     }
 
     /// <summary>
     /// 更新匯入作業狀態
     /// </summary>
+    /* ⚠️ 已移除 ImportJob 功能
     private async Task UpdateJobAsync(
         string jobId, 
         string status, 
@@ -625,6 +623,7 @@ public class ImportService : IImportService
             _logger.LogError(ex, "Failed to update job status for JobId: {JobId}", jobId);
         }
     }
+    */
 
     /// <summary>
     /// 記錄錯誤日誌
@@ -635,18 +634,18 @@ public class ImportService : IImportService
         {
             var alert = new AlertLog
             {
-                JobId = jobId,
-                StockCode = stockCode,
-                AlertType = alertType,
-                Message = message,
-                CreatedAt = DateTime.UtcNow
+                // JobId = jobId, // ⚠️ AlertLog 已無 JobId 欄位
+                StockID = stockCode,
+                AlertType = message, // AlertLog.AlertType 是 string，用於記錄錯誤訊息
+                AlertTitle = alertType,
+                Created = DateTime.UtcNow
             };
 
             await _alertLogRepository.CreateAsync(alert);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to log error for JobId: {JobId}, Stock: {StockCode}", jobId, stockCode);
+            _logger.LogError(ex, "Failed to log error for Stock: {StockCode}", stockCode);
         }
     }
 }

@@ -22,7 +22,7 @@ public class AlertLogRepository : IAlertLogRepository
     /// </summary>
     public async Task CreateAsync(AlertLog alertLog, CancellationToken cancellationToken = default)
     {
-        alertLog.CreatedAt = DateTime.UtcNow;
+        alertLog.Created = DateTime.UtcNow;
         
         await _context.AlertLogs.AddAsync(alertLog, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
@@ -39,29 +39,11 @@ public class AlertLogRepository : IAlertLogRepository
 
         foreach (var log in logs)
         {
-            log.CreatedAt = DateTime.UtcNow;
+            log.Created = DateTime.UtcNow;
         }
 
         await _context.AlertLogs.AddRangeAsync(logs, cancellationToken);
         await _context.SaveChangesAsync(cancellationToken);
-    }
-
-    /// <summary>
-    /// 根據作業 ID 查詢所有警報
-    /// </summary>
-    public async Task<List<AlertLog>> GetByJobIdAsync(
-        string jobId,
-        string? alertType = null,
-        CancellationToken cancellationToken = default)
-    {
-        var query = _context.AlertLogs.Where(a => a.JobId == jobId);
-        
-        if (!string.IsNullOrEmpty(alertType))
-            query = query.Where(a => a.AlertType == alertType);
-        
-        return await query
-            .OrderBy(a => a.CreatedAt)
-            .ToListAsync(cancellationToken);
     }
 
     /// <summary>
@@ -78,7 +60,7 @@ public class AlertLogRepository : IAlertLogRepository
             query = query.Where(a => a.AlertType == alertType);
         
         return await query
-            .OrderByDescending(a => a.CreatedAt)
+            .OrderByDescending(a => a.Created)
             .Take(limit)
             .ToListAsync(cancellationToken);
     }
@@ -95,13 +77,13 @@ public class AlertLogRepository : IAlertLogRepository
             .Where(a => a.AlertType == alertType);
 
         if (startDate.HasValue)
-            query = query.Where(a => a.CreatedAt >= startDate.Value);
+            query = query.Where(a => a.Created >= startDate.Value);
 
         if (endDate.HasValue)
-            query = query.Where(a => a.CreatedAt <= endDate.Value);
+            query = query.Where(a => a.Created <= endDate.Value);
 
         return await query
-            .OrderByDescending(a => a.CreatedAt)
+            .OrderByDescending(a => a.Created)
             .ToListAsync();
     }
 }

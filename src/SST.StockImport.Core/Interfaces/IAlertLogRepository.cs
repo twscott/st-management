@@ -22,18 +22,6 @@ public interface IAlertLogRepository
     Task CreateBatchAsync(IEnumerable<AlertLog> alertLogs, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 查詢指定任務的警報日誌
-    /// </summary>
-    /// <param name="jobId">任務ID</param>
-    /// <param name="alertType">警報類型（可選）：ERROR、WARNING、INFO</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>警報日誌清單</returns>
-    Task<List<AlertLog>> GetByJobIdAsync(
-        string jobId, 
-        string? alertType = null, 
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// 查詢最近的警報日誌
     /// </summary>
     /// <param name="limit">數量限制</param>
