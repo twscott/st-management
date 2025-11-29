@@ -9,9 +9,11 @@
 標準 Port ： 5008
 標準脚本 : 
 server： 
-  cd D:\vibeCoding\sst
-  dotnet run --project src\SST.StockImport.API
+cd D:\vibeCoding\sst
+.\start-server.ps1
 
 前臺
   cd D:\vibeCoding\sst	
   .\UAT-QuickTest.ps1
+  dotnet run --project src\SST.StockImport.API
+  http://localhost:5089/import

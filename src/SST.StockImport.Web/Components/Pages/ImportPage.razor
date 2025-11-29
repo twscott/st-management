@@ -795,44 +795,42 @@
                     @if (goodInfoTestResult != null)
                     {
                         <div class="mt-3">
-                            <div class="alert alert-@(goodInfoTestResult.SuccessCount > 0 ? "success" : "danger")">
-                                <h6>測試結果</h6>
+                            <div class="alert alert-@(goodInfoTestResult.FailedCount == 0 ? "success" : (goodInfoTestResult.SuccessCount > 0 ? "warning" : "danger"))">
+                                <h6>
+                                    @if (goodInfoTestResult.FailedCount == 0)
+                                    {
+                                        <i class="bi bi-check-circle-fill me-2"></i><text>下載完成</text>
+                                    }
+                                    else if (goodInfoTestResult.SuccessCount > 0)
+                                    {
+                                        <i class="bi bi-exclamation-triangle-fill me-2"></i><text>部分成功</text>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-x-circle-fill me-2"></i><text>下載失敗</text>
+                                    }
+                                </h6>
+                                
                                 <div class="row">
-                                    <div class="col-md-3">
-                                        <strong>總請求:</strong> @goodInfoTestResult.TotalRequests
+                                    <div class="col-md-4">
+                                        <strong>成功:</strong> <span class="badge bg-success">@goodInfoTestResult.SuccessCount</span>
                                     </div>
-                                    <div class="col-md-3">
-                                        <strong>成功:</strong> @goodInfoTestResult.SuccessCount
+                                    <div class="col-md-4">
+                                        <strong>失敗:</strong> <span class="badge bg-danger">@goodInfoTestResult.FailedCount</span>
                                     </div>
-                                    <div class="col-md-3">
-                                        <strong>失敗:</strong> @goodInfoTestResult.FailedCount
-                                    </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-4">
                                         <strong>耗時:</strong> @goodInfoTestResult.Duration
                                     </div>
                                 </div>
 
-                                @if (goodInfoTestResult.SuccessfulDownloads != null && goodInfoTestResult.SuccessfulDownloads.Any())
-                                {
-                                    <div class="mt-2">
-                                        <strong>✅ 成功下載:</strong>
-                                        <ul class="mb-0">
-                                            @foreach (var name in goodInfoTestResult.SuccessfulDownloads)
-                                            {
-                                                <li>@name</li>
-                                            }
-                                        </ul>
-                                    </div>
-                                }
-
                                 @if (goodInfoTestResult.FailedDownloads != null && goodInfoTestResult.FailedDownloads.Any())
                                 {
-                                    <div class="mt-2">
+                                    <div class="mt-3">
                                         <strong>❌ 失敗項目:</strong>
                                         <ul class="mb-0">
                                             @foreach (var failure in goodInfoTestResult.FailedDownloads)
                                             {
-                                                <li><strong>@failure.Name:</strong> @failure.Error</li>
+                                                <li>@failure.Name</li>
                                             }
                                         </ul>
                                     </div>
