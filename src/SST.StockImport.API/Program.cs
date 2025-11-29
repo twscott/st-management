@@ -173,3 +173,6 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+// 讓 Program 類別可被測試專案存取（WebApplicationFactory 需要）
+public partial class Program { }
