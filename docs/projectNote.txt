@@ -1,6 +1,17 @@
-原系統是好幾年來陸續寫的系統
+1. 原系統是好幾年來陸續寫的系統
 寫的時候也不太在乎維護的問題，只在乎解決眼前的問題
 所以呢？有些程式就變得非常非常的大
 你在參考這些程式的時候，基本原則是，不可以一次把原始碼讀進去
 是要看哪個部分就用search到那個方向再讀進去
 不然三兩下就把你的Contact塞爆
+
+2. 本系統
+標準 Port ： 5008
+標準脚本 : 
+server： 
+  cd D:\vibeCoding\sst
+  dotnet run --project src\SST.StockImport.API
+
+前臺
+  cd D:\vibeCoding\sst	
+  .\UAT-QuickTest.ps1

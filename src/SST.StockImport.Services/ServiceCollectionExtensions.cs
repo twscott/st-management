@@ -42,7 +42,8 @@ public static class ServiceCollectionExtensions
             PageLoadDelayMs = 3000,
             RequestDelayMs = 8000,  // 8 秒延遲，避免被封鎖
             DownloadWaitMs = 1000,
-            UseHeadlessMode = false  // 關閉 Headless 更不容易被偵測
+            UseHeadlessMode = true,  // 使用 Headless 模式，背景安靜執行不跳出視窗
+            DownloadPath = Path.Combine(Path.GetTempPath(), "GoodInfoDownloads")  // 設定下載路徑
         });
 
         // 註冊業務邏輯服務

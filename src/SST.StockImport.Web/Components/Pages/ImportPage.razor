@@ -1,0 +1,1080 @@
+@page "/import"
+@using SST.StockImport.Web.Services
+@using SST.StockImport.Shared
+@inject ImportApiService ApiService
+@inject ILogger<ImportPage> Logger
+@rendermode InteractiveServer
+
+<PageTitle>股票資料匯入管理</PageTitle>
+
+<div class="container-fluid">
+    <h1 class="mb-4">📊 股票資料匯入管理</h1>
+
+    <!-- Status Card -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">🔄 系統狀態</h5>
+                </div>
+                <div class="card-body">
+                    @if (importStatus != null)
+                    {
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>狀態:</strong> 
+                                <span class="badge bg-@(importStatus.Status == "Ready" ? "success" : "warning")">
+                                    @importStatus.Status
+                                </span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>最後匯入:</strong> @importStatus.LastImportTime.ToString("yyyy-MM-dd HH:mm")
+                            </div>
+                            <div class="col-md-3">
+                                <strong>排隊任務:</strong> @importStatus.QueuedTasks
+                            </div>
+                            <div class="col-md-3">
+                                <strong>執行中任務:</strong> @importStatus.RunningTasks
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted">載入中...</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Daily Import Section -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card border-success">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">⭐ 啟動完整匯入</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <div class="alert alert-info mb-3">
+                                <i class="bi bi-info-circle-fill me-2"></i>
+                                <strong>自動使用最近交易日：</strong> @TradingDateHelper.GetLastTradingDay().ToString("yyyy-MM-dd (dddd)")
+                                <br />
+                                <small class="text-muted">系統會自動排除週末，若今天是週六/週日，會使用上週五的資料</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row align-items-end">
+                        <div class="col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" @bind="includeGoodInfo" id="includeGoodInfo" />
+                                <label class="form-check-label" for="includeGoodInfo">
+                                    <strong>包含 GoodInfo 資料 (Phase 3)</strong>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <button class="btn btn-success btn-lg w-100" @onclick="TriggerDailyImport" disabled="@isImporting">
+                                @if (isImporting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    <text>匯入中...</text>
+                                }
+                                else
+                                {
+                                    <text>🚀 執行完整匯入 (TSE + OTC + Emerging + GoodInfo)</text>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (dailyImportResult != null)
+                    {
+                        <div class="mt-4">
+                            <!-- Overall Status -->
+                            <div class="alert alert-@(dailyImportResult.Success ? "success" : "warning") mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>@(dailyImportResult.Success ? "✅ 匯入完成" : "⚠️ 匯入完成但有失敗項目")</strong>
+                                        @if (dailyImportResult.JobId != null)
+                                        {
+                                            <br /><small class="text-muted">任務 ID: @dailyImportResult.JobId | 日期: @dailyImportResult.Date?.ToString("yyyy-MM-dd")</small>
+                                        }
+                                    </div>
+                                    <div class="text-end">
+                                        <h4 class="mb-0">
+                                            <span class="badge bg-success">@((dailyImportResult.Phase1?.SuccessCount ?? 0) + (dailyImportResult.Phase3?.SuccessCount ?? 0))</span>
+                                            <span class="badge bg-danger">@((dailyImportResult.Phase1?.FailedCount ?? 0) + (dailyImportResult.Phase3?.FailedCount ?? 0))</span>
+                                        </h4>
+                                        <small class="text-muted">成功 / 失敗</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3">
+                                <!-- Phase 1: 交易所資料匯入 -->
+                                <div class="col-md-6">
+                                    <div class="card h-100 @(dailyImportResult.Phase1?.FailedCount > 0 ? "border-warning" : "border-success")">
+                                        <div class="card-header @(dailyImportResult.Phase1?.FailedCount > 0 ? "bg-warning" : "bg-success") text-white">
+                                            <strong>📊 Phase 1: 三個交易所匯入</strong>
+                                        </div>
+                                        <div class="card-body">
+                                            @if (dailyImportResult.Phase1 != null)
+                                            {
+                                                <div class="row text-center mb-3">
+                                                    <div class="col-4">
+                                                        <h3 class="text-success mb-0">@dailyImportResult.Phase1.SuccessCount</h3>
+                                                        <small class="text-muted">成功筆數</small>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <h3 class="text-danger mb-0">@dailyImportResult.Phase1.FailedCount</h3>
+                                                        <small class="text-muted">失敗筆數</small>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <h3 class="text-info mb-0">@dailyImportResult.Phase1.TotalStocks</h3>
+                                                        <small class="text-muted">總計</small>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="mb-2">
+                                                    <small class="text-muted">
+                                                        <i class="bi bi-clock"></i> 耗時: <strong>@dailyImportResult.Phase1.Duration</strong>
+                                                    </small>
+                                                </div>
+
+                                                @if (dailyImportResult.Phase1.FailedStocks?.Any() == true)
+                                                {
+                                                    <div class="alert alert-danger mb-0">
+                                                        <strong>❌ 失敗股票 (@dailyImportResult.Phase1.FailedStocks.Count)：</strong>
+                                                        <div class="mt-2">
+                                                            <code>@string.Join(", ", dailyImportResult.Phase1.FailedStocks)</code>
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="alert alert-success mb-0">
+                                                        <i class="bi bi-check-circle-fill"></i> <strong>全部成功！</strong>
+                                                        TSE、OTC、Emerging 三個交易所資料已完整匯入
+                                                    </div>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <p class="text-muted mb-0">無資料</p>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Phase 2: ALL4 統計計算 -->
+                                <div class="col-md-6">
+                                    <div class="card h-100 @(dailyImportResult.Phase2?.Success == true ? "border-success" : dailyImportResult.Phase2?.Success == false ? "border-warning" : "border-secondary")">
+                                        <div class="card-header @(dailyImportResult.Phase2?.Success == true ? "bg-success" : dailyImportResult.Phase2?.Success == false ? "bg-warning" : "bg-secondary") text-white">
+                                            <strong>📐 Phase 2: ALL4 統計計算</strong>
+                                        </div>
+                                        <div class="card-body">
+                                            @if (dailyImportResult.Phase2?.Success != null)
+                                            {
+                                                <div class="row text-center mb-3">
+                                                    <div class="col-6">
+                                                        <h3 class="text-success mb-0">@dailyImportResult.Phase2.SuccessCount</h3>
+                                                        <small class="text-muted">成功項目</small>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <h3 class="text-danger mb-0">@dailyImportResult.Phase2.FailureCount</h3>
+                                                        <small class="text-muted">失敗項目</small>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="mb-2">
+                                                    <small class="text-muted">
+                                                        <i class="bi bi-clock"></i> 耗時: <strong>@dailyImportResult.Phase2.TotalDuration</strong>
+                                                    </small>
+                                                </div>
+
+                                                <div class="row g-2">
+                                                    <div class="col-6">
+                                                        <div class="card border-@(dailyImportResult.Phase2.Statistics.FiveDayAverage.Success ? "success" : "danger") p-1">
+                                                            <small>
+                                                                @(dailyImportResult.Phase2.Statistics.FiveDayAverage.Success ? "✅" : "❌") 5日均價/均量
+                                                                <br /><span class="text-muted">@dailyImportResult.Phase2.Statistics.FiveDayAverage.ProcessedCount 筆</span>
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="card border-@(dailyImportResult.Phase2.Statistics.SixtyDayStatistics.Success ? "success" : "danger") p-1">
+                                                            <small>
+                                                                @(dailyImportResult.Phase2.Statistics.SixtyDayStatistics.Success ? "✅" : "❌") 60日統計
+                                                                <br /><span class="text-muted">@dailyImportResult.Phase2.Statistics.SixtyDayStatistics.ProcessedCount 筆</span>
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="card border-@(dailyImportResult.Phase2.Statistics.PanAnalysis.Success ? "success" : "danger") p-1">
+                                                            <small>
+                                                                @(dailyImportResult.Phase2.Statistics.PanAnalysis.Success ? "✅" : "❌") 盤量分析
+                                                                <br /><span class="text-muted">@dailyImportResult.Phase2.Statistics.PanAnalysis.ProcessedCount 筆</span>
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="card border-@(dailyImportResult.Phase2.Statistics.FenPanAverage.Success ? "success" : "danger") p-1">
+                                                            <small>
+                                                                @(dailyImportResult.Phase2.Statistics.FenPanAverage.Success ? "✅" : "❌") 日均分盤量
+                                                                <br /><span class="text-muted">@dailyImportResult.Phase2.Statistics.FenPanAverage.ProcessedCount 筆</span>
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="text-center">
+                                                    <i class="bi bi-exclamation-triangle" style="font-size: 3rem; color: #ffc107;"></i>
+                                                    <h5 class="mt-3 text-muted">未執行</h5>
+                                                    <p class="text-muted mb-0">
+                                                        <small>@dailyImportResult.Phase2?.Message</small>
+                                                    </p>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Phase 3: GoodInfo 匯入 -->
+                                <div class="col-md-12">
+                                    <div class="card @(dailyImportResult.Phase3?.FailedCount > 0 ? "border-danger" : "border-success")">
+                                        <div class="card-header @(dailyImportResult.Phase3?.FailedCount > 0 ? "bg-danger" : "bg-success") text-white">
+                                            <strong>🌐 Phase 3: GoodInfo 資料匯入</strong>
+                                        </div>
+                                        <div class="card-body">
+                                            @if (dailyImportResult.Phase3 != null)
+                                            {
+                                                <div class="row text-center mb-3">
+                                                    <div class="col-md-3">
+                                                        <h3 class="text-success mb-0">@dailyImportResult.Phase3.SuccessCount</h3>
+                                                        <small class="text-muted">成功檔案數</small>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <h3 class="text-danger mb-0">@dailyImportResult.Phase3.FailedCount</h3>
+                                                        <small class="text-muted">失敗檔案數</small>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <h3 class="text-info mb-0">@dailyImportResult.Phase3.TotalRequests</h3>
+                                                        <small class="text-muted">總計</small>
+                                                    </div>
+                                                    <div class="col-md-3">
+                                                        <h3 class="text-secondary mb-0">@dailyImportResult.Phase3.Duration</h3>
+                                                        <small class="text-muted">耗時</small>
+                                                    </div>
+                                                </div>
+                                                
+                                                @if (dailyImportResult.Phase3.FailedUrls?.Any() == true)
+                                                {
+                                                    <div class="alert alert-danger">
+                                                        <h6 class="alert-heading">
+                                                            <i class="bi bi-exclamation-triangle-fill"></i> 
+                                                            失敗的 GoodInfo 連結 (@dailyImportResult.Phase3.FailedUrls.Count 個)
+                                                        </h6>
+                                                        <hr />
+                                                        <div class="row g-2">
+                                                            @foreach (var failed in dailyImportResult.Phase3.FailedUrls)
+                                                            {
+                                                                <div class="col-md-6">
+                                                                    <div class="card border-danger">
+                                                                        <div class="card-body p-2">
+                                                                            <h6 class="card-title mb-1">
+                                                                                <i class="bi bi-x-circle text-danger"></i> 
+                                                                                <strong>@failed.Name</strong>
+                                                                            </h6>
+                                                                            <a href="@failed.Url" target="_blank" class="btn btn-sm btn-outline-primary btn-sm w-100 mb-1">
+                                                                                <i class="bi bi-link-45deg"></i> 開啟連結
+                                                                            </a>
+                                                                            @if (!string.IsNullOrEmpty(failed.Error))
+                                                                            {
+                                                                                <small class="text-danger d-block">
+                                                                                    <i class="bi bi-info-circle"></i> @failed.Error
+                                                                                </small>
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="alert alert-success mb-0">
+                                                        <i class="bi bi-check-circle-fill"></i> 
+                                                        <strong>全部成功！</strong> 所有 GoodInfo 檔案已完整下載
+                                                    </div>
+                                                }
+                                            }
+                                            else if (includeGoodInfo)
+                                            {
+                                                <div class="alert alert-warning mb-0">
+                                                    <i class="bi bi-exclamation-triangle"></i> 未執行 GoodInfo 匯入（可能發生錯誤）
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="alert alert-info mb-0">
+                                                    <i class="bi bi-info-circle"></i> 已跳過 GoodInfo 匯入
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual Import Section -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card border-warning">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">🔧 手動匯入 / 單一市場測試</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning mb-3">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        <strong>注意：</strong>手動操作僅用於測試單一爬蟲或補充特定市場資料，不包含統計計算
+                    </div>
+                    
+                    <!-- Shared Date Picker -->
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label"><strong>📅 指定日期（共用）</strong></label>
+                            <input type="date" class="form-control form-control-lg" @bind="manualTargetDate" max="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                        </div>
+                        <div class="col-md-8">
+                            <div class="alert alert-info mb-0">
+                                <small>
+                                    <strong>目前選擇：</strong>@manualTargetDate.ToString("yyyy-MM-dd (dddd)")
+                                    <br />下方所有測試按鈕將使用此日期
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Market Test Buttons -->
+                    <div class="row g-2">
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-primary w-100 py-3" @onclick="@(() => TestMarket("TSE"))" disabled="@isTesting">
+                                @if (isTesting && selectedMarket == "TSE")
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <div>
+                                    <h5 class="mb-1">🏠 上市股票</h5>
+                                    <small class="text-muted">Taiwan Stock Exchange</small>
+                                </div>
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-success w-100 py-3" @onclick="@(() => TestMarket("OTC"))" disabled="@isTesting">
+                                @if (isTesting && selectedMarket == "OTC")
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <div>
+                                    <h5 class="mb-1">🏢 上櫃股票</h5>
+                                    <small class="text-muted">Over-The-Counter</small>
+                                </div>
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-warning w-100 py-3" @onclick="@(() => TestMarket("EMERGING"))" disabled="@isTesting">
+                                @if (isTesting && selectedMarket == "EMERGING")
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <div>
+                                    <h5 class="mb-1">🌱 興櫃股票</h5>
+                                    <small class="text-muted">Emerging Stock</small>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (manualImportResult != null)
+                    {
+                        <div class="mt-3">
+                            <div class="alert alert-@(manualImportResult.Success ? "success" : "warning")">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>@(manualImportResult.Success ? "✅ 匯入成功" : "⚠️ 匯入完成但有失敗項目")</strong>
+                                        <br /><small class="text-muted">@manualImportResult.Summary</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <h4 class="mb-0">
+                                            <span class="badge bg-success">@manualImportResult.FinalResult.TotalSuccess</span>
+                                            <span class="badge bg-danger">@manualImportResult.FinalResult.TotalFailed</span>
+                                        </h4>
+                                        <small class="text-muted">成功 / 失敗</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3">
+                                <!-- Phase 1: 初次匯入 -->
+                                <div class="col-md-6">
+                                    <div class="card border-primary">
+                                        <div class="card-header bg-primary text-white">
+                                            <strong>Phase 1: 初次匯入</strong>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row text-center mb-2">
+                                                <div class="col-4">
+                                                    <h4 class="text-success mb-0">@manualImportResult.Phase1.SuccessCount</h4>
+                                                    <small class="text-muted">成功</small>
+                                                </div>
+                                                <div class="col-4">
+                                                    <h4 class="text-danger mb-0">@manualImportResult.Phase1.FailedCount</h4>
+                                                    <small class="text-muted">失敗</small>
+                                                </div>
+                                                <div class="col-4">
+                                                    <h4 class="text-info mb-0">@manualImportResult.Phase1.TotalStocks</h4>
+                                                    <small class="text-muted">總計</small>
+                                                </div>
+                                            </div>
+                                            <small class="text-muted">
+                                                <i class="bi bi-clock"></i> 耗時: <strong>@manualImportResult.Phase1.Duration</strong>
+                                            </small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Phase 2: 自動重試 -->
+                                <div class="col-md-6">
+                                    <div class="card border-@(manualImportResult.Phase2 != null ? "success" : "secondary")">
+                                        <div class="card-header bg-@(manualImportResult.Phase2 != null ? "success" : "secondary") text-white">
+                                            <strong>Phase 2: 自動重試</strong>
+                                        </div>
+                                        <div class="card-body">
+                                            @if (manualImportResult.Phase2 != null)
+                                            {
+                                                <div class="row text-center mb-2">
+                                                    <div class="col-4">
+                                                        <h4 class="text-success mb-0">@manualImportResult.Phase2.SuccessCount</h4>
+                                                        <small class="text-muted">成功</small>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <h4 class="text-danger mb-0">@manualImportResult.Phase2.StillFailed</h4>
+                                                        <small class="text-muted">仍失敗</small>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <h4 class="text-info mb-0">@manualImportResult.Phase2.RetryCount</h4>
+                                                        <small class="text-muted">重試數</small>
+                                                    </div>
+                                                </div>
+                                                <small class="text-muted">
+                                                    <i class="bi bi-clock"></i> 耗時: <strong>@manualImportResult.Phase2.Duration</strong>
+                                                </small>
+                                            }
+                                            else
+                                            {
+                                                <p class="text-muted mb-0 text-center">
+                                                    <i class="bi bi-check-circle"></i> Phase 1 全部成功，無需重試
+                                                </p>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 最終結果 -->
+                                <div class="col-md-12">
+                                    <div class="card border-@(manualImportResult.FinalResult.TotalFailed == 0 ? "success" : "danger")">
+                                        <div class="card-header bg-@(manualImportResult.FinalResult.TotalFailed == 0 ? "success" : "danger") text-white">
+                                            <strong>📊 最終結果</strong>
+                                        </div>
+                                        <div class="card-body">
+                                            <div class="row text-center mb-3">
+                                                <div class="col-md-4">
+                                                    <h3 class="text-success mb-0">@manualImportResult.FinalResult.TotalSuccess</h3>
+                                                    <small class="text-muted">成功總數</small>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <h3 class="text-danger mb-0">@manualImportResult.FinalResult.TotalFailed</h3>
+                                                    <small class="text-muted">失敗總數</small>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <h3 class="text-secondary mb-0">@manualImportResult.FinalResult.TotalDuration</h3>
+                                                    <small class="text-muted">總耗時</small>
+                                                </div>
+                                            </div>
+
+                                            @if (manualImportResult.FinalResult.FailedStocks?.Any() == true)
+                                            {
+                                                <div class="alert alert-danger mb-0">
+                                                    <h6 class="alert-heading">
+                                                        <i class="bi bi-exclamation-triangle-fill"></i> 
+                                                        失敗股票 (@manualImportResult.FinalResult.FailedStocks.Count)
+                                                    </h6>
+                                                    <hr />
+                                                    <code class="d-block">@string.Join(", ", manualImportResult.FinalResult.FailedStocks)</code>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="alert alert-success mb-0">
+                                                    <i class="bi bi-check-circle-fill"></i> 
+                                                    <strong>全部成功！</strong> 所有股票已完整匯入資料庫
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics & GoodInfo Section -->
+    <div class="row">
+        <div class="col-md-12 mb-4">
+            <div class="card border-info">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">📐 ALL4 統計計算</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        <strong>注意：</strong>觸發 ALL4 自動統計計算（需先完成市場匯入）<br />
+                        <small class="text-muted">包含：5日均價/均量 → 60日統計 → 盤量分析 → 日均分盤量</small>
+                    </div>
+                    
+                    <button class="btn btn-info btn-lg w-100" @onclick="ExecuteAll4Statistics" disabled="@isCalculating">
+                        @if (isCalculating)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            <text>計算中...</text>
+                        }
+                        else
+                        {
+                            <text>🚀 執行 ALL4 統計計算</text>
+                        }
+                    </button>
+
+                    @if (all4Result != null)
+                    {
+                        <div class="mt-3">
+                            <div class="alert alert-@(all4Result.Success ? "success" : "danger")">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>@(all4Result.Success ? "✅ 計算完成" : "⚠️ 計算完成但有失敗項目")</strong>
+                                        <br /><small class="text-muted">日期: @all4Result.TradeDate.ToString("yyyy-MM-dd") | 總耗時: @all4Result.TotalDuration</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <h4 class="mb-0">
+                                            <span class="badge bg-success">@all4Result.SuccessCount</span>
+                                            <span class="badge bg-danger">@all4Result.FailureCount</span>
+                                        </h4>
+                                        <small class="text-muted">成功 / 失敗</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-2">
+                                <!-- 5日均價/均量 -->
+                                <div class="col-md-6">
+                                    <div class="card border-@(all4Result.Statistics.FiveDayAverage.Success ? "success" : "danger")">
+                                        <div class="card-body p-2">
+                                            <h6 class="mb-1">
+                                                @(all4Result.Statistics.FiveDayAverage.Success ? "✅" : "❌") 5日均價/均量
+                                            </h6>
+                                            <small class="text-muted">
+                                                處理: <strong>@all4Result.Statistics.FiveDayAverage.ProcessedCount</strong> 筆 | 
+                                                耗時: <strong>@all4Result.Statistics.FiveDayAverage.Duration</strong>
+                                            </small>
+                                            @if (!string.IsNullOrEmpty(all4Result.Statistics.FiveDayAverage.Error))
+                                            {
+                                                <div class="text-danger small mt-1">@all4Result.Statistics.FiveDayAverage.Error</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 60日統計 -->
+                                <div class="col-md-6">
+                                    <div class="card border-@(all4Result.Statistics.SixtyDayStatistics.Success ? "success" : "danger")">
+                                        <div class="card-body p-2">
+                                            <h6 class="mb-1">
+                                                @(all4Result.Statistics.SixtyDayStatistics.Success ? "✅" : "❌") 60日統計
+                                            </h6>
+                                            <small class="text-muted">
+                                                處理: <strong>@all4Result.Statistics.SixtyDayStatistics.ProcessedCount</strong> 筆 | 
+                                                耗時: <strong>@all4Result.Statistics.SixtyDayStatistics.Duration</strong>
+                                            </small>
+                                            @if (!string.IsNullOrEmpty(all4Result.Statistics.SixtyDayStatistics.Error))
+                                            {
+                                                <div class="text-danger small mt-1">@all4Result.Statistics.SixtyDayStatistics.Error</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 盤量分析 -->
+                                <div class="col-md-6">
+                                    <div class="card border-@(all4Result.Statistics.PanAnalysis.Success ? "success" : "danger")">
+                                        <div class="card-body p-2">
+                                            <h6 class="mb-1">
+                                                @(all4Result.Statistics.PanAnalysis.Success ? "✅" : "❌") 盤量分析
+                                            </h6>
+                                            <small class="text-muted">
+                                                處理: <strong>@all4Result.Statistics.PanAnalysis.ProcessedCount</strong> 筆 | 
+                                                耗時: <strong>@all4Result.Statistics.PanAnalysis.Duration</strong>
+                                            </small>
+                                            @if (!string.IsNullOrEmpty(all4Result.Statistics.PanAnalysis.Error))
+                                            {
+                                                <div class="text-danger small mt-1">@all4Result.Statistics.PanAnalysis.Error</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 日均分盤量 -->
+                                <div class="col-md-6">
+                                    <div class="card border-@(all4Result.Statistics.FenPanAverage.Success ? "success" : "danger")">
+                                        <div class="card-body p-2">
+                                            <h6 class="mb-1">
+                                                @(all4Result.Statistics.FenPanAverage.Success ? "✅" : "❌") 日均分盤量
+                                            </h6>
+                                            <small class="text-muted">
+                                                處理: <strong>@all4Result.Statistics.FenPanAverage.ProcessedCount</strong> 筆 | 
+                                                耗時: <strong>@all4Result.Statistics.FenPanAverage.Duration</strong>
+                                            </small>
+                                            @if (!string.IsNullOrEmpty(all4Result.Statistics.FenPanAverage.Error))
+                                            {
+                                                <div class="text-danger small mt-1">@all4Result.Statistics.FenPanAverage.Error</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">🌐 GoodInfo 資料下載</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        <strong>注意：</strong>GoodInfo 有嚴格的反爬蟲機制，請謹慎使用
+                        <ul class="mb-0 mt-2">
+                            <li>需要安裝 Chrome 瀏覽器和 ChromeDriver</li>
+                            <li>每個請求間隔 8-10 秒，避免 IP 被封鎖</li>
+                            <li>不建議頻繁執行完整下載</li>
+                        </ul>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <h6 class="card-title">📋 查看下載連結</h6>
+                                    <p class="text-muted small">查看可用的 GoodInfo 下載連結清單</p>
+                                    <button class="btn btn-outline-info btn-sm w-100" @onclick="LoadGoodInfoLinks" disabled="@isLoadingLinks">
+                                        @if (isLoadingLinks)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        <text>查看連結清單</text>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100">
+                                <div class="card-body">
+                                    <h6 class="card-title">⭐ 下載常用分析</h6>
+                                    <p class="text-muted small">下載 15 個常用分析連結 (~2-3分鐘)</p>
+                                    <button class="btn btn-warning btn-sm w-100" @onclick="DownloadCommonAnalysis" disabled="@isDownloadingGoodInfo">
+                                        @if (isDownloadingGoodInfo && downloadCategory == "common")
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        <text>下載常用分析</text>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4 mb-3">
+                            <div class="card h-100 border-danger">
+                                <div class="card-body">
+                                    <h6 class="card-title text-danger">🔥 下載全部資料</h6>
+                                    <p class="text-muted small">下載所有 GoodInfo 連結 (~3-5分鐘)</p>
+                                    <button class="btn btn-danger btn-sm w-100" @onclick="DownloadAllGoodInfo" disabled="@isDownloadingGoodInfo">
+                                        @if (isDownloadingGoodInfo && downloadCategory == "all")
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        <text>下載全部</text>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <div class="alert alert-info mb-0">
+                                <i class="bi bi-info-circle me-2"></i>
+                                <strong>測試功能：</strong>
+                                <button class="btn btn-outline-secondary btn-sm ms-2" @onclick="TestGoodInfoMargin" disabled="@isTestingGoodInfo">
+                                    @if (isTestingGoodInfo)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                    }
+                                    <text>🧪 測試下載 2 個券資比連結 (~20秒)</text>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (goodInfoLinks != null && goodInfoLinks.Any())
+                    {
+                        <div class="mt-3">
+                            <h6>📑 GoodInfo 下載連結清單 (@goodInfoLinks.Count 個)</h6>
+                            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-sm table-striped">
+                                    <thead class="table-light sticky-top">
+                                        <tr>
+                                            <th style="width: 5%">#</th>
+                                            <th style="width: 25%">名稱</th>
+                                            <th style="width: 60%">URL</th>
+                                            <th style="width: 10%">選擇器</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (int i = 0; i < goodInfoLinks.Count; i++)
+                                        {
+                                            var link = goodInfoLinks[i];
+                                            <tr>
+                                                <td>@(i + 1)</td>
+                                                <td><strong>@link.Name</strong></td>
+                                                <td><small class="text-muted">@link.Url</small></td>
+                                                <td>
+                                                    @if (link.HasXPath)
+                                                    {
+                                                        <span class="badge bg-success">XPath</span>
+                                                    }
+                                                    @if (link.HasCssSelector)
+                                                    {
+                                                        <span class="badge bg-primary">CSS</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+
+                    @if (goodInfoTestResult != null)
+                    {
+                        <div class="mt-3">
+                            <div class="alert alert-@(goodInfoTestResult.SuccessCount > 0 ? "success" : "danger")">
+                                <h6>測試結果</h6>
+                                <div class="row">
+                                    <div class="col-md-3">
+                                        <strong>總請求:</strong> @goodInfoTestResult.TotalRequests
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>成功:</strong> @goodInfoTestResult.SuccessCount
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>失敗:</strong> @goodInfoTestResult.FailedCount
+                                    </div>
+                                    <div class="col-md-3">
+                                        <strong>耗時:</strong> @goodInfoTestResult.Duration
+                                    </div>
+                                </div>
+
+                                @if (goodInfoTestResult.SuccessfulDownloads != null && goodInfoTestResult.SuccessfulDownloads.Any())
+                                {
+                                    <div class="mt-2">
+                                        <strong>✅ 成功下載:</strong>
+                                        <ul class="mb-0">
+                                            @foreach (var name in goodInfoTestResult.SuccessfulDownloads)
+                                            {
+                                                <li>@name</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+
+                                @if (goodInfoTestResult.FailedDownloads != null && goodInfoTestResult.FailedDownloads.Any())
+                                {
+                                    <div class="mt-2">
+                                        <strong>❌ 失敗項目:</strong>
+                                        <ul class="mb-0">
+                                            @foreach (var failure in goodInfoTestResult.FailedDownloads)
+                                            {
+                                                <li><strong>@failure.Name:</strong> @failure.Error</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ImportStatus? importStatus;
+    private ImportResult? dailyImportResult;
+    private TwoPhaseImportResult? manualImportResult;
+    private All4StatisticsResult? all4Result;
+    
+    private DateTime manualTargetDate = DateTime.Today;
+    private bool includeGoodInfo = true;
+    private string selectedMarket = "TSE";
+    
+    private bool isImporting = false;
+    private bool isTesting = false;
+    private bool isCalculating = false;
+    private bool isLoadingLinks = false;
+    private bool isTestingGoodInfo = false;
+    private bool isDownloadingGoodInfo = false;
+    
+    private string downloadCategory = "";
+    private List<GoodInfoLinkInfo>? goodInfoLinks;
+    private GoodInfoTestResult? goodInfoTestResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatusAsync();
+    }
+
+    private async Task LoadStatusAsync()
+    {
+        importStatus = await ApiService.GetImportStatusAsync();
+        StateHasChanged();
+    }
+
+    private async Task TriggerDailyImport()
+    {
+        isImporting = true;
+        dailyImportResult = null;
+        StateHasChanged();
+
+        try
+        {
+            // 完整匯入時不傳日期，讓 API 自動使用最近交易日
+            dailyImportResult = await ApiService.TriggerDailyImportAsync(null, includeGoodInfo);
+            await LoadStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "觸發每日匯入失敗");
+            dailyImportResult = new ImportResult(false, $"發生錯誤: {ex.Message}", null, 0, null);
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestMarket(string market)
+    {
+        selectedMarket = market;
+        isTesting = true;
+        manualImportResult = null;
+        StateHasChanged();
+
+        try
+        {
+            // 執行兩階段匯入：Phase 1 + Phase 2（自動重試）
+            manualImportResult = await ApiService.ImportSingleMarketAsync(market, manualTargetDate);
+            await LoadStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "單一市場匯入失敗: {Market}", market);
+        }
+        finally
+        {
+            isTesting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExecuteAll4Statistics()
+    {
+        isCalculating = true;
+        all4Result = null;
+        StateHasChanged();
+
+        try
+        {
+            all4Result = await ApiService.ExecuteAll4StatisticsAsync();
+            if (all4Result != null)
+            {
+                Logger.LogInformation("ALL4 統計計算完成: {SuccessCount}/{TotalCount}", 
+                    all4Result.SuccessCount, 
+                    all4Result.SuccessCount + all4Result.FailureCount);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "ALL4 統計計算失敗");
+            all4Result = new All4StatisticsResult(
+                Success: false,
+                TradeDate: DateTime.Today,
+                TotalDuration: "N/A",
+                Statistics: new StatisticsDetails(
+                    FiveDayAverage: new StatisticItemResult(false, 0, "N/A", ex.Message),
+                    SixtyDayStatistics: new StatisticItemResult(false, 0, "N/A", ex.Message),
+                    PanAnalysis: new StatisticItemResult(false, 0, "N/A", ex.Message),
+                    FenPanAverage: new StatisticItemResult(false, 0, "N/A", ex.Message)
+                ),
+                SuccessCount: 0,
+                FailureCount: 4,
+                ErrorMessage: ex.Message
+            );
+        }
+        finally
+        {
+            isCalculating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadGoodInfoLinks()
+    {
+        isLoadingLinks = true;
+        goodInfoLinks = null;
+        StateHasChanged();
+
+        try
+        {
+            var response = await ApiService.GetGoodInfoLinksAsync();
+            if (response != null)
+            {
+                goodInfoLinks = response.Links;
+                Logger.LogInformation("載入 GoodInfo 連結清單完成: {Count} 個連結", response.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入 GoodInfo 連結清單失敗");
+        }
+        finally
+        {
+            isLoadingLinks = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task TestGoodInfoMargin()
+    {
+        isTestingGoodInfo = true;
+        goodInfoTestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            goodInfoTestResult = await ApiService.TestGoodInfoDownloadAsync("margin");
+            if (goodInfoTestResult != null)
+            {
+                Logger.LogInformation("GoodInfo 測試完成: {Success}/{Total}", 
+                    goodInfoTestResult.SuccessCount, 
+                    goodInfoTestResult.TotalRequests);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "GoodInfo 測試失敗");
+        }
+        finally
+        {
+            isTestingGoodInfo = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DownloadCommonAnalysis()
+    {
+        if (!await ConfirmGoodInfoDownload("常用分析 (約 15 個連結)", "2-3 分鐘"))
+            return;
+
+        await ExecuteGoodInfoDownload("common");
+    }
+
+    private async Task DownloadAllGoodInfo()
+    {
+        if (!await ConfirmGoodInfoDownload("全部資料 (約 26 個連結)", "3-5 分鐘"))
+            return;
+
+        await ExecuteGoodInfoDownload("all");
+    }
+
+    private async Task<bool> ConfirmGoodInfoDownload(string description, string estimatedTime)
+    {
+        // 在實際環境中，這裡應該顯示確認對話框
+        // 目前直接返回 true
+        Logger.LogInformation("準備下載 GoodInfo: {Description}, 預計耗時: {Time}", description, estimatedTime);
+        return true;
+    }
+
+    private async Task ExecuteGoodInfoDownload(string category)
+    {
+        isDownloadingGoodInfo = true;
+        downloadCategory = category;
+        goodInfoTestResult = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("開始下載 GoodInfo 資料: {Category}", category);
+            goodInfoTestResult = await ApiService.TestGoodInfoDownloadAsync(category);
+            
+            if (goodInfoTestResult != null)
+            {
+                Logger.LogInformation(
+                    "GoodInfo 下載完成: 成功 {Success}/{Total}, 失敗 {Failed}, 耗時 {Duration}", 
+                    goodInfoTestResult.SuccessCount, 
+                    goodInfoTestResult.TotalRequests,
+                    goodInfoTestResult.FailedCount,
+                    goodInfoTestResult.Duration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "GoodInfo 下載失敗: {Category}", category);
+        }
+        finally
+        {
+            isDownloadingGoodInfo = false;
+            downloadCategory = "";
+            StateHasChanged();
+        }
+    }
+}

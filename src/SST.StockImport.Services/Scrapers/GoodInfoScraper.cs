@@ -124,13 +124,13 @@ public class GoodInfoScraper : IDisposable
                 else
                 {
                     result.FailedCount++;
-                    result.FailedDownloads.Add((request.Name, "下載失敗"));
+                    result.FailedDownloads.Add((request.Name, request.Url, "下載失敗"));
                 }
             }
             catch (Exception ex)
             {
                 result.FailedCount++;
-                result.FailedDownloads.Add((request.Name, ex.Message));
+                result.FailedDownloads.Add((request.Name, request.Url, ex.Message));
                 _logger.LogError(ex, "處理 {Name} 時發生錯誤", request.Name);
             }
 
@@ -243,7 +243,7 @@ public class GoodInfoBatchResult
     public int SuccessCount { get; set; }
     public int FailedCount { get; set; }
     public List<string> SuccessfulDownloads { get; set; } = new();
-    public List<(string Name, string Error)> FailedDownloads { get; set; } = new();
+    public List<(string Name, string Url, string Error)> FailedDownloads { get; set; } = new();
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public TimeSpan TotalDuration { get; set; }

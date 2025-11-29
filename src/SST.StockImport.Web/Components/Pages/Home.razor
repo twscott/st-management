@@ -1,0 +1,77 @@
+﻿@page "/"
+@using SST.StockImport.Web.Services
+@inject ImportApiService ApiService
+
+<PageTitle>SST 股票匯入系統</PageTitle>
+
+<div class="container">
+    <div class="text-center mb-5">
+        <h1 class="display-4">📊 SST 股票匯入管理系統</h1>
+        <p class="lead">自動化股票資料匯入與管理平台</p>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="card-title">📈 每日完整匯入</h3>
+                    <p class="card-text">
+                        執行完整的三階段匯入流程，包含：
+                    </p>
+                    <ul>
+                        <li>上市 (TSE) 股票資料</li>
+                        <li>上櫃 (OTC) 股票資料</li>
+                        <li>興櫃 (Emerging) 股票資料</li>
+                        <li>統計計算 (Phase 2)</li>
+                        <li>GoodInfo 資料匯入 (Phase 3)</li>
+                    </ul>
+                    <a href="/import" class="btn btn-primary">前往匯入</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h3 class="card-title">🔧 單一市場測試</h3>
+                    <p class="card-text">
+                        測試單一爬蟲或補充特定市場資料：
+                    </p>
+                    <ul>
+                        <li>測試 TSE/OTC/Emerging 爬蟲</li>
+                        <li>查看即時爬取結果</li>
+                        <li>補充遺漏的市場資料</li>
+                    </ul>
+                    <a href="/import" class="btn btn-warning">前往測試</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (healthStatus != null)
+    {
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="alert alert-@(healthStatus.Status == "Healthy" ? "success" : "danger")">
+                    <h5>系統狀態: @healthStatus.Status</h5>
+                    <p class="mb-0">
+                        <small>
+                            版本: @healthStatus.Version | 
+                            環境: @healthStatus.Environment | 
+                            時間: @healthStatus.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")
+                        </small>
+                    </p>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private HealthStatus? healthStatus;
+
+    protected override async Task OnInitializedAsync()
+    {
+        healthStatus = await ApiService.GetHealthStatusAsync();
+    }
+}

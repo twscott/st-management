@@ -11,6 +11,44 @@ class Program
 {
     static async Task Main(string[] args)
     {
+        Console.WriteLine("=== SST Stock Import 整合測試 ===\n");
+        Console.WriteLine("請選擇要執行的測試：");
+        Console.WriteLine("1. TWSE Scraper 整合測試 (Scraper → Repository → Database)");
+        Console.WriteLine("2. GoodInfo 整合測試 (需要 Chrome 和 ChromeDriver)");
+        Console.WriteLine("3. 執行所有測試");
+        Console.WriteLine("0. 離開");
+        Console.Write("\n請輸入選項 (0-3): ");
+        
+        var choice = Console.ReadLine();
+        Console.WriteLine();
+
+        switch (choice)
+        {
+            case "1":
+                await RunTwseIntegrationTest();
+                break;
+            case "2":
+                await GoodInfoIntegrationTest.RunAsync();
+                break;
+            case "3":
+                await RunTwseIntegrationTest();
+                Console.WriteLine("\n" + new string('=', 80) + "\n");
+                await GoodInfoIntegrationTest.RunAsync();
+                break;
+            case "0":
+                Console.WriteLine("測試已取消");
+                return;
+            default:
+                Console.WriteLine("無效的選項");
+                return;
+        }
+
+        Console.WriteLine("\n按任意鍵結束...");
+        Console.ReadKey();
+    }
+
+    static async Task RunTwseIntegrationTest()
+    {
         Console.WriteLine("=== 整合測試：Scraper → Repository → Database ===\n");
 
         // 建立 Logger

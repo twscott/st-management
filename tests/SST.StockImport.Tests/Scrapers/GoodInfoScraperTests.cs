@@ -30,7 +30,7 @@ public class GoodInfoScraperTests : IDisposable
             RequestDelayMs = 5000,      // 測試時縮短延遲（但仍要避免被封鎖）
             DownloadWaitMs = 1000,
             DownloadPath = _testDownloadPath,
-            UseHeadlessMode = true      // 測試時使用 headless 模式
+            UseHeadlessMode = true      // 使用 headless 模式，背景執行不跳出視窗
         };
 
         _scraper = new GoodInfoScraper(_mockLogger.Object, config);
@@ -154,6 +154,142 @@ public class GoodInfoScraperTests : IDisposable
         {
             Assert.Contains(allRequests, r => r.Name == name);
         }
+    }
+
+    [Fact]
+    public void GoodInfoScraperConfig_預設值應該合理()
+    {
+        // Act
+        var config = new GoodInfoScraperConfig();
+
+        // Assert
+        Assert.Equal(3000, config.PageLoadDelayMs);
+        Assert.Equal(8000, config.RequestDelayMs);
+        Assert.Equal(1000, config.DownloadWaitMs);
+        Assert.Equal(10000, config.RetryDelayMs);
+        Assert.False(config.UseHeadlessMode);
+        Assert.NotEmpty(config.UserAgents);
+        Assert.True(config.UserAgents.Count >= 4, "應該有多個 User-Agent 可輪替");
+    }
+
+    [Fact]
+    public void GoodInfoScraperConfig_UserAgents應該都是有效的瀏覽器標識()
+    {
+        // Act
+        var config = new GoodInfoScraperConfig();
+
+        // Assert
+        Assert.All(config.UserAgents, ua =>
+        {
+            Assert.Contains("Mozilla", ua);
+            Assert.True(ua.Contains("Chrome") || ua.Contains("Firefox") || ua.Contains("Safari"));
+        });
+    }
+
+    [Fact]
+    public void GoodInfoDownloadRequest_應該支援CssSelector或XPath()
+    {
+        // Arrange & Act
+        var request1 = new GoodInfoDownloadRequest
+        {
+            Name = "測試1",
+            Url = "https://goodinfo.tw/test",
+            CssSelector = ".download-btn"
+        };
+
+        var request2 = new GoodInfoDownloadRequest
+        {
+            Name = "測試2",
+            Url = "https://goodinfo.tw/test",
+            XPath = "//button[@id='download']"
+        };
+
+        // Assert
+        Assert.NotEmpty(request1.CssSelector!);
+        Assert.Null(request1.XPath);
+        Assert.NotEmpty(request2.XPath!);
+        Assert.Null(request2.CssSelector);
+    }
+
+    [Fact]
+    public void GoodInfoBatchResult_初始狀態應該正確()
+    {
+        // Act
+        var result = new GoodInfoBatchResult
+        {
+            TotalRequests = 10,
+            StartTime = DateTime.Now
+        };
+
+        // Assert
+        Assert.Equal(10, result.TotalRequests);
+        Assert.Equal(0, result.SuccessCount);
+        Assert.Equal(0, result.FailedCount);
+        Assert.Empty(result.SuccessfulDownloads);
+        Assert.Empty(result.FailedDownloads);
+    }
+
+    [Fact]
+    public void GoodInfoBatchResult_應該正確計算成功率()
+    {
+        // Arrange
+        var result = new GoodInfoBatchResult
+        {
+            TotalRequests = 10,
+            SuccessCount = 7,
+            FailedCount = 3
+        };
+
+        // Act
+        var successRate = (double)result.SuccessCount / result.TotalRequests * 100;
+
+        // Assert
+        Assert.Equal(70.0, successRate, 1);
+    }
+
+    [Fact]
+    public void GoodInfoUrlConfig_所有連結應該使用HTTPS()
+    {
+        // Act
+        var allRequests = GoodInfoUrlConfig.GetAllRequests();
+
+        // Assert
+        Assert.All(allRequests, r =>
+        {
+            Assert.StartsWith("https://", r.Url, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void GoodInfoUrlConfig_所有連結應該指向GoodInfo網域()
+    {
+        // Act
+        var allRequests = GoodInfoUrlConfig.GetAllRequests();
+
+        // Assert
+        Assert.All(allRequests, r =>
+        {
+            Assert.Contains("goodinfo.tw", r.Url, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [Fact]
+    public void GoodInfoUrlConfig_統計XPath覆蓋率()
+    {
+        // Act
+        var allRequests = GoodInfoUrlConfig.GetAllRequests();
+        var withXPath = allRequests.Count(r => !string.IsNullOrEmpty(r.XPath));
+        var withCssSelector = allRequests.Count(r => !string.IsNullOrEmpty(r.CssSelector));
+        var withEither = allRequests.Count(r => !string.IsNullOrEmpty(r.XPath) || !string.IsNullOrEmpty(r.CssSelector));
+
+        // Assert - 至少應該有一個連結有選擇器
+        Assert.True(withEither > 0, "至少應該有一些連結有 XPath 或 CssSelector");
+        
+        // 記錄覆蓋率（用於監控）
+        var coverage = (double)withEither / allRequests.Count * 100;
+        Console.WriteLine($"XPath/CssSelector 覆蓋率: {withEither}/{allRequests.Count} ({coverage:F1}%)");
+        Console.WriteLine($"  XPath: {withXPath}");
+        Console.WriteLine($"  CssSelector: {withCssSelector}");
     }
 
     public void Dispose()

@@ -70,6 +70,17 @@ builder.Services.AddHangfireServer(options =>
 // 註冊 Controllers
 builder.Services.AddControllers();
 
+// 配置 CORS
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -108,6 +119,9 @@ if (!app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
 }
+
+// 啟用 CORS
+app.UseCors();
 
 // 啟用靜態文件（手動操作頁面）
 app.UseDefaultFiles();
@@ -151,6 +165,15 @@ RecurringJob.AddOrUpdate<IImportService>(
 
 // 啟用 Controllers
 app.MapControllers();
+
+// 健康檢查端點（不帶 /api/import 前綴）
+app.MapGet("/health", () => Results.Ok(new
+{
+    Status = "Healthy",
+    Timestamp = DateTime.Now,
+    Version = "1.0.0",
+    Environment = app.Environment.EnvironmentName
+}));
 
 // 系統控制端點
 app.MapPost("/api/system/shutdown", async (IHostApplicationLifetime lifetime) =>

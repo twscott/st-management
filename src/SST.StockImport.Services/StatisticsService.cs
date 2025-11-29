@@ -78,75 +78,31 @@ public class StatisticsService : IStatisticsService
 
             await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
 
-            // 4. 更新 buyin table
-            sql = @"
-                UPDATE buyin a  
-                INNER JOIN (
-                    SELECT StockID, avgAmt, avgVol, StockDate, lastDate 
-                    FROM weekall5avg
-                ) b ON a.StockID = b.StockID  
-                SET 
-                    a.avgAmt5D = IFNULL(b.avgAmt, 0), 
-                    a.avgVol5D = IFNULL(b.avgVol, 0), 
-                    a.DataDate = b.StockDate, 
-                    a.lastDate = b.lastDate";
-
-            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
-
-            sql = @"
-                UPDATE buyin 
-                SET 
-                    lastVolRate = IF(lastVol = 0, 0, ROUND(onTimeVol / lastVol, 2)), 
-                    avg5VolRate = IF(avgVol5D = 0, 0, ROUND(onTimeVol / avgVol5D, 2))";
-
-            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
-
-            // 5. 更新 recommandstock table
-            sql = @"
-                UPDATE recommandstock a 
-                INNER JOIN (
-                    SELECT StockID, avgAmt, avgVol, StockDate, lastDate 
-                    FROM weekall5avg
-                ) b ON a.StockID = b.StockID  
-                SET 
-                    a.avgAmt5D = IFNULL(b.avgAmt, 0), 
-                    a.avgVol5D = IFNULL(b.avgVol, 0), 
-                    a.reccDate = b.StockDate, 
-                    a.lastDate = b.lastDate";
-
-            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
-
-            sql = @"
-                UPDATE recommandstock 
-                SET 
-                    lastVolRate = IF(lastVol = 0, 0, ROUND(onTimeVol / lastVol, 2)), 
-                    avg5VolRate = IF(avgVol5D = 0, 0, ROUND(onTimeVol / avgVol5D, 2))";
-
-            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
-
-            // 6. 更新 investbase table
-            sql = @"
-                UPDATE investbase a 
-                INNER JOIN (
-                    SELECT StockID, avgAmt, avgVol, StockDate, lastDate 
-                    FROM weekall5avg
-                ) b ON a.StockID = b.StockID  
-                SET 
-                    a.avgAmt5D = IFNULL(b.avgAmt, 0), 
-                    a.recDate = b.StockDate, 
-                    a.lastDate = b.lastDate, 
-                    a.avgVol5D = IFNULL(b.avgVol, 0)";
-
-            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+            // 4. 批次更新各 base tables 的 5日均價/均量
+            await Update5DayAverageForBaseTablesAsync(cancellationToken);
 
             // 7. 更新最新交易資訊到各 base table
             await UpdateBaseTablesWithLatestDataAsync(cancellationToken);
 
             result.IsSuccess = true;
             result.EndTime = DateTime.UtcNow;
-            result.ProcessedCount = await _dbContext.Database
-                .SqlQuery<int>($"SELECT COUNT(DISTINCT StockID) FROM tradedata")
-                .FirstOrDefaultAsync(cancellationToken);
+            
+            // 使用直接查詢獲取計數
+            var countSql = "SELECT COUNT(DISTINCT StockID) FROM tradedata";
+            var connection = _dbContext.Database.GetDbConnection();
+            await connection.OpenAsync(cancellationToken);
+            try
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = countSql;
+                command.CommandTimeout = 60;
+                var countResult = await command.ExecuteScalarAsync(cancellationToken);
+                result.ProcessedCount = countResult != null ? Convert.ToInt32(countResult) : 0;
+            }
+            finally
+            {
+                await connection.CloseAsync();
+            }
 
             _logger.LogInformation(
                 "5日均價/均量計算完成，處理 {Count} 檔股票，耗時 {Duration}ms",
@@ -187,22 +143,47 @@ public class StatisticsService : IStatisticsService
             // 由於原始方法較複雜，這裡提供簡化版本
             // TODO: 完整實作需要參考原始系統的 stock60days 計算邏輯
 
-            var sql = @"
-                UPDATE stock60days b 
-                INNER JOIN tradedata a ON a.StockID = b.StockID AND a.TransDate = b.StockDate 
-                SET 
-                    b.EndPrice = a.StockPrice, 
-                    b.vol = a.Vol, 
-                    b.mv5 = a.avgVol5D 
-                WHERE a.StockPrice <> b.EndPrice";
+            // 設定較長的 Command Timeout (120秒)
+            var previousTimeout = _dbContext.Database.GetCommandTimeout();
+            _dbContext.Database.SetCommandTimeout(120);
+            
+            try
+            {
+                var sql = @"
+                    UPDATE stock60days b 
+                    INNER JOIN tradedata a ON a.StockID = b.StockID AND a.TransDate = b.StockDate 
+                    SET 
+                        b.EndPrice = a.StockPrice, 
+                        b.vol = a.Vol, 
+                        b.mv5 = a.avgVol5D 
+                    WHERE a.StockPrice <> b.EndPrice";
 
-            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+                await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+            }
+            finally
+            {
+                _dbContext.Database.SetCommandTimeout(previousTimeout);
+            }
 
             result.IsSuccess = true;
             result.EndTime = DateTime.UtcNow;
-            result.ProcessedCount = await _dbContext.Database
-                .SqlQuery<int>($"SELECT COUNT(*) FROM stock60days WHERE StockDate = '{result.TradeDate:yyyy-MM-dd}'")
-                .FirstOrDefaultAsync(cancellationToken);
+            
+            // 使用直接查詢獲取計數
+            var countSql = $"SELECT COUNT(*) FROM stock60days WHERE StockDate = '{result.TradeDate:yyyy-MM-dd}'";
+            var connection = _dbContext.Database.GetDbConnection();
+            await connection.OpenAsync(cancellationToken);
+            try
+            {
+                using var command = connection.CreateCommand();
+                command.CommandText = countSql;
+                command.CommandTimeout = 60;
+                var countResult = await command.ExecuteScalarAsync(cancellationToken);
+                result.ProcessedCount = countResult != null ? Convert.ToInt32(countResult) : 0;
+            }
+            finally
+            {
+                await connection.CloseAsync();
+            }
 
             _logger.LogInformation(
                 "60日統計計算完成，處理 {Count} 檔股票，耗時 {Duration}ms",
@@ -361,60 +342,79 @@ public class StatisticsService : IStatisticsService
     }
 
     /// <summary>
+    /// 批次更新各 base tables 的 5日均價/均量
+    /// </summary>
+    private async Task Update5DayAverageForBaseTablesAsync(CancellationToken cancellationToken)
+    {
+        // 定義需要更新的 table 及其對應的日期欄位和成交量欄位
+        var tablesToUpdate = new[]
+        {
+            new { Table = "buyin", DateColumn = "DataDate", VolumeColumn = "onTimeVol" },
+            new { Table = "recommandstock", DateColumn = "reccDate", VolumeColumn = "onTimeVol" },
+            new { Table = "investbase", DateColumn = "recDate", VolumeColumn = "onTimeVol" }
+        };
+
+        foreach (var tableInfo in tablesToUpdate)
+        {
+            // 更新 5日均價/均量
+            var sql = $@"
+                UPDATE {tableInfo.Table} a 
+                INNER JOIN (
+                    SELECT StockID, avgAmt, avgVol, StockDate, lastDate 
+                    FROM weekall5avg
+                ) b ON a.StockID = b.StockID  
+                SET 
+                    a.avgAmt5D = IFNULL(b.avgAmt, 0), 
+                    a.avgVol5D = IFNULL(b.avgVol, 0), 
+                    a.{tableInfo.DateColumn} = b.StockDate, 
+                    a.lastDate = b.lastDate";
+
+            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+
+            // 更新成交量比率
+            sql = $@"
+                UPDATE {tableInfo.Table} 
+                SET 
+                    lastVolRate = IF(lastVol = 0, 0, ROUND({tableInfo.VolumeColumn} / lastVol, 2)), 
+                    avg5VolRate = IF(avgVol5D = 0, 0, ROUND({tableInfo.VolumeColumn} / avgVol5D, 2))";
+
+            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// 更新最新交易資訊到各 base table
     /// </summary>
     private async Task UpdateBaseTablesWithLatestDataAsync(CancellationToken cancellationToken)
     {
-        // 更新 investbase
-        var sql = @"
-            UPDATE investbase a 
-            INNER JOIN weekallmostrecent b ON a.StockID = b.StockID  
-            SET 
-                a.StockName = b.StockName, 
-                a.StockType = b.StockType, 
-                a.recDate = b.StockDate, 
-                a.lastDate = b.lastDate, 
-                a.transVol = b.transVol, 
-                a.onTimeVol = b.Vol, 
-                a.onTimePrice = b.EndPrice, 
-                a.OpenPriec = b.OpenPriec";
+        // 定義需要更新的 base tables 及其對應的日期欄位和成交量欄位
+        var baseTableMappings = new[]
+        {
+            new { Table = "investbase", DateColumn = "recDate", VolumeColumn = "onTimeVol", PriceColumn = "onTimePrice", JoinCondition = "a.StockID = b.StockID" },
+            new { Table = "recommandstock", DateColumn = "reccDate", VolumeColumn = "onTimeVol", PriceColumn = "onTimePrice", JoinCondition = "a.StockID = b.StockID" },
+            new { Table = "buyin", DateColumn = "DataDate", VolumeColumn = "onTimeVol", PriceColumn = "onTimePrice", JoinCondition = "a.StockID = b.StockID" }
+        };
 
-        await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        foreach (var mapping in baseTableMappings)
+        {
+            var sql = $@"
+                UPDATE {mapping.Table} a 
+                INNER JOIN weekallmostrecent b ON {mapping.JoinCondition}
+                SET 
+                    a.StockName = b.StockName, 
+                    a.StockType = b.StockType, 
+                    a.{mapping.DateColumn} = b.StockDate, 
+                    a.lastDate = b.lastDate, 
+                    a.transVol = b.transVol, 
+                    a.{mapping.VolumeColumn} = b.Vol, 
+                    a.{mapping.PriceColumn} = b.EndPrice, 
+                    a.OpenPriec = b.OpenPriec";
 
-        // 更新 recommandstock
-        sql = @"
-            UPDATE recommandstock a 
-            INNER JOIN weekallmostrecent b ON a.StockID = b.StockID 
-            SET 
-                a.StockName = b.StockName, 
-                a.StockType = b.StockType, 
-                a.reccDate = b.StockDate, 
-                a.lastDate = b.lastDate, 
-                a.transVol = b.transVol, 
-                a.onTimeVol = b.Vol, 
-                a.onTimePrice = b.EndPrice, 
-                a.OpenPriec = b.OpenPriec";
+            await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        }
 
-        await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
-
-        // 更新 buyin
-        sql = @"
-            UPDATE buyin a 
-            INNER JOIN weekallmostrecent b ON a.StockID = b.StockID 
-            SET 
-                a.StockName = b.StockName, 
-                a.StockType = b.StockType, 
-                a.DataDate = b.StockDate, 
-                a.lastDate = b.lastDate,  
-                a.transVol = b.transVol, 
-                a.onTimeVol = b.Vol, 
-                a.onTimePrice = b.EndPrice, 
-                a.OpenPriec = b.OpenPriec";
-
-        await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
-
-        // 更新 tradedata
-        sql = @"
+        // tradedata 有特殊的 JOIN 條件（需要匹配日期）
+        var tradedataSql = @"
             UPDATE tradedata a 
             INNER JOIN weekallmostrecent b ON a.StockID = b.StockID AND a.TransDate = b.StockDate 
             SET 
@@ -425,6 +425,6 @@ public class StatisticsService : IStatisticsService
                 a.StockPrice = b.EndPrice, 
                 a.OpenPriec = b.OpenPriec";
 
-        await _dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        await _dbContext.Database.ExecuteSqlRawAsync(tradedataSql, cancellationToken);
     }
 }
