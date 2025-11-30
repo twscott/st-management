@@ -1,0 +1,148 @@
+using System;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Moq;
+using Xunit;
+using SST.StockImport.Core.DTOs;
+using SST.StockImport.Services.Processors;
+using SST.StockImport.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace SST.StockImport.Tests.Processors;
+
+/// <summary>
+/// 警示統計處理器單元測試
+/// 第一層：單元測試 - 最基礎的測試層級
+/// </summary>
+public class AlertStatisticsProcessorTests
+{
+    private readonly Mock<ILogger<AlertStatisticsProcessor>> _mockLogger;
+    private readonly DbContextOptions<StockImportDbContext> _dbOptions;
+
+    public AlertStatisticsProcessorTests()
+    {
+        _mockLogger = new Mock<ILogger<AlertStatisticsProcessor>>();
+        _dbOptions = new DbContextOptionsBuilder<StockImportDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+    }
+
+    [Fact(DisplayName = "處理器名稱應該正確")]
+    public void ProcessorName_ShouldReturnCorrectValue()
+    {
+        // Arrange
+        using var context = new StockImportDbContext(_dbOptions);
+        var processor = new AlertStatisticsProcessor(context, _mockLogger.Object);
+
+        // Act
+        var processorName = processor.ProcessorName;
+
+        // Assert
+        Assert.Equal("警示統計更新", processorName);
+    }
+
+    [Fact(DisplayName = "預估執行時間應該為1分鐘")]
+    public void EstimatedDuration_ShouldReturnOneMinute()
+    {
+        // Arrange
+        using var context = new StockImportDbContext(_dbOptions);
+        var processor = new AlertStatisticsProcessor(context, _mockLogger.Object);
+
+        // Act
+        var duration = processor.EstimatedDuration;
+
+        // Assert
+        Assert.Equal(TimeSpan.FromMinutes(1), duration);
+    }
+
+    [Fact(DisplayName = "ProcessAsync 應該返回成功結果當無數據時")]
+    public async Task ProcessAsync_ShouldReturnSuccess_WhenNoData()
+    {
+        // Arrange
+        using var context = new StockImportDbContext(_dbOptions);
+        var processor = new AlertStatisticsProcessor(context, _mockLogger.Object);
+        var targetDate = new DateTime(2025, 11, 30);
+
+        // Act
+        var result = await processor.ProcessAsync(targetDate);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("警示統計更新", result.ProcessorName);
+        Assert.True(result.Success);
+        Assert.Equal(0, result.ProcessedCount);
+        Assert.True(result.Duration > TimeSpan.Zero);
+        Assert.Null(result.ErrorMessage);
+    }
+
+    [Fact(DisplayName = "ProcessAsync 應該正確處理異常")]
+    public async Task ProcessAsync_ShouldHandleException_WhenDatabaseError()
+    {
+        // Arrange
+        var mockContext = new Mock<StockImportDbContext>(_dbOptions);
+        mockContext.Setup(x => x.Database.ExecuteSqlRawAsync(It.IsAny<string>(), It.IsAny<object[]>()))
+                  .ThrowsAsync(new InvalidOperationException("Database connection failed"));
+        
+        var processor = new AlertStatisticsProcessor(mockContext.Object, _mockLogger.Object);
+        var targetDate = new DateTime(2025, 11, 30);
+
+        // Act
+        var result = await processor.ProcessAsync(targetDate);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.False(result.Success);
+        Assert.Equal("Database connection failed", result.ErrorMessage);
+        Assert.True(result.Duration > TimeSpan.Zero);
+    }
+
+    [Theory(DisplayName = "ProcessAsync 應該處理不同的日期格式")]
+    [InlineData(2025, 1, 1)]
+    [InlineData(2025, 12, 31)]
+    [InlineData(2024, 2, 29)] // 閏年測試
+    public async Task ProcessAsync_ShouldHandleDifferentDates(int year, int month, int day)
+    {
+        // Arrange
+        using var context = new StockImportDbContext(_dbOptions);
+        var processor = new AlertStatisticsProcessor(context, _mockLogger.Object);
+        var targetDate = new DateTime(year, month, day);
+
+        // Act
+        var result = await processor.ProcessAsync(targetDate);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.True(result.Success);
+    }
+
+    [Fact(DisplayName = "ProcessAsync 應該記錄正確的日誌")]
+    public async Task ProcessAsync_ShouldLogCorrectMessages()
+    {
+        // Arrange
+        using var context = new StockImportDbContext(_dbOptions);
+        var processor = new AlertStatisticsProcessor(context, _mockLogger.Object);
+        var targetDate = new DateTime(2025, 11, 30);
+
+        // Act
+        await processor.ProcessAsync(targetDate);
+
+        // Assert
+        _mockLogger.Verify(
+            x => x.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("開始執行警示統計更新")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+
+        _mockLogger.Verify(
+            x => x.Log(
+                LogLevel.Information,
+                It.IsAny<EventId>(),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("警示統計更新完成")),
+                It.IsAny<Exception>(),
+                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            Times.Once);
+    }
+}

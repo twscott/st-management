@@ -209,7 +209,136 @@ public class ImportApiService
             return null;
         }
     }
+
+    // === 補充數據處理相關方法 ===
+
+    /// <summary>
+    /// 執行所有補充數據處理
+    /// </summary>
+    public async Task<SupplementResultDto?> ProcessAllSupplementAsync(DateTime targetDate)
+    {
+        try
+        {
+            var request = new SupplementRequestDto(targetDate);
+            var response = await _httpClient.PostAsJsonAsync("/api/supplement/process-all", request);
+            response.EnsureSuccessStatusCode();
+            
+            var result = await response.Content.ReadFromJsonAsync<SupplementResultDto>();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "執行所有補充數據處理失敗");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 執行警示統計更新
+    /// </summary>
+    public async Task<ProcessorResultDto?> ProcessAlertStatisticsAsync(DateTime targetDate)
+    {
+        try
+        {
+            var request = new SupplementRequestDto(targetDate);
+            var response = await _httpClient.PostAsJsonAsync("/api/supplement/alert-statistics", request);
+            response.EnsureSuccessStatusCode();
+            
+            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "執行警示統計更新失敗");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 執行技術指標補算
+    /// </summary>
+    public async Task<ProcessorResultDto?> ProcessTechnicalIndicatorsAsync(DateTime targetDate)
+    {
+        try
+        {
+            var request = new SupplementRequestDto(targetDate);
+            var response = await _httpClient.PostAsJsonAsync("/api/supplement/technical-indicators", request);
+            response.EnsureSuccessStatusCode();
+            
+            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "執行技術指標補算失敗");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 執行高低點分析
+    /// </summary>
+    public async Task<ProcessorResultDto?> ProcessPriceAnalysisAsync(DateTime targetDate)
+    {
+        try
+        {
+            var request = new SupplementRequestDto(targetDate);
+            var response = await _httpClient.PostAsJsonAsync("/api/supplement/price-analysis", request);
+            response.EnsureSuccessStatusCode();
+            
+            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "執行高低點分析失敗");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 執行成交量統計
+    /// </summary>
+    public async Task<ProcessorResultDto?> ProcessVolumeStatisticsAsync(DateTime targetDate)
+    {
+        try
+        {
+            var request = new SupplementRequestDto(targetDate);
+            var response = await _httpClient.PostAsJsonAsync("/api/supplement/volume-statistics", request);
+            response.EnsureSuccessStatusCode();
+            
+            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "執行成交量統計失敗");
+            return null;
+        }
+    }
 }
+
+// === 補充數據處理的數據模型 ===
+
+public record SupplementRequestDto(DateTime TargetDate);
+
+public record SupplementResultDto(
+    bool Success,
+    DateTime TargetDate,
+    TimeSpan TotalDuration,
+    List<ProcessorResultDto> ProcessorResults,
+    string? ErrorMessage
+);
+
+public record ProcessorResultDto(
+    string ProcessorName,
+    bool Success,
+    int ProcessedCount,
+    TimeSpan Duration,
+    string? ErrorMessage
+);
+
+// Response Models
 
 // Response Models
 public record HealthStatus(string Status, string Version, string Environment, DateTime Timestamp);

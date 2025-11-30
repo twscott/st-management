@@ -827,12 +827,265 @@
                                 {
                                     <div class="mt-3">
                                         <strong>❌ 失敗項目:</strong>
-                                        <ul class="mb-0">
+                                        <div class="row g-2 mt-2">
                                             @foreach (var failure in goodInfoTestResult.FailedDownloads)
                                             {
-                                                <li>@failure.Name</li>
+                                                <div class="col-md-6">
+                                                    <div class="card border-danger">
+                                                        <div class="card-body p-2">
+                                                            <h6 class="card-title mb-1">
+                                                                <i class="bi bi-x-circle text-danger"></i> 
+                                                                <strong>@failure.Name</strong>
+                                                            </h6>
+                                                            <a href="@failure.Url" target="_blank" class="btn btn-sm btn-outline-primary btn-sm w-100 mb-1">
+                                                                <i class="bi bi-link-45deg"></i> 開啟連結
+                                                            </a>
+                                                            @if (!string.IsNullOrEmpty(failure.Error))
+                                                            {
+                                                                <small class="text-danger d-block">
+                                                                    <i class="bi bi-info-circle"></i> @failure.Error
+                                                                </small>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             }
-                                        </ul>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        
+        <!-- 補充數據處理區塊 - 整合到 GoodInfo 後續處理 -->
+        <div class="col-md-12" data-testid="supplement-data-section">
+            <div class="card">
+                <div class="card-header" style="background-color: #17a2b8; color: white;">
+                    <h4 class="mb-0">🔧 GoodInfo 後續處理</h4>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        <strong>說明：</strong>GoodInfo 數據下載完成後的補充分析處理
+                        <ul class="mb-0 mt-2">
+                            <li><strong>執行順序：</strong>請先執行 GoodInfo 數據下載，再執行這些分析功能</li>
+                            <li><strong>數據依賴：</strong>使用 GoodInfo 下載的數據進行進一步分析和統計</li>
+                            <li><strong>效能優化：</strong>僅重算指定日期前後5天（大幅提升效能）</li>
+                        </ul>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">目標日期</label>
+                            <input type="date" class="form-control" @bind="supplementTargetDate" @bind:format="yyyy-MM-dd" />
+                        </div>
+                        <div class="col-md-8 d-flex align-items-end">
+                            <button class="btn btn-info btn-lg me-2" @onclick="ProcessAllSupplementAsync" disabled="@isProcessingSupplement" data-testid="btn-process-all">
+                                @if (isProcessingSupplement && processingType == "all")
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                <text>🔄 執行 GoodInfo 後續分析</text>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <div class="card h-100" style="border: 2px solid #007bff;" data-testid="processor-card-alert">
+                                <div class="card-body">
+                                    <h6 class="card-title" style="color: #17a2b8;">⚡ 警示統計更新</h6>
+                                    <p class="text-muted small">從 alertlog 匯總警示統計到各主檔表（最重要）</p>
+                                    <p class="text-muted small"><strong>預估時間：</strong>1-2 分鐘</p>
+                                    <button class="btn btn-info btn-sm w-100" @onclick="ProcessAlertStatisticsAsync" disabled="@isProcessingSupplement" data-testid="btn-alert-statistics">
+                                        @if (isProcessingSupplement && processingType == "alert")
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        <text>執行處理</text>
+                                    </button>
+                                </div>
+                            </div>
+                            @if (supplementResult?.ProcessorResults?.Any(r => r.ProcessorName == "警示統計更新") == true)
+                            {
+                                var alertProcessor = supplementResult.ProcessorResults.First(r => r.ProcessorName == "警示統計更新");
+                                <div class="mt-2" data-testid="alert-result">
+                                    <div class="alert alert-@(alertProcessor.Success ? "success" : "danger") py-2">
+                                        <small>
+                                            @(alertProcessor.Success ? "✅ 處理完成" : "❌ 處理失敗")
+                                            <br />處理: @alertProcessor.ProcessedCount 筆 | 耗時: @alertProcessor.Duration.ToString(@"mm\:ss")
+                                            @if (!string.IsNullOrEmpty(alertProcessor.ErrorMessage))
+                                            {
+                                                <br /><span class="text-danger">@alertProcessor.ErrorMessage</span>
+                                            }
+                                        </small>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="col-md-3 mb-3">
+                            <div class="card h-100" style="border: 2px solid #007bff;" data-testid="processor-card-technical">
+                                <div class="card-body">
+                                    <h6 class="card-title" style="color: #17a2b8;">📊 技術指標補算</h6>
+                                    <p class="text-muted small">計算股價技術指標、漲跌幅、成交量比例</p>
+                                    <p class="text-muted small"><strong>預估時間：</strong>30 秒</p>
+                                    <button class="btn btn-info btn-sm w-100" @onclick="ProcessTechnicalIndicatorsAsync" disabled="@isProcessingSupplement" data-testid="btn-technical-indicators">
+                                        @if (isProcessingSupplement && processingType == "technical")
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        <text>執行處理</text>
+                                    </button>
+                                </div>
+                            </div>
+                            @if (supplementResult?.ProcessorResults?.Any(r => r.ProcessorName == "技術指標分析") == true)
+                            {
+                                var techProcessor = supplementResult.ProcessorResults.First(r => r.ProcessorName == "技術指標分析");
+                                <div class="mt-2" data-testid="technical-result">
+                                    <div class="alert alert-@(techProcessor.Success ? "success" : "danger") py-2">
+                                        <small>
+                                            @(techProcessor.Success ? "✅ 處理完成" : "❌ 尚未實作")
+                                            @if (!string.IsNullOrEmpty(techProcessor.ErrorMessage))
+                                            {
+                                                <br /><span class="text-warning">@techProcessor.ErrorMessage</span>
+                                            }
+                                        </small>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="col-md-3 mb-3">
+                            <div class="card h-100" style="border: 2px solid #007bff;" data-testid="processor-card-price">
+                                <div class="card-body">
+                                    <h6 class="card-title" style="color: #007bff;">🔝 高低點分析</h6>
+                                    <p class="text-muted small">計算前5個最高點和最低點，更新 TipPrice</p>
+                                    <p class="text-muted small"><strong>預估時間：</strong>1 分鐘</p>
+                                    <button class="btn btn-info btn-sm w-100" @onclick="ProcessPriceAnalysisAsync" disabled="@isProcessingSupplement" data-testid="btn-price-analysis">
+                                        @if (isProcessingSupplement && processingType == "price")
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        <text>執行處理</text>
+                                    </button>
+                                </div>
+                            </div>
+                            @if (supplementResult?.ProcessorResults?.Any(r => r.ProcessorName == "價格走勢分析") == true)
+                            {
+                                var priceProcessor = supplementResult.ProcessorResults.First(r => r.ProcessorName == "價格走勢分析");
+                                <div class="mt-2" data-testid="price-result">
+                                    <div class="alert alert-@(priceProcessor.Success ? "success" : "danger") py-2">
+                                        <small>
+                                            @(priceProcessor.Success ? "✅ 處理完成" : "❌ 尚未實作")
+                                            @if (!string.IsNullOrEmpty(priceProcessor.ErrorMessage))
+                                            {
+                                                <br /><span class="text-warning">@priceProcessor.ErrorMessage</span>
+                                            }
+                                        </small>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="col-md-3 mb-3">
+                            <div class="card h-100" style="border: 2px solid #007bff;" data-testid="processor-card-volume">
+                                <div class="card-body">
+                                    <h6 class="card-title" style="color: #007bff;">📈 成交量統計</h6>
+                                    <p class="text-muted small">計算成交量相關統計、平均量、中位數</p>
+                                    <p class="text-muted small"><strong>預估時間：</strong>1 分鐘</p>
+                                    <button class="btn btn-info btn-sm w-100" @onclick="ProcessVolumeStatisticsAsync" disabled="@isProcessingSupplement" data-testid="btn-volume-statistics">
+                                        @if (isProcessingSupplement && processingType == "volume")
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-1"></span>
+                                        }
+                                        <text>執行處理</text>
+                                    </button>
+                                </div>
+                            </div>
+                            @if (supplementResult?.ProcessorResults?.Any(r => r.ProcessorName == "成交量統計") == true)
+                            {
+                                var volumeProcessor = supplementResult.ProcessorResults.First(r => r.ProcessorName == "成交量統計");
+                                <div class="mt-2" data-testid="volume-result">
+                                    <div class="alert alert-@(volumeProcessor.Success ? "success" : "danger") py-2">
+                                        <small>
+                                            @(volumeProcessor.Success ? "✅ 處理完成" : "❌ 尚未實作")
+                                            @if (!string.IsNullOrEmpty(volumeProcessor.ErrorMessage))
+                                            {
+                                                <br /><span class="text-warning">@volumeProcessor.ErrorMessage</span>
+                                            }
+                                        </small>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    @if (supplementResult != null)
+                    {
+                        <div class="mt-3" data-testid="process-all-result">
+                            <div class="alert alert-@(supplementResult.Success ? "success" : "warning")">
+                                <h6>
+                                    @if (supplementResult.Success)
+                                    {
+                                        <i class="bi bi-check-circle-fill me-2"></i><text>全部處理完成</text>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-exclamation-triangle-fill me-2"></i><text>處理完成但有失敗項目</text>
+                                    }
+                                </h6>
+                                
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <strong>目標日期:</strong> @supplementResult.TargetDate.ToString("yyyy-MM-dd")
+                                    </div>
+                                    <div class="col-md-4">
+                                        <strong>執行時間:</strong> @supplementResult.TotalDuration.ToString(@"mm\:ss")
+                                    </div>
+                                    <div class="col-md-4">
+                                        <strong>處理器數量:</strong> @supplementResult.ProcessorResults.Count 個
+                                    </div>
+                                </div>
+
+                                @if (supplementResult.ProcessorResults.Any())
+                                {
+                                    <div class="mt-3">
+                                        <strong>📋 處理結果詳情:</strong>
+                                        <div class="row g-2 mt-1">
+                                            @foreach (var processor in supplementResult.ProcessorResults)
+                                            {
+                                                <div class="col-md-6">
+                                                    <div class="card border-@(processor.Success ? "success" : "danger")">
+                                                        <div class="card-body p-2">
+                                                            <h6 class="card-title mb-1">
+                                                                @(processor.Success ? "✅" : "❌") @processor.ProcessorName
+                                                            </h6>
+                                                            <small class="text-muted d-block">
+                                                                處理: <strong>@processor.ProcessedCount</strong> 筆 | 
+                                                                耗時: <strong>@processor.Duration.ToString(@"mm\:ss")</strong>
+                                                            </small>
+                                                            @if (!string.IsNullOrEmpty(processor.ErrorMessage))
+                                                            {
+                                                                <small class="text-danger d-block mt-1">
+                                                                    <i class="bi bi-exclamation-triangle"></i> @processor.ErrorMessage
+                                                                </small>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                                
+                                @if (!string.IsNullOrEmpty(supplementResult.ErrorMessage))
+                                {
+                                    <div class="alert alert-danger mt-3 mb-0">
+                                        <strong>錯誤訊息:</strong> @supplementResult.ErrorMessage
                                     </div>
                                 }
                             </div>
@@ -864,6 +1117,12 @@
     private string downloadCategory = "";
     private List<GoodInfoLinkInfo>? goodInfoLinks;
     private GoodInfoTestResult? goodInfoTestResult;
+    
+    // 補充數據處理相關變數
+    private DateTime supplementTargetDate = DateTime.Today;
+    private bool isProcessingSupplement = false;
+    private string processingType = "";
+    private SupplementResultDto? supplementResult;
 
     protected override async Task OnInitializedAsync()
     {
@@ -1072,6 +1331,203 @@
         {
             isDownloadingGoodInfo = false;
             downloadCategory = "";
+            StateHasChanged();
+        }
+    }
+
+    // === 補充數據處理方法 ===
+
+    /// <summary>
+    /// 執行所有補充數據處理
+    /// </summary>
+    private async Task ProcessAllSupplementAsync()
+    {
+        isProcessingSupplement = true;
+        processingType = "all";
+        supplementResult = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("開始執行所有補充數據處理，目標日期: {TargetDate}", supplementTargetDate);
+            supplementResult = await ApiService.ProcessAllSupplementAsync(supplementTargetDate);
+            
+            if (supplementResult != null)
+            {
+                var successCount = supplementResult.ProcessorResults.Count(r => r.Success);
+                Logger.LogInformation(
+                    "補充數據處理完成: 成功 {Success}/{Total}, 總耗時 {Duration}", 
+                    successCount, 
+                    supplementResult.ProcessorResults.Count,
+                    supplementResult.TotalDuration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "執行補充數據處理失敗");
+            supplementResult = new SupplementResultDto(
+                false, supplementTargetDate, TimeSpan.Zero, new(), ex.Message);
+        }
+        finally
+        {
+            isProcessingSupplement = false;
+            processingType = "";
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// 執行警示統計更新
+    /// </summary>
+    private async Task ProcessAlertStatisticsAsync()
+    {
+        isProcessingSupplement = true;
+        processingType = "alert";
+        supplementResult = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("開始執行警示統計更新，目標日期: {TargetDate}", supplementTargetDate);
+            var result = await ApiService.ProcessAlertStatisticsAsync(supplementTargetDate);
+            
+            if (result != null)
+            {
+                supplementResult = new SupplementResultDto(
+                    result.Success, supplementTargetDate, result.Duration, 
+                    new List<ProcessorResultDto> { result }, null);
+
+                Logger.LogInformation("警示統計更新完成: {Success}, 處理 {Count} 筆, 耗時 {Duration}", 
+                    result.Success, result.ProcessedCount, result.Duration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "執行警示統計更新失敗");
+            supplementResult = new SupplementResultDto(
+                false, supplementTargetDate, TimeSpan.Zero, new(), ex.Message);
+        }
+        finally
+        {
+            isProcessingSupplement = false;
+            processingType = "";
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// 執行技術指標補算
+    /// </summary>
+    private async Task ProcessTechnicalIndicatorsAsync()
+    {
+        isProcessingSupplement = true;
+        processingType = "technical";
+        supplementResult = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("開始執行技術指標補算，目標日期: {TargetDate}", supplementTargetDate);
+            var result = await ApiService.ProcessTechnicalIndicatorsAsync(supplementTargetDate);
+            
+            if (result != null)
+            {
+                supplementResult = new SupplementResultDto(
+                    result.Success, supplementTargetDate, result.Duration, 
+                    new List<ProcessorResultDto> { result }, null);
+
+                Logger.LogInformation("技術指標補算完成: {Success}, 處理 {Count} 筆, 耗時 {Duration}", 
+                    result.Success, result.ProcessedCount, result.Duration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "執行技術指標補算失敗");
+            supplementResult = new SupplementResultDto(
+                false, supplementTargetDate, TimeSpan.Zero, new(), ex.Message);
+        }
+        finally
+        {
+            isProcessingSupplement = false;
+            processingType = "";
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// 執行高低點分析
+    /// </summary>
+    private async Task ProcessPriceAnalysisAsync()
+    {
+        isProcessingSupplement = true;
+        processingType = "price";
+        supplementResult = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("開始執行高低點分析，目標日期: {TargetDate}", supplementTargetDate);
+            var result = await ApiService.ProcessPriceAnalysisAsync(supplementTargetDate);
+            
+            if (result != null)
+            {
+                supplementResult = new SupplementResultDto(
+                    result.Success, supplementTargetDate, result.Duration, 
+                    new List<ProcessorResultDto> { result }, null);
+
+                Logger.LogInformation("高低點分析完成: {Success}, 處理 {Count} 筆, 耗時 {Duration}", 
+                    result.Success, result.ProcessedCount, result.Duration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "執行高低點分析失敗");
+            supplementResult = new SupplementResultDto(
+                false, supplementTargetDate, TimeSpan.Zero, new(), ex.Message);
+        }
+        finally
+        {
+            isProcessingSupplement = false;
+            processingType = "";
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// 執行成交量統計
+    /// </summary>
+    private async Task ProcessVolumeStatisticsAsync()
+    {
+        isProcessingSupplement = true;
+        processingType = "volume";
+        supplementResult = null;
+        StateHasChanged();
+
+        try
+        {
+            Logger.LogInformation("開始執行成交量統計，目標日期: {TargetDate}", supplementTargetDate);
+            var result = await ApiService.ProcessVolumeStatisticsAsync(supplementTargetDate);
+            
+            if (result != null)
+            {
+                supplementResult = new SupplementResultDto(
+                    result.Success, supplementTargetDate, result.Duration, 
+                    new List<ProcessorResultDto> { result }, null);
+
+                Logger.LogInformation("成交量統計完成: {Success}, 處理 {Count} 筆, 耗時 {Duration}", 
+                    result.Success, result.ProcessedCount, result.Duration);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "執行成交量統計失敗");
+            supplementResult = new SupplementResultDto(
+                false, supplementTargetDate, TimeSpan.Zero, new(), ex.Message);
+        }
+        finally
+        {
+            isProcessingSupplement = false;
+            processingType = "";
             StateHasChanged();
         }
     }
