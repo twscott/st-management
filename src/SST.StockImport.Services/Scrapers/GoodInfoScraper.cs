@@ -78,17 +78,20 @@ public class GoodInfoScraper : IDisposable
         }
         catch (NoSuchElementException ex)
         {
-            _logger.LogWarning(ex, "找不到下載按鈕: {Name} - {Message}", request.Name, ex.Message);
+            var errorMsg = $"找不到下載按鈕: {ex.Message}";
+            _logger.LogWarning(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
             return false;
         }
         catch (WebDriverException ex)
         {
-            _logger.LogError(ex, "WebDriver 錯誤: {Name}", request.Name);
+            var errorMsg = $"WebDriver 錯誤: {ex.Message}";
+            _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "下載 GoodInfo 資料失敗: {Name}", request.Name);
+            var errorMsg = $"下載失敗: {ex.GetType().Name} - {ex.Message}";
+            _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
             return false;
         }
     }
@@ -120,18 +123,22 @@ public class GoodInfoScraper : IDisposable
                 {
                     result.SuccessCount++;
                     result.SuccessfulDownloads.Add(request.Name);
+                    _logger.LogInformation("✅ [{Name}] 下載成功", request.Name);
                 }
                 else
                 {
                     result.FailedCount++;
-                    result.FailedDownloads.Add((request.Name, request.Url, "下載失敗"));
+                    var errorMsg = "下載失敗（未捕獲具體錯誤）";
+                    result.FailedDownloads.Add((request.Name, request.Url, errorMsg));
+                    _logger.LogWarning("❌ [{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
                 }
             }
             catch (Exception ex)
             {
                 result.FailedCount++;
-                result.FailedDownloads.Add((request.Name, request.Url, ex.Message));
-                _logger.LogError(ex, "處理 {Name} 時發生錯誤", request.Name);
+                var errorMsg = $"{ex.GetType().Name}: {ex.Message}";
+                result.FailedDownloads.Add((request.Name, request.Url, errorMsg));
+                _logger.LogError(ex, "❌ [{Name}] 處理時發生錯誤: {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
             }
 
             // 在請求之間加入隨機延遲 (8-10 秒)，避免被封鎖

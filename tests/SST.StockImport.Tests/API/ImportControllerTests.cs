@@ -20,6 +20,8 @@ public class ImportControllerTests : IClassFixture<WebApplicationFactory<Program
     {
         _factory = factory;
         _client = factory.CreateClient();
+        // 設定 HttpClient 超時為 10 分鐘（GoodInfo 需要較長處理時間）
+        _client.Timeout = TimeSpan.FromMinutes(10);
     }
 
     [Fact(DisplayName = "API 健康檢查應該返回 200 OK")]
@@ -44,7 +46,7 @@ public class ImportControllerTests : IClassFixture<WebApplicationFactory<Program
         content.Should().NotBeNullOrWhiteSpace();
     }
 
-    [Fact(DisplayName = "觸發每日匯入應該接受請求")]
+    [Fact(DisplayName = "觸發每日匯入應該接受請求", Timeout = 600000)] // 10 分鐘超時（GoodInfo 需要較長時間）
     public async Task TriggerDailyImport_ShouldAcceptRequest()
     {
         // Arrange
@@ -55,7 +57,8 @@ public class ImportControllerTests : IClassFixture<WebApplicationFactory<Program
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/import/daily", request);
+        using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(10));
+        var response = await _client.PostAsJsonAsync("/api/import/daily", request, cts.Token);
 
         // Assert
         // 接受 200 OK 或 202 Accepted
