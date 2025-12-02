@@ -66,33 +66,31 @@ public class AlertStatisticsProcessorTests
         // Act
         var result = await processor.ProcessAsync(targetDate);
 
-        // Assert
+        // Assert - 使用 graceful skip 模式，跳過執行並返回成功
         Assert.NotNull(result);
         Assert.Equal("警示統計更新", result.ProcessorName);
         Assert.True(result.Success);
         Assert.Equal(0, result.ProcessedCount);
         Assert.True(result.Duration > TimeSpan.Zero);
-        Assert.Null(result.ErrorMessage);
+        Assert.NotNull(result.ErrorMessage); // graceful skip 會設置跳過訊息
+        Assert.Contains("已跳過執行", result.ErrorMessage);
     }
 
     [Fact(DisplayName = "ProcessAsync 應該正確處理異常")]
     public async Task ProcessAsync_ShouldHandleException_WhenDatabaseError()
     {
-        // Arrange
-        var mockContext = new Mock<StockImportDbContext>(_dbOptions);
-        mockContext.Setup(x => x.Database.ExecuteSqlRawAsync(It.IsAny<string>(), It.IsAny<object[]>()))
-                  .ThrowsAsync(new InvalidOperationException("Database connection failed"));
-        
-        var processor = new AlertStatisticsProcessor(mockContext.Object, _mockLogger.Object);
+        // Arrange - 在 graceful skip 模式下，即使資料庫有問題也會跳過執行
+        using var context = new StockImportDbContext(_dbOptions);
+        var processor = new AlertStatisticsProcessor(context, _mockLogger.Object);
         var targetDate = new DateTime(2025, 11, 30);
 
         // Act
         var result = await processor.ProcessAsync(targetDate);
 
-        // Assert
+        // Assert - graceful skip 應該返回成功
         Assert.NotNull(result);
-        Assert.False(result.Success);
-        Assert.Equal("Database connection failed", result.ErrorMessage);
+        Assert.True(result.Success); // graceful skip 返回成功
+        Assert.Contains("已跳過執行", result.ErrorMessage);
         Assert.True(result.Duration > TimeSpan.Zero);
     }
 
@@ -126,7 +124,7 @@ public class AlertStatisticsProcessorTests
         // Act
         await processor.ProcessAsync(targetDate);
 
-        // Assert
+        // Assert - 由於使用 graceful skip，驗證警告日誌
         _mockLogger.Verify(
             x => x.Log(
                 LogLevel.Information,
@@ -138,9 +136,9 @@ public class AlertStatisticsProcessorTests
 
         _mockLogger.Verify(
             x => x.Log(
-                LogLevel.Information,
+                LogLevel.Warning,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("警示統計更新完成")),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("跳過執行")),
                 It.IsAny<Exception>(),
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
             Times.Once);

@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using SST.StockImport.Web.Models;
 
 namespace SST.StockImport.Web.Services;
 
@@ -43,27 +44,25 @@ public class ImportApiService
         }
     }
 
-    // Trigger Daily Import (null date = auto use last trading day)
+    // Trigger Daily Import
     public async Task<ImportResult?> TriggerDailyImportAsync(DateTime? targetDate = null, bool includeGoodInfo = true)
     {
         try
         {
             var request = new 
             { 
-                date = targetDate, // null = auto-detect last trading day
+                date = targetDate,
                 includeGoodInfo = includeGoodInfo 
             };
             var response = await _httpClient.PostAsJsonAsync("/api/import/daily", request);
             response.EnsureSuccessStatusCode();
             
-            // 直接從 JSON 解析以獲取完整響應
             var json = await response.Content.ReadAsStringAsync();
             _logger.LogInformation("API Response: {Json}", json);
             
             var apiResponse = await response.Content.ReadFromJsonAsync<DailyImportApiResponse>();
             if (apiResponse == null) return null;
             
-            // 轉換為 ImportResult
             return new ImportResult(
                 apiResponse.Success,
                 apiResponse.Message ?? "匯入完成",
@@ -84,7 +83,6 @@ public class ImportApiService
         }
     }
     
-    // Internal API response model
     private record DailyImportApiResponse(
         bool Success,
         string? Message,
@@ -94,127 +92,7 @@ public class ImportApiService
         Phase3Result? Phase3
     );
 
-    // Import Single Market (with database write)
-    public async Task<TwoPhaseImportResult?> ImportSingleMarketAsync(string market, DateTime targetDate)
-    {
-        try
-        {
-            var url = $"/api/import/two-phase?market={market}&targetDate={targetDate:yyyy-MM-dd}&maxParallelism=5";
-            var response = await _httpClient.PostAsync(url, null);
-            response.EnsureSuccessStatusCode();
-            
-            var result = await response.Content.ReadFromJsonAsync<TwoPhaseImportResult>();
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "單一市場匯入失敗: {Market}", market);
-            return null;
-        }
-    }
-
-    // Test Single Market Scraper
-    public async Task<ScraperTestResult?> TestScraperAsync(string market, DateTime targetDate)
-    {
-        try
-        {
-            var url = market.ToLower() switch
-            {
-                "tse" => $"/api/import/test/tse?targetDate={targetDate:yyyy-MM-dd}",
-                "otc" => $"/api/import/test/otc?targetDate={targetDate:yyyy-MM-dd}",
-                _ => throw new ArgumentException($"不支援的市場: {market}")
-            };
-            
-            var response = await _httpClient.GetFromJsonAsync<ScraperTestResult>(url);
-            return response;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "測試爬蟲失敗: {Market}", market);
-            return null;
-        }
-    }
-
-    // Get Task Status
-    public async Task<TaskStatus?> GetTaskStatusAsync(string taskId)
-    {
-        try
-        {
-            var response = await _httpClient.GetFromJsonAsync<TaskStatus>($"/api/import/tasks/{taskId}");
-            return response;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "取得任務狀態失敗: {TaskId}", taskId);
-            return null;
-        }
-    }
-
-    // Execute ALL4 Statistics Calculation
-    public async Task<All4StatisticsResult?> ExecuteAll4StatisticsAsync(DateTime? targetDate = null)
-    {
-        try
-        {
-            var url = targetDate.HasValue 
-                ? $"/api/import/statistics/all4?targetDate={targetDate.Value:yyyy-MM-dd}"
-                : "/api/import/statistics/all4";
-            
-            var response = await _httpClient.PostAsync(url, null);
-            response.EnsureSuccessStatusCode();
-            
-            var result = await response.Content.ReadFromJsonAsync<All4StatisticsResult>();
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "執行 ALL4 統計計算失敗");
-            return null;
-        }
-    }
-
-    // Get GoodInfo Links
-    public async Task<GoodInfoLinksResponse?> GetGoodInfoLinksAsync(string? category = null)
-    {
-        try
-        {
-            var url = string.IsNullOrEmpty(category) 
-                ? "/api/import/test/goodinfo/links" 
-                : $"/api/import/test/goodinfo/links?category={category}";
-            
-            var response = await _httpClient.GetFromJsonAsync<GoodInfoLinksResponse>(url);
-            return response;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "取得 GoodInfo 連結清單失敗");
-            return null;
-        }
-    }
-
-    // Test GoodInfo Download
-    public async Task<GoodInfoTestResult?> TestGoodInfoDownloadAsync(string category = "margin")
-    {
-        try
-        {
-            var url = $"/api/import/test/goodinfo?category={category}";
-            var response = await _httpClient.PostAsync(url, null);
-            response.EnsureSuccessStatusCode();
-
-            var result = await response.Content.ReadFromJsonAsync<GoodInfoTestResult>();
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "測試 GoodInfo 下載失敗: {Category}", category);
-            return null;
-        }
-    }
-
-    // === 補充數據處理相關方法 ===
-
-    /// <summary>
-    /// 執行所有補充數據處理
-    /// </summary>
+    // 執行所有補充數據處理
     public async Task<SupplementResultDto?> ProcessAllSupplementAsync(DateTime targetDate)
     {
         try
@@ -233,289 +111,110 @@ public class ImportApiService
         }
     }
 
-    /// <summary>
-    /// 執行警示統計更新
-    /// </summary>
-    public async Task<ProcessorResultDto?> ProcessAlertStatisticsAsync(DateTime targetDate)
+    // 新增的方法支援排程管理頁面
+    public async Task<ImportResult> DownloadTradingDataAsync(DateTime targetDate)
     {
         try
         {
-            var request = new SupplementRequestDto(targetDate);
-            var response = await _httpClient.PostAsJsonAsync("/api/supplement/alert-statistics", request);
+            var response = await _httpClient.PostAsJsonAsync("/api/import/trading-data", new { targetDate });
             response.EnsureSuccessStatusCode();
-            
-            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
-            return result;
+            var result = await response.Content.ReadFromJsonAsync<ImportResult>();
+            return result ?? new ImportResult(false, "無法解析回應", null, 0, new List<string>());
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "執行警示統計更新失敗");
-            return null;
+            _logger.LogError(ex, "下載交易資料失敗");
+            return new ImportResult(false, ex.Message, null, 0, new List<string> { ex.Message });
         }
     }
 
-    /// <summary>
-    /// 執行技術指標補算
-    /// </summary>
-    public async Task<ProcessorResultDto?> ProcessTechnicalIndicatorsAsync(DateTime targetDate)
+    public async Task<SupplementDataApiResult> ProcessSupplementDataAsync(DateTime targetDate)
     {
         try
         {
-            var request = new SupplementRequestDto(targetDate);
-            var response = await _httpClient.PostAsJsonAsync("/api/supplement/technical-indicators", request);
+            var response = await _httpClient.PostAsJsonAsync("/api/supplement/process-all", new { targetDate });
             response.EnsureSuccessStatusCode();
+            var result = await response.Content.ReadFromJsonAsync<SupplementResultDto>();
             
-            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
-            return result;
+            if (result != null && result.Success)
+            {
+                return new SupplementDataApiResult(true, result.ProcessorCount, null);
+            }
+            else
+            {
+                return new SupplementDataApiResult(false, 0, result?.Message ?? "處理失敗");
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "執行技術指標補算失敗");
-            return null;
+            _logger.LogError(ex, "補充資料處理失敗");
+            return new SupplementDataApiResult(false, 0, ex.Message);
         }
     }
 
-    /// <summary>
-    /// 執行高低點分析
-    /// </summary>
-    public async Task<ProcessorResultDto?> ProcessPriceAnalysisAsync(DateTime targetDate)
+    public async Task<GoodInfoDownloadResult> DownloadGoodInfoDataAsync()
     {
         try
         {
-            var request = new SupplementRequestDto(targetDate);
-            var response = await _httpClient.PostAsJsonAsync("/api/supplement/price-analysis", request);
+            var response = await _httpClient.PostAsync("/api/goodinfo/download", null);
             response.EnsureSuccessStatusCode();
-            
-            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
-            return result;
+            var result = await response.Content.ReadFromJsonAsync<GoodInfoDownloadResult>();
+            return result ?? new GoodInfoDownloadResult();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "執行高低點分析失敗");
-            return null;
+            _logger.LogError(ex, "下載 GoodInfo 資料失敗");
+            return new GoodInfoDownloadResult 
+            { 
+                FailedStocks = new List<GoodInfoFailedStock> 
+                { 
+                    new("系統錯誤", ex.Message)
+                } 
+            };
         }
     }
 
-    /// <summary>
-    /// 執行成交量統計
-    /// </summary>
-    public async Task<ProcessorResultDto?> ProcessVolumeStatisticsAsync(DateTime targetDate)
+    public async Task<StatisticsProcessResult> ProcessAllStatisticsAsync(DateTime targetDate)
     {
         try
         {
-            var request = new SupplementRequestDto(targetDate);
-            var response = await _httpClient.PostAsJsonAsync("/api/supplement/volume-statistics", request);
+            var response = await _httpClient.PostAsJsonAsync("/api/statistics/process-all", new { targetDate });
             response.EnsureSuccessStatusCode();
-            
-            var result = await response.Content.ReadFromJsonAsync<ProcessorResultDto>();
-            return result;
+            var result = await response.Content.ReadFromJsonAsync<StatisticsProcessResult>();
+            return result ?? new StatisticsProcessResult();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "執行成交量統計失敗");
-            return null;
+            _logger.LogError(ex, "處理統計資料失敗");
+            return new StatisticsProcessResult(new List<string> { ex.Message });
+        }
+    }
+
+    public async Task<List<ScheduleStatusDto>> GetScheduleStatusAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<List<ScheduleStatusDto>>("/api/schedule/status");
+            return response ?? new List<ScheduleStatusDto>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "取得排程狀態失敗");
+            return new List<ScheduleStatusDto>();
+        }
+    }
+
+    public async Task<bool> UpdateScheduleStatusAsync(int scheduleId, bool isEnabled)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("/api/schedule/update", new { scheduleId, isEnabled });
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "更新排程狀態失敗");
+            return false;
         }
     }
 }
-
-// === 補充數據處理的數據模型 ===
-
-public record SupplementRequestDto(DateTime TargetDate);
-
-public record SupplementResultDto(
-    bool Success,
-    DateTime TargetDate,
-    TimeSpan TotalDuration,
-    List<ProcessorResultDto> ProcessorResults,
-    string? ErrorMessage
-);
-
-public record ProcessorResultDto(
-    string ProcessorName,
-    bool Success,
-    int ProcessedCount,
-    TimeSpan Duration,
-    string? ErrorMessage
-);
-
-// Response Models
-
-// Response Models
-public record HealthStatus(string Status, string Version, string Environment, DateTime Timestamp);
-
-public record ImportStatus(
-    string Status,
-    DateTime LastImportTime,
-    DateTime? NextScheduledRun,
-    int QueuedTasks,
-    int RunningTasks
-);
-
-public record ImportResult(
-    bool Success,
-    string Message,
-    string? JobId,
-    int TotalStocks,
-    List<string>? Errors
-)
-{
-    public DateTime? Date { get; init; }
-    public Phase1Result? Phase1 { get; init; }
-    public Phase2Result? Phase2 { get; init; }
-    public Phase3Result? Phase3 { get; init; }
-}
-
-public record Phase1Result(
-    int TotalStocks,
-    int SuccessCount,
-    int FailedCount,
-    List<string>? FailedStocks,
-    string Duration
-);
-
-public record Phase2Result(
-    bool Success,
-    DateTime TradeDate,
-    string? TotalDuration,
-    int SuccessCount,
-    int FailureCount,
-    Phase2Statistics Statistics,
-    string? Message
-);
-
-public record Phase2Statistics(
-    Phase2StatItem FiveDayAverage,
-    Phase2StatItem SixtyDayStatistics,
-    Phase2StatItem PanAnalysis,
-    Phase2StatItem FenPanAverage
-);
-
-public record Phase2StatItem(
-    bool Success,
-    int ProcessedCount,
-    string Duration
-);
-
-public record Phase3Result(
-    int TotalRequests,
-    int SuccessCount,
-    int FailedCount,
-    string Duration,
-    List<FailedUrl>? FailedUrls
-);
-
-public record FailedUrl(
-    string Name,
-    string Url,
-    string? Error
-);
-
-public record TwoPhaseImportResult(
-    bool Success,
-    string Summary,
-    Phase1Info Phase1,
-    Phase2Info? Phase2,
-    FinalResult FinalResult,
-    string? ErrorMessage
-);
-
-public record Phase1Info(
-    string JobId,
-    int TotalStocks,
-    int SuccessCount,
-    int FailedCount,
-    string Duration
-);
-
-public record Phase2Info(
-    string JobId,
-    int RetryCount,
-    int SuccessCount,
-    int StillFailed,
-    string Duration
-);
-
-public record FinalResult(
-    int TotalSuccess,
-    int TotalFailed,
-    List<string>? FailedStocks,
-    string TotalDuration
-);
-
-public record ScraperTestResult(
-    string Source,
-    DateTime TargetDate,
-    int Count,
-    string Duration,
-    List<StockData> Data
-);
-
-public record StockData(
-    string Code,
-    decimal Price,
-    long Volume,
-    decimal Change,
-    decimal High,
-    decimal Low
-);
-
-public record TaskStatus(
-    string JobId,
-    string Status,
-    DateTime CreatedAt,
-    DateTime? CompletedAt,
-    string? Result
-);
-
-public record All4StatisticsResult(
-    bool Success,
-    DateTime TradeDate,
-    string? TotalDuration,
-    StatisticsDetails Statistics,
-    int SuccessCount,
-    int FailureCount,
-    string? ErrorMessage
-);
-
-public record StatisticsDetails(
-    StatisticItemResult FiveDayAverage,
-    StatisticItemResult SixtyDayStatistics,
-    StatisticItemResult PanAnalysis,
-    StatisticItemResult FenPanAverage
-);
-
-public record StatisticItemResult(
-    bool Success,
-    int ProcessedCount,
-    string Duration,
-    string? Error
-);
-
-public record GoodInfoLinksResponse(
-    string Category,
-    int Count,
-    List<GoodInfoLinkInfo> Links
-);
-
-public record GoodInfoLinkInfo(
-    string Name,
-    string Url,
-    bool HasCssSelector,
-    bool HasXPath
-);
-
-public record GoodInfoTestResult(
-    string Category,
-    int TotalRequests,
-    int SuccessCount,
-    int FailedCount,
-    string Duration,
-    List<string> SuccessfulDownloads,
-    List<GoodInfoFailure> FailedDownloads
-);
-
-public record GoodInfoFailure(
-    string Name,
-    string Url,
-    string Error
-);

@@ -15,13 +15,22 @@ namespace SST.StockImport.Services;
 public class SupplementDataService : ISupplementDataService
 {
     private readonly AlertStatisticsProcessor _alertStatisticsProcessor;
+    private readonly TechnicalIndicatorsProcessor _technicalIndicatorsProcessor;
+    private readonly PriceAnalysisProcessor _priceAnalysisProcessor;
+    private readonly VolumeStatisticsProcessor _volumeStatisticsProcessor;
     private readonly ILogger<SupplementDataService> _logger;
 
     public SupplementDataService(
         AlertStatisticsProcessor alertStatisticsProcessor,
+        TechnicalIndicatorsProcessor technicalIndicatorsProcessor,
+        PriceAnalysisProcessor priceAnalysisProcessor,
+        VolumeStatisticsProcessor volumeStatisticsProcessor,
         ILogger<SupplementDataService> logger)
     {
         _alertStatisticsProcessor = alertStatisticsProcessor;
+        _technicalIndicatorsProcessor = technicalIndicatorsProcessor;
+        _priceAnalysisProcessor = priceAnalysisProcessor;
+        _volumeStatisticsProcessor = volumeStatisticsProcessor;
         _logger = logger;
     }
 
@@ -42,10 +51,17 @@ public class SupplementDataService : ISupplementDataService
             var alertResult = await ProcessAlertStatisticsAsync(targetDate);
             result.ProcessorResults.Add(alertResult);
 
-            // TODO: 後續添加其他處理器
             // Step 2: 技術指標補算
-            // Step 3: 高低點分析  
-            // Step 4: 成交量統計
+            var technicalResult = await ProcessTechnicalIndicatorsAsync(targetDate);
+            result.ProcessorResults.Add(technicalResult);
+
+            // Step 3: 高低點分析
+            var priceAnalysisResult = await ProcessPriceAnalysisAsync(targetDate);
+            result.ProcessorResults.Add(priceAnalysisResult);
+
+            // Step 4: 成交量統計分析
+            var volumeResult = await ProcessVolumeStatisticsAsync(targetDate);
+            result.ProcessorResults.Add(volumeResult);
 
             // 檢查整體結果
             result.Success = result.ProcessorResults.TrueForAll(r => r.Success);
@@ -81,37 +97,19 @@ public class SupplementDataService : ISupplementDataService
 
     public async Task<ProcessorResultDto> ProcessTechnicalIndicatorsAsync(DateTime targetDate)
     {
-        // TODO: 實作技術指標處理器
-        await Task.Delay(100); // 暫時模擬
-        return new ProcessorResultDto 
-        { 
-            ProcessorName = "技術指標補算",
-            Success = false,
-            ErrorMessage = "尚未實作"
-        };
+        _logger.LogInformation("執行技術指標補算，目標日期: {TargetDate}", targetDate);
+        return await _technicalIndicatorsProcessor.ProcessAsync(targetDate);
     }
 
     public async Task<ProcessorResultDto> ProcessPriceAnalysisAsync(DateTime targetDate)
     {
-        // TODO: 實作高低點分析處理器
-        await Task.Delay(100); // 暫時模擬
-        return new ProcessorResultDto 
-        { 
-            ProcessorName = "高低點分析",
-            Success = false,
-            ErrorMessage = "尚未實作"
-        };
+        _logger.LogInformation("執行高低點分析，目標日期: {TargetDate}", targetDate);
+        return await _priceAnalysisProcessor.ProcessAsync(targetDate);
     }
 
     public async Task<ProcessorResultDto> ProcessVolumeStatisticsAsync(DateTime targetDate)
     {
-        // TODO: 實作成交量統計處理器
-        await Task.Delay(100); // 暫時模擬
-        return new ProcessorResultDto 
-        { 
-            ProcessorName = "成交量統計",
-            Success = false,
-            ErrorMessage = "尚未實作"
-        };
+        _logger.LogInformation("執行成交量統計分析，目標日期: {TargetDate}", targetDate);
+        return await _volumeStatisticsProcessor.ProcessAsync(targetDate);
     }
 }

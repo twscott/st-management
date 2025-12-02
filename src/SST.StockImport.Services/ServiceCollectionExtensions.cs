@@ -53,6 +53,9 @@ public static class ServiceCollectionExtensions
         // 註冊補充數據處理服務
         services.AddScoped<ISupplementDataService, SupplementDataService>();
         services.AddScoped<Processors.AlertStatisticsProcessor>();
+        services.AddScoped<Processors.TechnicalIndicatorsProcessor>();
+        services.AddScoped<Processors.PriceAnalysisProcessor>();
+        services.AddScoped<Processors.VolumeStatisticsProcessor>();
 
         return services;
     }

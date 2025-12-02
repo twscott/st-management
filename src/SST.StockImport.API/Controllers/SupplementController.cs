@@ -140,4 +140,39 @@ public class SupplementController : ControllerBase
             return StatusCode(500, new { Error = ex.Message });
         }
     }
+
+    /// <summary>
+    /// 執行全部補充資料處理 (用於排程管理介面)
+    /// </summary>
+    /// <param name="request">處理請求</param>
+    /// <returns>處理結果</returns>
+    [HttpPost("process")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<object>> ProcessSupplementData([FromBody] SupplementRequestDto request)
+    {
+        try
+        {
+            _logger.LogInformation("執行 All4 補充資料處理，目標日期: {TargetDate}", request.TargetDate);
+
+            var result = await _supplementService.ProcessAllAsync(request.TargetDate);
+            
+            return Ok(new 
+            {
+                Success = result.Success,
+                TotalProcessedCount = result.ProcessorResults.Sum(r => r.ProcessedCount),
+                ErrorMessage = result.ErrorMessage
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "All4 補充資料處理 API 發生錯誤");
+            return BadRequest(new 
+            { 
+                Success = false,
+                TotalProcessedCount = 0,
+                ErrorMessage = ex.Message 
+            });
+        }
+    }
 }

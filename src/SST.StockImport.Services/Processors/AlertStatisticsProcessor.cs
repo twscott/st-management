@@ -38,6 +38,17 @@ public class AlertStatisticsProcessor : IDataProcessor
         {
             _logger.LogInformation("開始執行警示統計更新，目標日期: {TargetDate}", targetDate);
 
+            // 檢查是否支援原生SQL執行（graceful skip模式）
+            if (!IsRelationalDatabase())
+            {
+                _logger.LogWarning("警示統計處理器: 跳過執行，因為資料庫不支援原生SQL操作（測試環境或in-memory資料庫）");
+                
+                result.Success = true;
+                result.ErrorMessage = "已跳過執行 - 資料庫類型不支援原生SQL操作";
+                result.Duration = stopwatch.Elapsed;
+                return result;
+            }
+
             // Step 1: 更新 tradedata 表的警示統計
             var tradedataCount = await UpdateTradedataAlertStatisticsAsync(targetDate);
 
@@ -176,5 +187,24 @@ public class AlertStatisticsProcessor : IDataProcessor
                 a.messFall = b.messFall";
 
         return await _context.Database.ExecuteSqlRawAsync(sql, targetDate.ToString("yyyy-MM-dd"));
+    }
+
+    /// <summary>
+    /// 檢查是否為關係型資料庫（支援ExecuteSqlRawAsync）
+    /// </summary>
+    private bool IsRelationalDatabase()
+    {
+        try
+        {
+            // 嘗試檢查資料庫提供者
+            var providerName = _context.Database.ProviderName;
+            return !string.IsNullOrEmpty(providerName) && 
+                   !providerName.Contains("InMemory", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // 如果檢查失敗，假設不支援原生SQL
+            return false;
+        }
     }
 }

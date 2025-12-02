@@ -1,0 +1,395 @@
+@page "/"
+@page "/schedule-management"
+@using SST.StockImport.Web.Services
+@using SST.StockImport.Shared
+@inject ImportApiService ApiService
+@inject ILogger<ScheduleManagementPage> Logger
+@rendermode InteractiveServer
+
+<PageTitle>股票資料管理中心</PageTitle>
+
+<div class="container-fluid">
+    <h1 class="mb-4">📈 股票資料管理中心</h1>
+
+    <!-- 即時狀態儀表板 -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">🎯 執行狀態</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="badge bg-primary fs-6 p-2">@currentStatus</div>
+                                <div class="small text-muted mt-1">目前狀態</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="fs-5 fw-bold text-primary">@totalProcessedRecords</div>
+                                <div class="small text-muted">總處理筆數</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="fs-5 fw-bold text-success">@successfulLinks</div>
+                                <div class="small text-muted">成功連結</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <div class="fs-5 fw-bold text-danger">@failedLinks</div>
+                                <div class="small text-muted">失敗連結</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主要功能按鈕區 -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">🎛️ 主要功能</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <!-- 下載交易資料 -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 border-primary">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">📥 下載交易資料</h6>
+                                </div>
+                                <div class="card-body text-center">
+                                    <button class="btn btn-primary btn-lg w-100 mb-2" 
+                                            @onclick="DownloadTradeData" 
+                                            disabled="@isDownloadingTrade">
+                                        @if (isDownloadingTrade)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                        }
+                                        下載交易資料
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(tradeDataMessage))
+                                    {
+                                        <div class="alert alert-info p-2">@tradeDataMessage</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- All4 補充處理 -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 border-warning">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">🔄 All4 補充處理</h6>
+                                </div>
+                                <div class="card-body text-center">
+                                    <button class="btn btn-warning btn-lg w-100 mb-2" 
+                                            @onclick="ProcessAll4Supplements" 
+                                            disabled="@isProcessingAll4">
+                                        @if (isProcessingAll4)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                        }
+                                        執行 All4 處理
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(all4Message))
+                                    {
+                                        <div class="alert alert-warning p-2">@all4Message</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 下載 GoodInfo -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 border-info">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">🌐 下載 GoodInfo</h6>
+                                </div>
+                                <div class="card-body text-center">
+                                    <button class="btn btn-info btn-lg w-100 mb-2" 
+                                            @onclick="DownloadGoodInfo" 
+                                            disabled="@isDownloadingGoodInfo">
+                                        @if (isDownloadingGoodInfo)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                        }
+                                        下載 GoodInfo
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(goodInfoMessage))
+                                    {
+                                        <div class="alert alert-info p-2">@goodInfoMessage</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 全部統計資料 -->
+                        <div class="col-md-6 col-lg-3">
+                            <div class="card h-100 border-success">
+                                <div class="card-header bg-light">
+                                    <h6 class="mb-0">📊 全部統計資料</h6>
+                                </div>
+                                <div class="card-body text-center">
+                                    <button class="btn btn-success btn-lg w-100 mb-2" 
+                                            @onclick="ProcessAllStatistics" 
+                                            disabled="@isProcessingStatistics">
+                                        @if (isProcessingStatistics)
+                                        {
+                                            <span class="spinner-border spinner-border-sm me-2"></span>
+                                        }
+                                        處理統計資料
+                                    </button>
+                                    @if (!string.IsNullOrEmpty(statisticsMessage))
+                                    {
+                                        <div class="alert alert-success p-2">@statisticsMessage</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 執行日誌 -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">📋 執行日誌</h5>
+                </div>
+                <div class="card-body" style="height: 200px; overflow-y: auto;">
+                    @if (executionLogs.Any())
+                    {
+                        @foreach (var log in executionLogs.TakeLast(10))
+                        {
+                            <div class="mb-1">
+                                <small class="text-muted">@log.Key.ToString("HH:mm:ss")</small>
+                                <span>@log.Value</span>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <p class="text-muted">尚無執行日誌</p>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // 狀態變數
+    private string currentStatus = "待命中";
+    private int totalProcessedRecords = 0;
+    private int successfulLinks = 0;
+    private int failedLinks = 0;
+
+    // 按鈕狀態
+    private bool isDownloadingTrade = false;
+    private bool isProcessingAll4 = false;
+    private bool isDownloadingGoodInfo = false;
+    private bool isProcessingStatistics = false;
+
+    // 訊息顯示
+    private string tradeDataMessage = "";
+    private string all4Message = "";
+    private string goodInfoMessage = "";
+    private string statisticsMessage = "";
+
+    // 執行日誌
+    private List<KeyValuePair<DateTime, string>> executionLogs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        AddLog("系統啟動完成，準備就緒");
+        await Task.CompletedTask;
+    }
+
+    private async Task DownloadTradeData()
+    {
+        isDownloadingTrade = true;
+        currentStatus = "下載交易資料中";
+        AddLog("開始下載交易資料...");
+
+        try
+        {
+            AddLog("⏰ 預計處理時間：15-30 分鐘 (2100+ 筆股票)");
+            
+            // 調用真實 API
+            var result = await ApiService.DownloadTradingDataAsync(DateTime.Today.AddDays(-1));
+            
+            if (result.Success)
+            {
+                totalProcessedRecords += result.TotalStocks;
+                tradeDataMessage = $"✅ {result.Message} - 共 {result.TotalStocks} 筆";
+                AddLog($"✅ 交易資料下載完成：{result.TotalStocks} 筆");
+            }
+            else
+            {
+                throw new Exception(result.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            tradeDataMessage = $"下載失敗：{ex.Message}";
+            AddLog($"交易資料下載失敗：{ex.Message}");
+        }
+        finally
+        {
+            isDownloadingTrade = false;
+            currentStatus = "待命中";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProcessAll4Supplements()
+    {
+        isProcessingAll4 = true;
+        currentStatus = "執行 All4 補充處理";
+        AddLog("開始 All4 補充處理...");
+
+        try
+        {
+            AddLog("⏰ 預計處理時間：45-90 分鐘 (四個處理器：警示+技術+價格+成交量)");
+            
+            // 調用真實 API
+            var result = await ApiService.ProcessSupplementDataAsync(DateTime.Today.AddDays(-1));
+            
+            if (result.Success)
+            {
+                // 顯示具體完成的四個處理器
+                all4Message = "✅ All4 處理完成：\n" +
+                            "  ✓ 警示統計處理器\n" +
+                            "  ✓ 技術指標處理器\n" +
+                            "  ✓ 價格分析處理器\n" +
+                            "  ✓ 成交量統計處理器";
+                AddLog("✅ All4 補充處理完成 - 所有四個處理器都已完成");
+            }
+            else
+            {
+                throw new Exception(result.ErrorMessage ?? "處理失敗");
+            }
+        }
+        catch (Exception ex)
+        {
+            all4Message = $"All4 處理失敗，必須停止：{ex.Message}";
+            AddLog($"All4 處理失敗：{ex.Message}");
+            currentStatus = "錯誤 - 已停止";
+            return;
+        }
+        finally
+        {
+            isProcessingAll4 = false;
+            StateHasChanged();
+        }
+
+        currentStatus = "待命中";
+    }
+
+    private async Task DownloadGoodInfo()
+    {
+        isDownloadingGoodInfo = true;
+        currentStatus = "下載 GoodInfo 資料";
+        AddLog("開始下載 GoodInfo 資料...");
+
+        try
+        {
+            AddLog("⏰ 預計處理時間：30-60 分鐘 (1800+ 網頁爬取，有反爬蟲限制)");
+            
+            // 調用真實 API
+            var result = await ApiService.DownloadGoodInfoDataAsync();
+            
+            successfulLinks = result.SuccessfulLinks;
+            failedLinks = result.FailedLinks;
+            
+            // 顯示具體的 link 狀況，不只是數字
+            var failedStockNames = result.FailedStocks?.Select(f => f.Name).ToList() ?? new List<string>();
+            
+            if (result.FailedLinks > 0)
+            {
+                goodInfoMessage = $"⚠️ 下載完成 - 成功：{result.SuccessfulLinks} 筆\n失敗：{result.FailedLinks} 筆\n失敗的股票：{string.Join(", ", failedStockNames)}";
+                AddLog($"⚠️ GoodInfo 下載部分失敗 - 成功：{result.SuccessfulLinks}，失敗：{result.FailedLinks}");
+                AddLog($"失敗的股票：{string.Join(", ", failedStockNames)}");
+            }
+            else
+            {
+                goodInfoMessage = $"✅ 下載完成 - 所有 {result.SuccessfulLinks} 筆都成功";
+                AddLog($"✅ GoodInfo 下載完成 - 所有 {result.SuccessfulLinks} 筆都成功");
+            }
+        }
+        catch (Exception ex)
+        {
+            goodInfoMessage = $"下載失敗：{ex.Message}";
+            AddLog($"GoodInfo 下載失敗：{ex.Message}");
+        }
+        finally
+        {
+            isDownloadingGoodInfo = false;
+            currentStatus = "待命中";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ProcessAllStatistics()
+    {
+        isProcessingStatistics = true;
+        currentStatus = "處理統計資料";
+        AddLog("開始處理統計資料...");
+
+        try
+        {
+            AddLog("⏰ 預計處理時間：20-40 分鐘 (複雜的數據分析計算)");
+            
+            // 調用真實 API
+            var result = await ApiService.ProcessAllStatisticsAsync(DateTime.Today.AddDays(-1));
+            
+            if (result.ExceptionLogs.Count > 0)
+            {
+                statisticsMessage = $"✅ 統計處理完成，發生 {result.ExceptionLogs.Count} 個例外但已繼續";
+                AddLog($"⚠️ 統計處理完成，有 {result.ExceptionLogs.Count} 個例外");
+                foreach (var log in result.ExceptionLogs.Take(3))
+                {
+                    AddLog($"   - {log}");
+                }
+            }
+            else
+            {
+                statisticsMessage = "✅ 統計處理完成，無例外";
+                AddLog("✅ 統計處理順利完成");
+            }
+        }
+        catch (Exception ex)
+        {
+            statisticsMessage = $"統計處理例外，但已繼續：{ex.Message}";
+            AddLog($"統計處理例外：{ex.Message}");
+        }
+        finally
+        {
+            isProcessingStatistics = false;
+            currentStatus = "待命中";
+            StateHasChanged();
+        }
+    }
+
+    private void AddLog(string message)
+    {
+        executionLogs.Add(new KeyValuePair<DateTime, string>(DateTime.Now, message));
+        
+        // 限制日誌數量
+        if (executionLogs.Count > 50)
+        {
+            executionLogs = executionLogs.TakeLast(25).ToList();
+        }
+    }
+}
