@@ -12,7 +12,7 @@ builder.Services.AddHttpClient<ImportApiService>(client =>
 {
     var apiBaseUrl = builder.Configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5008";
     client.BaseAddress = new Uri(apiBaseUrl);
-    client.Timeout = TimeSpan.FromMinutes(5); // Long timeout for import operations
+    client.Timeout = TimeSpan.FromHours(2); // 2 hours timeout for long-running import operations
 });
 
 var app = builder.Build();

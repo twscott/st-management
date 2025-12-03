@@ -17,14 +17,14 @@ public static class ServiceCollectionExtensions
         // 註冊 HttpClient（GoodInfo 專用）
         services.AddHttpClient("GoodInfo", client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(30);
+            client.Timeout = TimeSpan.FromHours(2); // 修改為 2小時支援長時間處理
             client.DefaultRequestHeaders.Add("Referer", "https://goodinfo.tw");
         });
 
         // 註冊 HttpClient（TWSE 證交所 API 專用）
         services.AddHttpClient<TWSEScraper>(client =>
         {
-            client.Timeout = TimeSpan.FromSeconds(30);
+            client.Timeout = TimeSpan.FromHours(2); // 修改為 2小時支援長時間處理
         });
 
         // 註冊爬蟲服務

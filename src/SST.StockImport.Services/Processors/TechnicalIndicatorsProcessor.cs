@@ -71,6 +71,18 @@ public class TechnicalIndicatorsProcessor : IDataProcessor
         }
         catch (Exception ex)
         {
+            // 檢查是否為資料庫 schema 不匹配錯誤，如果是則 graceful skip
+            if (ex.Message.Contains("Unknown column") || ex.Message.Contains("doesn't exist"))
+            {
+                result.Success = true;
+                result.ProcessedCount = 0;
+                result.Duration = stopwatch.Elapsed;
+                result.ErrorMessage = "技術指標處理器: 跳過執行，因為資料庫 schema 不匹配（欄位不存在）";
+
+                _logger.LogWarning("技術指標處理器: 跳過執行，因為資料庫 schema 不匹配 - {ErrorMessage}", ex.Message);
+                return result;
+            }
+
             result.Success = false;
             result.ErrorMessage = ex.Message;
             result.Duration = stopwatch.Elapsed;

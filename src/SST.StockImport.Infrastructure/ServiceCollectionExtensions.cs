@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
                         maxRetryCount: 3,
                         maxRetryDelay: TimeSpan.FromSeconds(5),
                         errorNumbersToAdd: null);
+                    mySqlOptions.CommandTimeout((int)TimeSpan.FromHours(2).TotalSeconds); // 設置 CommandTimeout 為 2小時
                 });
         });
 

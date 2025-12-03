@@ -29,7 +29,7 @@ public class TWSEScraper : IStockDataScraper
     {
         _logger = logger;
         _httpClient = httpClient;
-        _httpClient.Timeout = TimeSpan.FromSeconds(30);
+        _httpClient.Timeout = TimeSpan.FromHours(2); // 修改為 2小時支援長時間處理
     }
 
     public Task<StockDataDto?> ScrapeStockDataAsync(

@@ -1,5 +1,5 @@
-using Hangfire;
-using Hangfire.MySql;
+// using Hangfire; // 暫時停用
+// using Hangfire.MySql; // 暫時停用
 using Microsoft.EntityFrameworkCore;
 using Serilog;
 using SST.StockImport.API;
@@ -19,6 +19,22 @@ try
     Log.Information("Starting SST Stock Import API");
     
     var builder = WebApplication.CreateBuilder(args);
+    
+    // 配置 Kestrel 伺服器選項（延長所有類型的超時）
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.Limits.KeepAliveTimeout = TimeSpan.FromHours(2);         // 連接保持活躍時間：2小時
+        options.Limits.RequestHeadersTimeout = TimeSpan.FromHours(2);    // 請求標頭超時：2小時
+        options.Limits.MaxRequestBodySize = 100 * 1024 * 1024;          // 100MB 最大請求體
+        options.Limits.MinRequestBodyDataRate = null;                   // 禁用最小數據速率檢查
+        options.Limits.MinResponseDataRate = null;                      // 禁用最小響應速率檢查
+    });
+    
+    // 配置 HTTP 客戶端超時
+    builder.Services.ConfigureHttpClientDefaults(http =>
+    {
+        http.ConfigureHttpClient(client => client.Timeout = TimeSpan.FromHours(2));
+    });
     
     // 使用 Serilog（從 appsettings.json 載入完整配置）
     builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -40,7 +56,8 @@ builder.Services.AddInfrastructureServices(builder.Configuration);
 // 註冊 Services 層（Business Logic）
 builder.Services.AddStockImportServices();
 
-// 註冊 Hangfire
+// 註冊 Hangfire (暫時停用以解決啟動問題)
+/*
 var hangfireConnection = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddHangfire(configuration => configuration
     .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
@@ -66,9 +83,20 @@ builder.Services.AddHangfireServer(options =>
     options.WorkerCount = 2; // GoodInfo quota 保護：限制並發
     options.ServerName = $"{Environment.MachineName}-stock-import";
 });
+*/
 
-// 註冊 Controllers
-builder.Services.AddControllers();
+// 註冊 Controllers 並配置超時
+builder.Services.AddControllers(options =>
+{
+    // 禁用控制器級別的超時檢查
+    options.ModelValidatorProviders.Clear();
+});
+
+// 添加請求超時服務
+builder.Services.AddRequestTimeouts(configure =>
+{
+    configure.AddPolicy("LongRunning", TimeSpan.FromHours(2));
+});
 
 // 配置 CORS
 builder.Services.AddCors(options =>
@@ -108,6 +136,9 @@ builder.Services.AddSwaggerGen(options =>
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
+// 啟用請求超時中間件
+app.UseRequestTimeouts();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -127,7 +158,8 @@ app.UseCors();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// 啟用 Hangfire Dashboard
+// 啟用 Hangfire Dashboard (暫時停用)
+/*
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     Authorization = new[] { new HangfireAuthorizationFilter() },
@@ -162,6 +194,7 @@ RecurringJob.AddOrUpdate<IImportService>(
     {
         TimeZone = TimeZoneInfo.FindSystemTimeZoneById("Taipei Standard Time")
     });
+*/
 
 // 啟用 Controllers
 app.MapControllers();

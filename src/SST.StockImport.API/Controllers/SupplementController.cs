@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SST.StockImport.Core.DTOs;
 using SST.StockImport.Core.Interfaces;
+using Microsoft.AspNetCore.Http.Timeouts;
 
 namespace SST.StockImport.API.Controllers;
 
@@ -28,6 +29,7 @@ public class SupplementController : ControllerBase
     /// <param name="request">處理請求</param>
     /// <returns>處理結果</returns>
     [HttpPost("process-all")]
+    [RequestTimeout("LongRunning")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status500InternalServerError)]

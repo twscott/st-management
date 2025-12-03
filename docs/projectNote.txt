@@ -6,7 +6,7 @@
 不然三兩下就把你的Contact塞爆
 
 2. 測試金字塔 
-單元測試 -> 無伺服器整合測試 -> 有伺服器的整合測試 -> 整合前台測試 -> 出 Sandbox 測試 -> UAT
+單元測試 -> 無伺服器整合測試 -> 有伺服器的整合測試 -> 出 Sandbox 測試 (單元測試 -> 無伺服器整合測試 -> 有伺服器的整合測試) -> 整合前台測試 -> UAT
 前一层是后一层的基础，层层相依
 
 
@@ -18,7 +18,12 @@ cd D:\vibeCoding\sst
 .\start-server.ps1
 
 前臺
-  cd D:\vibeCoding\sst	
-  .\UAT-QuickTest.ps1
-  dotnet run --project src\SST.StockImport.API
-  http://localhost:5089/import
+  cd d:\vibeCoding\sst\src\SST.StockImport.API; 
+  dotnet run --urls "http://localhost:5008"
+  
+  http://localhost:5089/
+  
+  
+
+  
+  

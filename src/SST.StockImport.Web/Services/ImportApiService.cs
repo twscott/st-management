@@ -132,7 +132,8 @@ public class ImportApiService
     {
         try
         {
-            var response = await _httpClient.PostAsJsonAsync("/api/supplement/process-all", new { targetDate });
+            var request = new SupplementRequestDto(targetDate);
+            var response = await _httpClient.PostAsJsonAsync("/api/supplement/process-all", request);
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<SupplementResultDto>();
             

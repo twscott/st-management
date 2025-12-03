@@ -1,0 +1,218 @@
+@page "/import"
+@using SST.StockImport.Web.Services
+@using SST.StockImport.Web.Models
+@inject ImportApiService ApiService
+@inject ILogger<ImportPage> Logger
+@rendermode InteractiveServer
+
+<PageTitle>股票資料匯入管理</PageTitle>
+
+<div class="container-fluid">
+    <h1 class="mb-4">📊 股票資料匯入管理</h1>
+
+    <!-- Status Card -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">🔄 系統狀態</h5>
+                </div>
+                <div class="card-body">
+                    @if (importStatus != null)
+                    {
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>狀態:</strong> 
+                                <span class="badge bg-@(importStatus.Status == "Ready" ? "success" : "warning")">
+                                    @importStatus.Status
+                                </span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>最後匯入:</strong> 
+                                <span class="text-muted">@importStatus.LastImportTime.ToString("yyyy-MM-dd HH:mm")</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>排隊任務:</strong>
+                                <span class="text-muted">@importStatus.QueuedTasks</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>執行中任務:</strong>
+                                <span class="text-info">@importStatus.RunningTasks</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">載入中...</span>
+                            </div>
+                            <p class="mt-2">正在載入系統狀態...</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Import Controls -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">📈 每日收盤資料匯入</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">匯入當日股票收盤價格、成交量等基礎資料</p>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <input type="date" class="form-control" @bind="selectedDate" />
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-success w-100" @onclick="ImportDailyData" disabled="@isImporting">
+                                @if (isImporting)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    <span> 匯入中...</span>
+                                }
+                                else
+                                {
+                                    <span>🔄 開始匯入</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                    @if (dailyResult != null)
+                    {
+                        <div class="alert alert-@(dailyResult.Success ? "success" : "danger")" role="alert">
+                            <strong>匯入結果:</strong> @dailyResult.Message
+                            @if (dailyResult.Success && dailyResult.TotalStocks > 0)
+                            {
+                                <br><small>處理股票數: @dailyResult.TotalStocks</small>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-warning text-white">
+                    <h5 class="mb-0">📊 投信買賣資料匯入</h5>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">匯入投信買賣超資料</p>
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <input type="date" class="form-control" @bind="selectedTradingDate" />
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-warning w-100" @onclick="ImportTradingData" disabled="@isImportingTrading">
+                                @if (isImportingTrading)
+                                {
+                                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                                    <span> 匯入中...</span>
+                                }
+                                else
+                                {
+                                    <span>🔄 開始匯入</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                    @if (tradingResult != null)
+                    {
+                        <div class="alert alert-@(tradingResult.Success ? "success" : "danger")" role="alert">
+                            <strong>匯入結果:</strong> @tradingResult.Message
+                            @if (tradingResult.Success && tradingResult.TotalStocks > 0)
+                            {
+                                <br><small>處理股票數: @tradingResult.TotalStocks</small>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ImportStatus? importStatus;
+    private DateTime selectedDate = DateTime.Today;
+    private DateTime selectedTradingDate = DateTime.Today;
+    private bool isImporting = false;
+    private bool isImportingTrading = false;
+    private ImportResult? dailyResult;
+    private ImportResult? tradingResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadImportStatus();
+    }
+
+    private async Task LoadImportStatus()
+    {
+        try
+        {
+            importStatus = await ApiService.GetImportStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入匯入狀態失敗");
+        }
+    }
+
+    private async Task ImportDailyData()
+    {
+        isImporting = true;
+        dailyResult = null;
+        
+        try
+        {
+            dailyResult = await ApiService.TriggerDailyImportAsync(selectedDate);
+            await LoadImportStatus(); // 重新載入狀態
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "每日資料匯入失敗");
+            dailyResult = new ImportResult(
+                false,
+                $"匯入失敗: {ex.Message}",
+                null,
+                0,
+                new List<string> { ex.Message }
+            );
+        }
+        finally
+        {
+            isImporting = false;
+        }
+    }
+
+    private async Task ImportTradingData()
+    {
+        isImportingTrading = true;
+        tradingResult = null;
+        
+        try
+        {
+            tradingResult = await ApiService.DownloadTradingDataAsync(selectedTradingDate);
+            await LoadImportStatus(); // 重新載入狀態
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "投信買賣資料匯入失敗");
+            tradingResult = new ImportResult(
+                false,
+                $"匯入失敗: {ex.Message}",
+                null,
+                0,
+                new List<string> { ex.Message }
+            );
+        }
+        finally
+        {
+            isImportingTrading = false;
+        }
+    }
+}
