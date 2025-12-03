@@ -20,7 +20,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "券資比",
                 Url = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E5%88%B8%E8%B3%87%E6%AF%94#txtStockListData",
-                XPath = "/html/body/table[2]/tbody/tr/td[3]/div[2]/table/tbody/tr[7]/td[2]/input[2]"
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel6 - 融資減少最多
@@ -28,7 +28,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "融資減最多",
                 Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E8%9E%8D%E8%B3%87%E6%B8%9B%E5%B0%91%E5%B9%85%E5%BA%A6+%28%E7%95%B6%E6%97%A5%29%40%40%E8%9E%8D%E8%B3%87%E5%A2%9E%E6%B8%9B%E5%B9%85%E5%BA%A6%40%40%E6%B8%9B%E5%B0%91%E5%B9%85%E5%BA%A6+%E2%80%93+%E7%95%B6%E6%97%A5#txtStockListData",
-                XPath = "/html/body/table[2]/tbody/tr/td[3]/div[2]/table/tbody/tr[7]/td[2]/input[2]"
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // ===== 一般分析 (allCommon) =====
@@ -38,7 +38,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "MACD轉正",
                 Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=DIF%E3%80%81MACD%E5%B0%8F%E6%96%BC0%E4%B8%94OSC%E7%94%B1%E8%B2%A0%E8%BD%89%E6%AD%A3%40%40%E6%97%A5MACD%E8%90%BD%E9%BB%9E%40%40DIF%E3%80%81MACD%E5%B0%8F%E6%96%BC0%E4%B8%94OSC%E7%94%B1%E8%B2%A0%E8%BD%89%E6%AD%A3#txtStockListData",
-                CssSelector = null // 使用預設下載按鈕
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel7 - 外資連續賣出轉買進 (投外轉折)
@@ -46,7 +46,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "外資轉折",
                 Url = "https://goodinfo.tw/StockInfo/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%A4%96%E8%B3%87%E9%80%A3%E7%BA%8C%E8%B3%A3%E5%87%BA%E8%BD%89%E8%B2%B7%E9%80%B2+%E2%80%93+%E6%97%A5%40%40%E5%A4%96%E8%B3%87%E9%80%A3%E8%B2%B7%E9%80%A3%E8%B3%A3%E8%BD%89%E6%8A%98%40%40%E5%A4%96%E8%B3%87%E9%80%A3%E7%BA%8C%E8%B3%A3%E5%87%BA%E8%BD%89%E8%B2%B7%E9%80%B2+%E2%80%93+%E6%97%A5#txtStockListData",
-                CssSelector = null
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel14 - 均價線交叉向上 (月線/季線) - 月季黃金
@@ -54,7 +54,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "月季黃金",
                 Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%9D%87%E5%83%B9%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A+%28%E6%9C%88%E7%B7%9A%2F%E5%AD%A3%E7%B7%9A%29%40%40%E5%9D%87%E5%83%B9%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A%40%40%E6%9C%88%E7%B7%9A%2F%E5%AD%A3%E7%B7%9A#txtStockListData",
-                CssSelector = null
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel10 - 均價線交叉向上 (10日/月線)
@@ -62,7 +62,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "10日月線黃金",
                 Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%9D%87%E5%83%B9%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A+%2810%E6%97%A5%2F%E6%9C%88%E7%B7%9A%29%40%40%E5%9D%87%E5%83%B9%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A%40%4010%E6%97%A5%2F%E6%9C%88%E7%B7%9A#txtStockListData",
-                CssSelector = null
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel26 - 均量線交叉向上 (月線/季線)
@@ -70,7 +70,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "量均月季黃金",
                 Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%9D%87%E9%87%8F%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A+%28%E6%9C%88%E7%B7%9A%2F%E5%AD%A3%E7%B7%9A%29%40%40%E5%9D%87%E9%87%8F%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A%40%40%E6%9C%88%E7%B7%9A%2F%E5%AD%A3%E7%B7%9A#txtStockListData",
-                CssSelector = null
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel15 - 均價線交叉向上 (10日/季線) - 十季黃金
@@ -78,7 +78,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "10日季線黃金",
                 Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%9D%87%E5%83%B9%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A+%2810%E6%97%A5%2F%E5%AD%A3%E7%B7%9A%29%40%40%E5%9D%87%E5%83%B9%E7%B7%9A%E4%BA%A4%E5%8F%89%E5%90%91%E4%B8%8A%40%4010%E6%97%A5%2F%E5%AD%A3%E7%B7%9A#txtStockListData",
-                CssSelector = null
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel16 - 5日/10日/月線多頭排列且均線走揚
@@ -86,7 +86,7 @@ public static class GoodInfoUrlConfig
             {
                 Name = "5日10日月線多頭",
                 Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=5%E6%97%A5%2F10%E6%97%A5%2F%E6%9C%88%E7%B7%9A%E5%A4%9A%E9%A0%AD%E6%8E%92%E5%88%97%E4%B8%94%E5%9D%87%E7%B7%9A%E8%B5%B0%E6%8F%9A%40%40%E5%9D%87%E5%83%B9%E7%B7%9A%E5%A4%9A%E9%A0%AD%E6%8E%92%E5%88%97%E4%B8%94%E8%B5%B0%E6%8F%9A%40%405%E6%97%A5%2F10%E6%97%A5%2F%E6%9C%88#txtStockListData",
-                CssSelector = null
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
             },
             
             // linkLabel8 - 投信連續賣出轉買進 (投外轉折)

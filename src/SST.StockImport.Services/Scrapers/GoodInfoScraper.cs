@@ -45,30 +45,78 @@ public class GoodInfoScraper : IDisposable
             // 等待頁面載入
             await Task.Delay(_config.PageLoadDelayMs);
 
-            // 尋找並點擊下載按鈕
+            // 尋找並點擊下載按鈕 - 使用多種策略嘗試
             IWebElement? button = null;
-            if (!string.IsNullOrEmpty(request.CssSelector))
+            var buttonFound = false;
+            
+            // 策略1: 使用指定的 CSS Selector
+            if (!string.IsNullOrEmpty(request.CssSelector) && !buttonFound)
             {
-                button = _driver.FindElement(By.CssSelector(request.CssSelector));
-                _logger.LogDebug("使用 CSS Selector 找到按鈕: {Selector}", request.CssSelector);
+                try
+                {
+                    button = _driver.FindElement(By.CssSelector(request.CssSelector));
+                    _logger.LogDebug("使用 CSS Selector 找到按鈕: {Selector}", request.CssSelector);
+                    buttonFound = true;
+                }
+                catch (NoSuchElementException)
+                {
+                    _logger.LogDebug("CSS Selector 未找到按鈕: {Selector}", request.CssSelector);
+                }
             }
-            else if (!string.IsNullOrEmpty(request.XPath))
+            
+            // 策略2: 使用指定的 XPath
+            if (!string.IsNullOrEmpty(request.XPath) && !buttonFound)
             {
-                button = _driver.FindElement(By.XPath(request.XPath));
-                _logger.LogDebug("使用 XPath 找到按鈕: {XPath}", request.XPath);
+                try
+                {
+                    button = _driver.FindElement(By.XPath(request.XPath));
+                    _logger.LogDebug("使用 XPath 找到按鈕: {XPath}", request.XPath);
+                    buttonFound = true;
+                }
+                catch (NoSuchElementException)
+                {
+                    _logger.LogDebug("XPath 未找到按鈕: {XPath}", request.XPath);
+                }
             }
-            else
+            
+            // 策略3: 嘗試常見的下載按鈕選擇器
+            if (!buttonFound)
             {
-                _logger.LogWarning("未指定 CssSelector 或 XPath，無法找到下載按鈕");
+                var commonSelectors = new[]
+                {
+                    "input[type='button'][value*='下載']",
+                    "input[type='submit'][value*='下載']", 
+                    "input[value='下載EXCEL檔']",
+                    "input[value*='Excel']",
+                    ".btnDownload",
+                    "#btnDownload"
+                };
+                
+                foreach (var selector in commonSelectors)
+                {
+                    try
+                    {
+                        button = _driver.FindElement(By.CssSelector(selector));
+                        _logger.LogDebug("使用通用選擇器找到按鈕: {Selector}", selector);
+                        buttonFound = true;
+                        break;
+                    }
+                    catch (NoSuchElementException)
+                    {
+                        // 繼續嘗試下一個
+                    }
+                }
+            }
+            
+            if (!buttonFound)
+            {
+                _logger.LogWarning("所有策略都無法找到下載按鈕，跳過此頁面");
                 return false;
             }
 
             // 點擊下載
-            if (button != null)
-            {
-                button.Click();
-                _logger.LogDebug("已點擊下載按鈕");
-            }
+            button.Click();
+            _logger.LogDebug("已點擊下載按鈕");
 
             // 等待下載完成
             await Task.Delay(_config.DownloadWaitMs);
@@ -78,8 +126,8 @@ public class GoodInfoScraper : IDisposable
         }
         catch (NoSuchElementException ex)
         {
-            var errorMsg = $"找不到下載按鈕: {ex.Message}";
-            _logger.LogWarning(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
+            var errorMsg = $"找不到下載按鈕 (已嘗試多種策略): {ex.Message}";
+            _logger.LogInformation("[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
             return false;
         }
         catch (WebDriverException ex)
@@ -115,36 +163,55 @@ public class GoodInfoScraper : IDisposable
             var request = requests[i];
             _logger.LogInformation("處理 [{Current}/{Total}]: {Name}", i + 1, requests.Count, request.Name);
 
-            try
+            // 重試機制 - 單個請求失敗時重試
+            bool success = false;
+            var lastError = string.Empty;
+            
+            for (int retry = 0; retry <= _config.MaxRetries && !success; retry++)
             {
-                var success = await DownloadDataAsync(request);
-                
-                if (success)
+                try
                 {
-                    result.SuccessCount++;
-                    result.SuccessfulDownloads.Add(request.Name);
-                    _logger.LogInformation("✅ [{Name}] 下載成功", request.Name);
+                    if (retry > 0)
+                    {
+                        _logger.LogWarning("⏳ [{Name}] 第 {Retry} 次重試 (上次錯誤: {Error})", request.Name, retry, lastError);
+                        await Task.Delay(_config.RetryDelayMs); // 重試前額外等待
+                    }
+
+                    success = await DownloadDataAsync(request);
+                    
+                    if (success)
+                    {
+                        result.SuccessCount++;
+                        result.SuccessfulDownloads.Add(request.Name);
+                        _logger.LogInformation("✅ [{Name}] 下載成功{RetryInfo}", 
+                            request.Name, retry > 0 ? $" (重試 {retry} 次後成功)" : "");
+                        break;
+                    }
+                    else
+                    {
+                        lastError = "下載失敗（未捕獲具體錯誤）";
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    result.FailedCount++;
-                    var errorMsg = "下載失敗（未捕獲具體錯誤）";
-                    result.FailedDownloads.Add((request.Name, request.Url, errorMsg));
-                    _logger.LogWarning("❌ [{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
+                    lastError = $"{ex.GetType().Name}: {ex.Message}";
+                    _logger.LogWarning(ex, "⚠️ [{Name}] 第 {Retry} 次嘗試失敗: {Error}", request.Name, retry + 1, lastError);
                 }
-            }
-            catch (Exception ex)
-            {
-                result.FailedCount++;
-                var errorMsg = $"{ex.GetType().Name}: {ex.Message}";
-                result.FailedDownloads.Add((request.Name, request.Url, errorMsg));
-                _logger.LogError(ex, "❌ [{Name}] 處理時發生錯誤: {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
             }
 
-            // 在請求之間加入隨機延遲 (8-10 秒)，避免被封鎖
+            if (!success)
+            {
+                result.FailedCount++;
+                result.FailedDownloads.Add((request.Name, request.Url, lastError));
+                _logger.LogError("❌ [{Name}] 重試 {MaxRetries} 次後仍失敗: {Error} | URL: {Url}", 
+                    request.Name, _config.MaxRetries, lastError, request.Url);
+            }
+            // 在請求之間加入隨機延遲 (15-25 秒)，避免被封鎖
             if (i < requests.Count - 1)
             {
-                var delayMs = _config.RequestDelayMs + _random.Next(-1000, 1000);
+                var baseDelay = _config.RequestDelayMs;
+                var randomDelay = _random.Next(-2000, 5000); // -2 到 +5 秒隨機
+                var delayMs = Math.Max(baseDelay + randomDelay, 10000); // 最少10秒
                 _logger.LogDebug("等待 {Delay}ms 後處理下一個請求...", delayMs);
                 await Task.Delay(delayMs);
             }
@@ -182,10 +249,17 @@ public class GoodInfoScraper : IDisposable
             _logger.LogDebug("設定下載路徑: {Path}", _config.DownloadPath);
         }
 
-        // 防止被偵測為自動化程式
+        // 防止被偵測為自動化程式 - 增強版
         options.AddArgument("--disable-blink-features=AutomationControlled");
         options.AddExcludedArgument("enable-automation");
         options.AddAdditionalOption("useAutomationExtension", false);
+        options.AddArgument("--disable-web-security");
+        options.AddArgument("--disable-features=VizDisplayCompositor");
+        
+        // 模擬真實瀏覽器行為
+        options.AddArgument("--no-first-run");
+        options.AddArgument("--no-default-browser-check");
+        options.AddArgument("--disable-default-apps");
 
         // 設定 User-Agent (模擬真實瀏覽器)
         var userAgent = _config.UserAgents[_random.Next(_config.UserAgents.Count)];
@@ -208,9 +282,13 @@ public class GoodInfoScraper : IDisposable
         _driver = new ChromeDriver(options);
         _driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(10);
 
-        // 隱藏 webdriver 屬性
+        // 隱藏 webdriver 屬性 - 增強版
         var jsExecutor = (IJavaScriptExecutor)_driver;
         jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})");
+        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})");
+        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})");
+        jsExecutor.ExecuteScript("window.chrome = { runtime: {} }");
+        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'permissions', {get: () => ({query: () => Promise.resolve({state: 'granted'})})});");
 
         _logger.LogInformation("Chrome WebDriver 初始化完成");
     }
@@ -267,10 +345,11 @@ public class GoodInfoScraperConfig
     public int PageLoadDelayMs { get; set; } = 3000;
 
     /// <summary>
-    /// 每個請求之間的延遲 (毫秒) - 預設 8 秒
+    /// 每個請求之間的延遲 (毫秒) - 預設 15-20 秒
     /// 注意：這是關鍵參數，太快會被 GoodInfo 封鎖
+    /// 針對反爬蟲加強，延長間隔時間
     /// </summary>
-    public int RequestDelayMs { get; set; } = 8000;
+    public int RequestDelayMs { get; set; } = 15000;
 
     /// <summary>
     /// 下載完成後等待時間 (毫秒)
@@ -280,12 +359,22 @@ public class GoodInfoScraperConfig
     /// <summary>
     /// 失敗後重試延遲 (毫秒)
     /// </summary>
-    public int RetryDelayMs { get; set; } = 10000;
+    public int RetryDelayMs { get; set; } = 30000;
+
+    /// <summary>
+    /// 單個請求最大重試次數 - 設為0表示不重試
+    /// </summary>
+    public int MaxRetries { get; set; } = 0;
 
     /// <summary>
     /// 檔案下載路徑
     /// </summary>
     public string? DownloadPath { get; set; }
+
+    /// <summary>
+    /// 元素等待時間（秒）
+    /// </summary>
+    public int ElementWaitSeconds { get; set; } = 10;
 
     /// <summary>
     /// 是否使用 Headless 模式
@@ -294,13 +383,17 @@ public class GoodInfoScraperConfig
     public bool UseHeadlessMode { get; set; } = false;
 
     /// <summary>
-    /// User-Agent 輪替列表
+    /// User-Agent 輪替列表 - 增加更多真實瀏覽器UA
     /// </summary>
     public List<string> UserAgents { get; set; } = new()
     {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0"
     };
 }

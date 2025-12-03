@@ -3,7 +3,7 @@ using SST.StockImport.Web.Models;
 
 namespace SST.StockImport.Web.Services;
 
-public class ImportApiService
+public class ImportApiService : IImportApiService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<ImportApiService> _logger;

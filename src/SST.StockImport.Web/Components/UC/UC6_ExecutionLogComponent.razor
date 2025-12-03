@@ -1,0 +1,125 @@
+@using SST.StockImport.Web.Services
+@inject ExecutionLogService LogService
+@inject ILogger<UC6_ExecutionLogComponent> Logger
+@implements IDisposable
+
+<!-- UC6: 執行日誌查看 -->
+<div class="card">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">📋 執行日誌</h5>
+        <div>
+            <button class="btn btn-outline-light btn-sm me-2" @onclick="RefreshLogs">
+                🔄 重新整理
+            </button>
+            <button class="btn btn-outline-light btn-sm" @onclick="ClearLogs">
+                🗑️ 清除
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-3" style="height: 300px; overflow-y: auto; background-color: #f8f9fa;">
+        @if (logs.Any())
+        {
+            @foreach (var log in logs.TakeLast(displayCount))
+            {
+                <div class="log-entry mb-1 p-2 rounded" style="background-color: white; border-left: 3px solid @GetLogBorderColor(log.Level);">
+                    <div class="d-flex align-items-start">
+                        <span class="me-2">@log.LevelIcon</span>
+                        <div class="flex-grow-1">
+                            <small class="text-muted me-2">@log.FormattedTime</small>
+                            <span class="@log.LevelCssClass">@log.Message</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <div class="text-center text-muted py-4">
+                <i class="fas fa-inbox fa-3x mb-2"></i>
+                <p>尚無執行日誌</p>
+                <small>系統操作日誌會自動顯示在這裡</small>
+            </div>
+        }
+    </div>
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <div class="log-stats">
+            <small class="text-muted">
+                總計：@statistics.TotalEntries 筆 |
+                <span class="text-info">ℹ️ @statistics.InfoCount</span> |
+                <span class="text-warning">⚠️ @statistics.WarningCount</span> |
+                <span class="text-danger">❌ @statistics.ErrorCount</span>
+            </small>
+        </div>
+        <div class="log-controls">
+            <select class="form-select form-select-sm" style="width: auto;" @bind="displayCount">
+                <option value="10">顯示 10 筆</option>
+                <option value="20">顯示 20 筆</option>
+                <option value="50">顯示 50 筆</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<LogEntry> logs = new();
+    private LogStatistics statistics = new LogStatistics();
+    private int displayCount = 20;
+
+    protected override void OnInitialized()
+    {
+        RefreshLogs();
+        LogService.LogAdded += OnLogAdded;
+        LogService.LogsCleared += OnLogsCleared;
+    }
+
+    private void RefreshLogs()
+    {
+        logs = LogService.GetAllLogs().ToList();
+        statistics = LogService.GetStatistics();
+        StateHasChanged();
+    }
+
+    private async Task ClearLogs()
+    {
+        LogService.ClearLogs();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLogAdded(LogEntry newLog)
+    {
+        logs.Add(newLog);
+        statistics = LogService.GetStatistics();
+        
+        // 限制內存中的日誌數量
+        if (logs.Count > 100)
+        {
+            logs = logs.TakeLast(50).ToList();
+        }
+        
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLogsCleared()
+    {
+        logs.Clear();
+        statistics = new LogStatistics();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private string GetLogBorderColor(LogLevel level)
+    {
+        return level switch
+        {
+            LogLevel.Error => "#dc3545", // 紅色
+            LogLevel.Warning => "#ffc107", // 黃色
+            LogLevel.Information => "#0dcaf0", // 藍色
+            _ => "#6c757d" // 灰色
+        };
+    }
+
+    public void Dispose()
+    {
+        LogService.LogAdded -= OnLogAdded;
+        LogService.LogsCleared -= OnLogsCleared;
+    }
+}

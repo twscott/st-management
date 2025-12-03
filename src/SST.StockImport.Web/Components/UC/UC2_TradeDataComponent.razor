@@ -1,0 +1,108 @@
+@using SST.StockImport.Web.Services
+@inject OperationExecutorService OperationService
+@inject SystemStatusService StatusService
+@inject ErrorHandlingService ErrorService
+@inject ILogger<UC2_TradeDataComponent> Logger
+
+<!-- UC2: 交易資料下載 -->
+<div class="col-md-6 col-lg-3">
+    <div class="card h-100 border-primary">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">📥 下載交易資料</h6>
+        </div>
+        <div class="card-body text-center">
+            <div class="mb-3">
+                <label class="form-label small text-muted">目標日期</label>
+                <input type="date" class="form-control form-control-sm" 
+                       @bind="targetDate" 
+                       disabled="@isExecuting" />
+            </div>
+            
+            <button class="btn btn-primary btn-lg w-100 mb-2" 
+                    @onclick="ExecuteTradeDataDownload" 
+                    disabled="@isExecuting">
+                @if (isExecuting)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                    <text>執行中...</text>
+                }
+                else
+                {
+                    <text>下載交易資料</text>
+                }
+            </button>
+            
+            @if (!string.IsNullOrEmpty(resultMessage))
+            {
+                <div class="alert alert-@GetAlertClass() p-2 small">
+                    @((MarkupString)resultMessage.Replace("\n", "<br>"))
+                </div>
+            }
+            
+            @if (lastResult != null)
+            {
+                <div class="mt-2">
+                    <small class="text-muted">
+                        上次執行：@lastResult.CompletedAt.ToString("HH:mm:ss")<br>
+                        處理筆數：@lastResult.ProcessedCount.ToString("N0")
+                    </small>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private DateTime targetDate = DateTime.Today.AddDays(-1); // 預設昨天
+    private bool isExecuting = false;
+    private string resultMessage = "";
+    private OperationResult? lastResult;
+
+    private async Task ExecuteTradeDataDownload()
+    {
+        if (isExecuting) return;
+
+        isExecuting = true;
+        resultMessage = "";
+        StateHasChanged();
+
+        try
+        {
+            lastResult = await OperationService.ExecuteTradeDataDownloadAsync(targetDate);
+            resultMessage = lastResult.Message;
+        }
+        catch (Exception ex)
+        {
+            resultMessage = ErrorService.HandleException(ex, "交易資料下載");
+            lastResult = OperationResult.Failure(resultMessage);
+        }
+        finally
+        {
+            isExecuting = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetAlertClass()
+    {
+        if (lastResult == null) return "info";
+        
+        return lastResult.IsSuccess switch
+        {
+            true when lastResult.Message.Contains("⚠️") => "warning",
+            true => "success",
+            false => "danger"
+        };
+    }
+
+    protected override void OnInitialized()
+    {
+        // 如果系統正在執行交易資料下載，顯示執行狀態
+        var currentStatus = StatusService.GetCurrentStatus();
+        if (currentStatus.CurrentOperation.Contains("交易資料"))
+        {
+            isExecuting = true;
+            resultMessage = "執行中...";
+        }
+    }
+}

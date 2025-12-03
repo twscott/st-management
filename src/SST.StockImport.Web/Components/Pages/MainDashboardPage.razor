@@ -1,0 +1,118 @@
+@page "/dashboard-new"
+@using SST.StockImport.Web.Services
+@using SST.StockImport.Web.Components.UC
+@inject SystemStatusService StatusService
+@inject ExecutionLogService LogService
+@inject ILogger<MainDashboardPage> Logger
+@rendermode InteractiveServer
+
+<PageTitle>股票資料管理中心 - 新版</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">📈 股票資料管理中心</h1>
+        <div class="version-badge">
+            <span class="badge bg-success">新版界面</span>
+            <a href="/" class="btn btn-outline-secondary btn-sm ms-2">回到舊版</a>
+        </div>
+    </div>
+
+    <!-- UC1: 即時狀態儀表板 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <UC1_SystemStatusComponent />
+        </div>
+    </div>
+
+    <!-- UC2-UC5: 主要功能按鈕區 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">🎛️ 主要功能</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <!-- UC2: 交易資料下載 -->
+                        <UC2_TradeDataComponent />
+                        
+                        <!-- UC3: All4 補充處理 -->
+                        <UC3_SupplementProcessComponent />
+                        
+                        <!-- UC4: GoodInfo 下載 -->
+                        <UC4_GoodInfoComponent />
+                        
+                        <!-- UC5: 統計資料處理 -->
+                        <UC5_StatisticsComponent />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- UC6: 執行日誌 -->
+    <div class="row">
+        <div class="col-12">
+            <UC6_ExecutionLogComponent />
+        </div>
+    </div>
+</div>
+
+<style>
+    .version-badge {
+        text-align: right;
+    }
+
+    .log-entry {
+        transition: all 0.2s ease-in-out;
+    }
+
+    .log-entry:hover {
+        transform: translateX(2px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .card {
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border: none;
+        border-radius: 8px;
+    }
+
+    .card-header {
+        border-radius: 8px 8px 0 0 !important;
+    }
+
+    .btn {
+        border-radius: 6px;
+    }
+
+    .alert {
+        border-radius: 6px;
+    }
+
+    .badge {
+        border-radius: 4px;
+    }
+
+    @@media (max-width: 768px) {
+        .container-fluid {
+            padding: 10px;
+        }
+        
+        h1 {
+            font-size: 1.5rem;
+        }
+        
+        .card-body .row {
+            gap: 15px !important;
+        }
+    }
+</style>
+
+@code {
+    protected override void OnInitialized()
+    {
+        LogService.AddLog("新版主畫面載入完成", LogLevel.Information);
+        Logger.LogInformation("新版主畫面初始化完成");
+    }
+}

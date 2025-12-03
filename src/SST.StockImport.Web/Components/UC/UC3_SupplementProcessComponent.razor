@@ -1,0 +1,97 @@
+@using SST.StockImport.Web.Services
+@inject OperationExecutorService OperationService
+@inject ErrorHandlingService ErrorService
+@inject ILogger<UC3_SupplementProcessComponent> Logger
+
+<!-- UC3: All4 補充資料處理 -->
+<div class="col-md-6 col-lg-3">
+    <div class="card h-100 border-warning">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">🔄 All4 補充處理</h6>
+        </div>
+        <div class="card-body text-center">
+            <div class="mb-3">
+                <label class="form-label small text-muted">目標日期</label>
+                <input type="date" class="form-control form-control-sm" 
+                       @bind="targetDate" 
+                       disabled="@isExecuting" />
+            </div>
+            
+            <button class="btn btn-warning btn-lg w-100 mb-2" 
+                    @onclick="ExecuteAll4Supplements" 
+                    disabled="@isExecuting">
+                @if (isExecuting)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                    <text>執行中...</text>
+                }
+                else
+                {
+                    <text>執行 All4 處理</text>
+                }
+            </button>
+            
+            @if (!string.IsNullOrEmpty(resultMessage))
+            {
+                <div class="alert alert-@GetAlertClass() p-2 small">
+                    @((MarkupString)resultMessage.Replace("\n", "<br>"))
+                </div>
+            }
+            
+            @if (lastResult != null && showProcessorStatus)
+            {
+                <div class="mt-2">
+                    <small class="text-muted">四個處理器狀態：</small>
+                    <div class="row text-center mt-1">
+                        <div class="col-6"><span class="badge bg-success">警示 ✓</span></div>
+                        <div class="col-6"><span class="badge bg-success">技術 ✓</span></div>
+                        <div class="col-6"><span class="badge bg-success">價格 ✓</span></div>
+                        <div class="col-6"><span class="badge bg-success">成交量 ✓</span></div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private DateTime targetDate = DateTime.Today.AddDays(-1);
+    private bool isExecuting = false;
+    private string resultMessage = "";
+    private OperationResult? lastResult;
+    private bool showProcessorStatus = false;
+
+    private async Task ExecuteAll4Supplements()
+    {
+        if (isExecuting) return;
+
+        isExecuting = true;
+        resultMessage = "";
+        showProcessorStatus = false;
+        StateHasChanged();
+
+        try
+        {
+            lastResult = await OperationService.ExecuteAll4SupplementsAsync(targetDate);
+            resultMessage = lastResult.Message;
+            showProcessorStatus = lastResult.IsSuccess;
+        }
+        catch (Exception ex)
+        {
+            resultMessage = ErrorService.HandleException(ex, "All4 補充處理");
+            lastResult = OperationResult.Failure(resultMessage);
+            showProcessorStatus = false;
+        }
+        finally
+        {
+            isExecuting = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetAlertClass()
+    {
+        if (lastResult == null) return "info";
+        return lastResult.IsSuccess ? "success" : "danger";
+    }
+}

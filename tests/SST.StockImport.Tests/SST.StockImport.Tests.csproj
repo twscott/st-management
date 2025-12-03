@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\src\SST.StockImport.Services\SST.StockImport.Services.csproj" />
     <ProjectReference Include="..\..\src\SST.StockImport.Infrastructure\SST.StockImport.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\SST.StockImport.Core\SST.StockImport.Core.csproj" />
+    <ProjectReference Include="..\..\src\SST.StockImport.Web\SST.StockImport.Web.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,136 @@
+@using SST.StockImport.Web.Services
+@inject OperationExecutorService OperationService
+@inject ErrorHandlingService ErrorService
+@inject ILogger<UC5_StatisticsComponent> Logger
+
+<!-- UC5: 統計資料處理 -->
+<div class="col-md-6 col-lg-3">
+    <div class="card h-100 border-success">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">📊 全部統計資料</h6>
+        </div>
+        <div class="card-body text-center">
+            <div class="mb-3">
+                <label class="form-label small text-muted">目標日期</label>
+                <input type="date" class="form-control form-control-sm" 
+                       @bind="targetDate" 
+                       disabled="@isExecuting" />
+            </div>
+            
+            <button class="btn btn-success btn-lg w-100 mb-2" 
+                    @onclick="ExecuteStatisticsProcessing" 
+                    disabled="@isExecuting">
+                @if (isExecuting)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                    <text>執行中...</text>
+                }
+                else
+                {
+                    <text>處理統計資料</text>
+                }
+            </button>
+            
+            @if (!string.IsNullOrEmpty(resultMessage))
+            {
+                <div class="alert alert-@GetAlertClass() p-2 small">
+                    @((MarkupString)resultMessage.Replace("\n", "<br>"))
+                </div>
+            }
+            
+            @if (lastResult != null)
+            {
+                <div class="mt-2">
+                    <small class="text-muted">
+                        上次執行：@lastResult.CompletedAt.ToString("HH:mm:ss")<br>
+                        @if (exceptionCount > 0)
+                        {
+                            <text>例外數：@exceptionCount</text>
+                        }
+                        else
+                        {
+                            <text>處理順利完成</text>
+                        }
+                    </small>
+                </div>
+            }
+
+            @if (isExecuting)
+            {
+                <div class="mt-2">
+                    <small class="text-warning">
+                        ⏰ 預計 20-40 分鐘<br>
+                        複雜數據分析計算
+                    </small>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private DateTime targetDate = DateTime.Today.AddDays(-1);
+    private bool isExecuting = false;
+    private string resultMessage = "";
+    private OperationResult? lastResult;
+    private int exceptionCount = 0;
+
+    private async Task ExecuteStatisticsProcessing()
+    {
+        if (isExecuting) return;
+
+        isExecuting = true;
+        resultMessage = "";
+        exceptionCount = 0;
+        StateHasChanged();
+
+        try
+        {
+            lastResult = await OperationService.ExecuteStatisticsProcessingAsync(targetDate);
+            resultMessage = lastResult.Message;
+
+            // 解析例外數量
+            ParseExceptionCount(lastResult.Message);
+        }
+        catch (Exception ex)
+        {
+            resultMessage = ErrorService.HandleException(ex, "統計資料處理");
+            lastResult = OperationResult.Failure(resultMessage);
+        }
+        finally
+        {
+            isExecuting = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ParseExceptionCount(string message)
+    {
+        try
+        {
+            if (message.Contains("發生") && message.Contains("個例外"))
+            {
+                var parts = message.Split("發生")[1].Split("個例外")[0].Trim();
+                if (int.TryParse(parts, out var count))
+                    exceptionCount = count;
+            }
+        }
+        catch
+        {
+            // 解析失敗時不影響主要功能
+            exceptionCount = 0;
+        }
+    }
+
+    private string GetAlertClass()
+    {
+        if (lastResult == null) return "info";
+        
+        return lastResult.IsSuccess switch
+        {
+            true when exceptionCount > 0 => "warning",
+            true => "success",
+            false => "danger"
+        };
+    }
+}

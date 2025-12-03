@@ -15,6 +15,16 @@ builder.Services.AddHttpClient<ImportApiService>(client =>
     client.Timeout = TimeSpan.FromHours(2); // 2 hours timeout for long-running import operations
 });
 
+// Register ImportApiService interface
+builder.Services.AddTransient<IImportApiService>(provider => 
+    provider.GetRequiredService<ImportApiService>());
+
+// Register refactored services
+builder.Services.AddSingleton<ISystemStatusService, SystemStatusService>();
+builder.Services.AddSingleton<IExecutionLogService, ExecutionLogService>();
+builder.Services.AddScoped<OperationExecutorService>();
+builder.Services.AddScoped<ErrorHandlingService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
