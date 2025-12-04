@@ -5,10 +5,10 @@ namespace SST.StockImport.Web.Services;
 /// </summary>
 public class ErrorHandlingService
 {
-    private readonly ExecutionLogService _logService;
+    private readonly IExecutionLogService _logService;
     private readonly ILogger<ErrorHandlingService> _logger;
 
-    public ErrorHandlingService(ExecutionLogService logService, ILogger<ErrorHandlingService> logger)
+    public ErrorHandlingService(IExecutionLogService logService, ILogger<ErrorHandlingService> logger)
     {
         _logService = logService;
         _logger = logger;

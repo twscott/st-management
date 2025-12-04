@@ -35,6 +35,12 @@ public static class ServiceCollectionExtensions
         // 註冊 TPExScraper 用於上櫃/興櫃 CSV 解析
         services.AddScoped<TPExScraper>();
         
+        // 註冊 GoodInfo 相關服務
+        services.AddSingleton<GoodInfoDataValidator>();
+        services.AddSingleton<GoodInfoSuccessRateMonitor>();
+        services.AddSingleton<GoodInfoUrlManager>();
+        services.AddSingleton<AntiCrawlerDetector>();
+        
         // 註冊 GoodInfoScraper 用於 GoodInfo.tw 資料下載 (Selenium)
         services.AddScoped<GoodInfoScraper>();
         services.AddSingleton(new GoodInfoScraperConfig
@@ -43,7 +49,7 @@ public static class ServiceCollectionExtensions
             RequestDelayMs = 8000,  // 8 秒延遲，避免被封鎖
             DownloadWaitMs = 1000,
             UseHeadlessMode = true,  // 暫時恢復 Headless 模式以確保穩定性
-            MaxRetries = 0,  // 不重試，失敗即換下一個
+            MaxRetries = 3,  // 增加重試次數，配合智能冷卻機制
             DownloadPath = Path.Combine(Path.GetTempPath(), "GoodInfoDownloads")  // 設定下載路徑
         });
 

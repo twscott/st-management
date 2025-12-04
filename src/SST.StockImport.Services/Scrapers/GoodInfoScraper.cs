@@ -15,14 +15,26 @@ public class GoodInfoScraper : IDisposable
 {
     private readonly ILogger<GoodInfoScraper> _logger;
     private readonly GoodInfoScraperConfig _config;
+    private readonly GoodInfoDataValidator _dataValidator;
+    private readonly GoodInfoSuccessRateMonitor _successMonitor;
+    private readonly GoodInfoUrlManager _urlManager;
+    private readonly AntiCrawlerDetector _antiCrawlerDetector;
     private IWebDriver? _driver;
     private readonly Random _random = new();
 
     public GoodInfoScraper(
         ILogger<GoodInfoScraper> logger,
+        GoodInfoDataValidator dataValidator,
+        GoodInfoSuccessRateMonitor successMonitor,
+        GoodInfoUrlManager urlManager,
+        AntiCrawlerDetector antiCrawlerDetector,
         GoodInfoScraperConfig? config = null)
     {
         _logger = logger;
+        _dataValidator = dataValidator;
+        _successMonitor = successMonitor;
+        _urlManager = urlManager;
+        _antiCrawlerDetector = antiCrawlerDetector;
         _config = config ?? new GoodInfoScraperConfig();
     }
 
@@ -31,19 +43,110 @@ public class GoodInfoScraper : IDisposable
     /// </summary>
     public async Task<bool> DownloadDataAsync(GoodInfoDownloadRequest request)
     {
+        var startTime = DateTime.Now;
+        var targetUrl = request.Url; // 初始化為原始 URL
+        var attempt = new DownloadAttempt
+        {
+            Url = request.Url,
+            PageName = request.Name,
+            Timestamp = startTime
+        };
+
         try
         {
+            // 0. 首先檢查是否在冷卻期 - 避免浪費時間
+            if (_antiCrawlerDetector.IsInCooldown(request.Url))
+            {
+                var remaining = _antiCrawlerDetector.GetRemainingCooldown(request.Url);
+                attempt.Success = false;
+                attempt.FailureReason = $"域名在冷卻期，剩餘: {remaining:hh\\:mm\\:ss}";
+                attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+                _successMonitor.RecordAttempt(attempt);
+                
+                _logger.LogWarning("[{Name}] ❄️ 跳過請求，域名仍在冷卻期: {Remaining}", 
+                    request.Name, remaining);
+                return false;
+            }
+
             _logger.LogInformation("開始下載 GoodInfo 資料: {Name} from {Url}", request.Name, request.Url);
+
+            // 1. 預先檢查 URL 健康狀態
+            var urlHealth = await _urlManager.CheckUrlHealthAsync(request.Url, request.Name);
+            if (!urlHealth.IsHealthy && string.IsNullOrEmpty(urlHealth.AlternativeUrl))
+            {
+                attempt.Success = false;
+                attempt.FailureReason = $"URL 健康檢查失敗: {urlHealth.HealthStatus}";
+                attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+                _successMonitor.RecordAttempt(attempt);
+                return false;
+            }
+
+            // 使用替代 URL（如果有）
+            targetUrl = urlHealth.AlternativeUrl ?? request.Url;
+            if (targetUrl != request.Url)
+            {
+                _logger.LogInformation("[{Name}] 使用替代 URL: {NewUrl}", request.Name, targetUrl);
+            }
 
             // 初始化 WebDriver (如果尚未初始化)
             EnsureDriverInitialized();
+            
+            // 檢查 WebDriver 連線狀態
+            if (!IsDriverHealthy())
+            {
+                _logger.LogWarning("WebDriver 連線異常，重新初始化");
+                CloseDriver();
+                EnsureDriverInitialized();
+            }
 
             // 導航到目標頁面
-            _driver!.Navigate().GoToUrl(request.Url);
-            _logger.LogDebug("已導航到: {Url}", request.Url);
+            _driver!.Navigate().GoToUrl(targetUrl);
+            _logger.LogDebug("已導航到: {Url}", targetUrl);
 
             // 等待頁面載入
             await Task.Delay(_config.PageLoadDelayMs);
+
+            // 1.5. 反爬蟲檢測 - 優先檢查，一旦發現立即停止
+            var pageSource = _driver.PageSource;
+            var antiCrawlerResult = _antiCrawlerDetector.DetectAntiCrawlerSignals(pageSource, targetUrl);
+            
+            if (antiCrawlerResult.IsBlocked)
+            {
+                // 立即觸發冷卻期，停止後續嘗試
+                _antiCrawlerDetector.TriggerCooldown(targetUrl, antiCrawlerResult.Severity, 
+                    $"檢測到反爬蟲信號: {string.Join("; ", antiCrawlerResult.BlockingSignals)}");
+                
+                attempt.Success = false;
+                attempt.FailureReason = $"反爬蟲檢測觸發: {string.Join("; ", antiCrawlerResult.BlockingSignals)}";
+                attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+                _successMonitor.RecordAttempt(attempt);
+                
+                _logger.LogError("[{Name}] 🚫 反爬蟲檢測觸發，進入冷卻期: {Signals}", 
+                    request.Name, string.Join(", ", antiCrawlerResult.BlockingSignals));
+                return false;
+            }
+
+            // 2. 智能資料驗證
+            var validationResult = await _dataValidator.ValidatePageDataAsync(_driver, targetUrl, request.Name);
+            if (!validationResult.IsValid)
+            {
+                attempt.Success = false;
+                attempt.FailureReason = $"資料驗證失敗: {string.Join("; ", validationResult.Issues)}";
+                attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+                _successMonitor.RecordAttempt(attempt);
+                
+                _logger.LogWarning("[{Name}] ❌ 資料驗證失敗: {Issues}", 
+                    request.Name, string.Join(", ", validationResult.Issues));
+                return false;
+            }
+
+            // 3. 處理廣告和彈窗
+            var adResult = await _dataValidator.HandleAdvertisementsAsync(_driver, request.Name);
+            if (adResult.Success && (adResult.RemovedAdsCount > 0 || adResult.ClosedPopupsCount > 0))
+            {
+                _logger.LogInformation("[{Name}] 🧹 廣告清理完成: {AdCount} 廣告, {PopupCount} 彈窗", 
+                    request.Name, adResult.RemovedAdsCount, adResult.ClosedPopupsCount);
+            }
 
             // 尋找並點擊下載按鈕 - 使用多種策略嘗試
             IWebElement? button = null;
@@ -108,9 +211,15 @@ public class GoodInfoScraper : IDisposable
                 }
             }
             
-            if (!buttonFound)
+            if (!buttonFound || button == null)
             {
                 _logger.LogWarning("所有策略都無法找到下載按鈕，跳過此頁面");
+                
+                attempt.Success = false;
+                attempt.FailureReason = "找不到下載按鈕";
+                attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+                _successMonitor.RecordAttempt(attempt);
+                
                 return false;
             }
 
@@ -121,25 +230,62 @@ public class GoodInfoScraper : IDisposable
             // 等待下載完成
             await Task.Delay(_config.DownloadWaitMs);
 
+            // 記錄成功嘗試
+            attempt.Success = true;
+            attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+            _successMonitor.RecordAttempt(attempt);
+
             _logger.LogInformation("成功下載 GoodInfo 資料: {Name}", request.Name);
             return true;
         }
         catch (NoSuchElementException ex)
         {
             var errorMsg = $"找不到下載按鈕 (已嘗試多種策略): {ex.Message}";
-            _logger.LogInformation("[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
+            
+            attempt.Success = false;
+            attempt.FailureReason = errorMsg;
+            attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+            _successMonitor.RecordAttempt(attempt);
+            
+            _logger.LogInformation("[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, targetUrl);
+            return false;
+        }
+        catch (WebDriverException ex) when (IsAntiCrawlerError(ex))
+        {
+            // 檢測到反爬蟲相關錯誤，觸發冷卻期
+            var errorMsg = $"反爬蟲相關 WebDriver 錯誤: {ex.Message}";
+            _antiCrawlerDetector.TriggerCooldown(targetUrl, BlockingSeverity.High, errorMsg);
+            
+            attempt.Success = false;
+            attempt.FailureReason = errorMsg;
+            attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+            _successMonitor.RecordAttempt(attempt);
+            
+            _logger.LogError("[{Name}] 🚫 {Error} - 觸發冷卻期 | URL: {Url}", request.Name, errorMsg, targetUrl);
             return false;
         }
         catch (WebDriverException ex)
         {
             var errorMsg = $"WebDriver 錯誤: {ex.Message}";
-            _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
+            
+            attempt.Success = false;
+            attempt.FailureReason = errorMsg;
+            attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+            _successMonitor.RecordAttempt(attempt);
+            
+            _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, targetUrl);
             return false;
         }
         catch (Exception ex)
         {
             var errorMsg = $"下載失敗: {ex.GetType().Name} - {ex.Message}";
-            _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, request.Url);
+            
+            attempt.Success = false;
+            attempt.FailureReason = errorMsg;
+            attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+            _successMonitor.RecordAttempt(attempt);
+            
+            _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, targetUrl);
             return false;
         }
     }
@@ -163,6 +309,19 @@ public class GoodInfoScraper : IDisposable
             var request = requests[i];
             _logger.LogInformation("處理 [{Current}/{Total}]: {Name}", i + 1, requests.Count, request.Name);
 
+            // 智能冷卻檢查 - 跳過冷卻中的域名請求
+            if (_antiCrawlerDetector.IsInCooldown(request.Url))
+            {
+                var remaining = _antiCrawlerDetector.GetRemainingCooldown(request.Url);
+                result.FailedCount++;
+                result.FailedDownloads.Add((request.Name, request.Url, 
+                    $"域名在冷卻期，剩餘: {remaining:hh\\:mm\\:ss}"));
+                
+                _logger.LogWarning("❄️ [{Name}] 跳過冷卻中的請求，剩餘: {Remaining}", 
+                    request.Name, remaining);
+                continue;
+            }
+
             // 重試機制 - 單個請求失敗時重試
             bool success = false;
             var lastError = string.Empty;
@@ -171,6 +330,16 @@ public class GoodInfoScraper : IDisposable
             {
                 try
                 {
+                    // 檢查是否在重試過程中被加入冷卻期
+                    if (retry > 0 && _antiCrawlerDetector.IsInCooldown(request.Url))
+                    {
+                        var remaining = _antiCrawlerDetector.GetRemainingCooldown(request.Url);
+                        _logger.LogWarning("❄️ [{Name}] 重試期間進入冷卻期，停止重試。剩餘: {Remaining}", 
+                            request.Name, remaining);
+                        lastError = $"重試期間進入冷卻期: {remaining:hh\\:mm\\:ss}";
+                        break;
+                    }
+
                     if (retry > 0)
                     {
                         _logger.LogWarning("⏳ [{Name}] 第 {Retry} 次重試 (上次錯誤: {Error})", request.Name, retry, lastError);
@@ -280,7 +449,14 @@ public class GoodInfoScraper : IDisposable
         options.AddArgument("--disable-dev-shm-usage");
 
         _driver = new ChromeDriver(options);
-        _driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(10);
+        
+        // 設定超時時間 - 修復 60 秒超時問題
+        var timeouts = _driver.Manage().Timeouts();
+        timeouts.ImplicitWait = TimeSpan.FromSeconds(10);
+        timeouts.PageLoad = TimeSpan.FromMinutes(5); // 5 分鐘頁面載入超時
+        timeouts.AsynchronousJavaScript = TimeSpan.FromSeconds(30); // JS 執行超時
+        
+        _logger.LogInformation("設定 WebDriver 超時: PageLoad=5分鐘, ImplicitWait=10秒, JS=30秒");
 
         // 隱藏 webdriver 屬性 - 增強版
         var jsExecutor = (IJavaScriptExecutor)_driver;
@@ -294,17 +470,81 @@ public class GoodInfoScraper : IDisposable
     }
 
     /// <summary>
+    /// 檢查 WebDriver 是否健康
+    /// </summary>
+    private bool IsDriverHealthy()
+    {
+        try
+        {
+            if (_driver == null) return false;
+            
+            // 嘗試獲取當前 URL 來測試連線
+            var currentUrl = _driver.Url;
+            return !string.IsNullOrEmpty(currentUrl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("WebDriver 健康檢查失敗: {Message}", ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 關閉並清理 WebDriver
+    /// </summary>
+    private void CloseDriver()
+    {
+        try
+        {
+            _driver?.Quit();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("關閉 WebDriver 時發生錯誤: {Message}", ex.Message);
+        }
+        finally
+        {
+            _driver?.Dispose();
+            _driver = null;
+            _logger.LogInformation("WebDriver 已關閉並清理");
+        }
+    }
+
+    /// <summary>
+    /// 檢查是否為反爬蟲相關的 WebDriver 錯誤
+    /// </summary>
+    private bool IsAntiCrawlerError(WebDriverException ex)
+    {
+        var message = ex.Message.ToLowerInvariant();
+        
+        // 常見的反爬蟲相關錯誤信號
+        var antiCrawlerErrorKeywords = new[]
+        {
+            "access denied",        // 拒絕訪問
+            "forbidden",           // 禁止
+            "blocked",            // 封鎖
+            "rate limit",         // 速率限制
+            "too many requests",  // 請求過多
+            "captcha",           // 驗證碼
+            "verification",      // 驗證
+            "suspicious",        // 可疑活動
+            "bot",              // 機器人檢測
+            "crawler",          // 爬蟲檢測
+            "timeout",          // 超時（可能是故意的）
+            "connection reset", // 連接重置
+            "session expired",  // 會話過期
+            "invalid session"   // 無效會話
+        };
+
+        return antiCrawlerErrorKeywords.Any(keyword => message.Contains(keyword));
+    }
+
+    /// <summary>
     /// 釋放資源
     /// </summary>
     public void Dispose()
     {
-        if (_driver != null)
-        {
-            _logger.LogInformation("關閉 Chrome WebDriver");
-            _driver.Quit();
-            _driver.Dispose();
-            _driver = null;
-        }
+        CloseDriver();
     }
 }
 
@@ -362,9 +602,9 @@ public class GoodInfoScraperConfig
     public int RetryDelayMs { get; set; } = 30000;
 
     /// <summary>
-    /// 單個請求最大重試次數 - 設為0表示不重試
+    /// 單個請求最大重試次數 - 增加重試次數以提高成功率
     /// </summary>
-    public int MaxRetries { get; set; } = 0;
+    public int MaxRetries { get; set; } = 3;
 
     /// <summary>
     /// 檔案下載路徑
