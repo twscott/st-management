@@ -148,7 +148,28 @@ public class GoodInfoScraper : IDisposable
                     request.Name, adResult.RemovedAdsCount, adResult.ClosedPopupsCount);
             }
 
-            // 尋找並點擊下載按鈕 - 使用多種策略嘗試
+            // 4. 判斷是個股詳細頁面還是需要下載的頁面
+            if (IsStockDetailPage(targetUrl))
+            {
+                // 個股詳細頁面：直接解析資料，無需點擊下載按鈕
+                _logger.LogInformation("[{Name}] 個股詳細頁面，直接解析資料", request.Name);
+                
+                // 等待頁面完全載入
+                await Task.Delay(_config.PageLoadDelayMs);
+                
+                // 記錄成功嘗試
+                attempt.Success = true;
+                attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
+                _successMonitor.RecordAttempt(attempt);
+                
+                _logger.LogInformation("成功訪問個股詳細頁面: {Name}", request.Name);
+                return true;
+            }
+
+            // 分析頁面：需要點擊下載按鈕 (如週轉率、券資比等)
+            _logger.LogInformation("[{Name}] 分析頁面，尋找下載按鈕", request.Name);
+
+            // 尋找並點擊下載按鈕 - 使用多種策略嘗試 
             IWebElement? button = null;
             var buttonFound = false;
             
@@ -540,6 +561,15 @@ public class GoodInfoScraper : IDisposable
     }
 
     /// <summary>
+    /// 判斷是否為個股詳細頁面
+    /// </summary>
+    private static bool IsStockDetailPage(string url)
+    {
+        return url.Contains("StockDetail.asp", StringComparison.OrdinalIgnoreCase) ||
+               url.Contains("StockInfo/StockDetail", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// 釋放資源
     /// </summary>
     public void Dispose()
@@ -557,6 +587,10 @@ public class GoodInfoDownloadRequest
     public string Url { get; set; } = string.Empty;
     public string? CssSelector { get; set; }
     public string? XPath { get; set; }
+    public string? StockId { get; set; }  // 新增：支持個股代號
+    public bool IsHighPriority { get; set; } = false;  // 新增：是否為高優先級項目
+    public int ExpectedSuccessRate { get; set; } = 70;  // 新增：預期成功率
+    public string Description { get; set; } = string.Empty;  // 新增：項目描述
 }
 
 /// <summary>

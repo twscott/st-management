@@ -12,13 +12,19 @@ public class GoodInfoController : ControllerBase
 {
     private readonly ILogger<GoodInfoController> _logger;
     private readonly GoodInfoScraper _goodInfoScraper;
+    private readonly LegacyGoodInfoScraper _legacyGoodInfoScraper;
+    private readonly AntiCrawlerDetector _antiCrawlerDetector;
 
     public GoodInfoController(
         ILogger<GoodInfoController> logger,
-        GoodInfoScraper goodInfoScraper)
+        GoodInfoScraper goodInfoScraper,
+        LegacyGoodInfoScraper legacyGoodInfoScraper,
+        AntiCrawlerDetector antiCrawlerDetector)
     {
         _logger = logger;
         _goodInfoScraper = goodInfoScraper;
+        _legacyGoodInfoScraper = legacyGoodInfoScraper;
+        _antiCrawlerDetector = antiCrawlerDetector;
     }
 
     /// <summary>
@@ -83,46 +89,80 @@ public class GoodInfoController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("開始下載 GoodInfo 資料 (真實爬蟲) - 處理 1800+ 連結");
+            _logger.LogInformation("開始 GoodInfo 批量下載");
 
-            // 取得所有真實的 GoodInfo 下載請求 (from legacy system)
-            var allRequests = GoodInfoUrlConfig.GetAllRequests();
-            _logger.LogInformation("準備處理 {Count} 個 GoodInfo 連結", allRequests.Count);
-
-            // 使用真實的 GoodInfo 批次爬蟲 - 這將需要真正的時間處理 (30-60 分鐘)
-            var result = await _goodInfoScraper.DownloadBatchAsync(allRequests);
+            // 直接調用批量下載功能（就像整合測試一樣）
+            var result = await _legacyGoodInfoScraper.ExecuteBatchDownloadAsync();
             
-            _logger.LogInformation("GoodInfo 下載完成 - 成功：{Success}，失敗：{Failed}，耗時：{Duration:mm\\:ss}", 
-                result.SuccessCount, result.FailedCount, result.TotalDuration);
+            _logger.LogInformation("批量下載完成 - 成功：{Success}，失敗：{Failed}", 
+                result.SuccessfulItems, result.FailedItems);
 
+            // 建立失敗項目清單，符合前端期望格式
+            var failedStocks = result.Results
+                .Where(r => !r.IsSuccess)
+                .Select(r => new { Name = r.ItemName, Error = r.ErrorMessage ?? "下載失敗" })
+                .ToList();
+
+            // 返回符合 GoodInfoDownloadResult 格式的物件
             return Ok(new
             {
-                SuccessfulLinks = result.SuccessCount,
-                FailedLinks = result.FailedCount,
-                FailedStocks = result.FailedDownloads.Select(f => new
-                {
-                    Name = f.Name,
-                    Error = f.Error
-                }).ToList()
+                SuccessfulLinks = result.SuccessfulItems,
+                FailedLinks = result.FailedItems,
+                FailedStocks = failedStocks
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "GoodInfo 真實爬蟲失敗");
+            _logger.LogError(ex, "批量下載失敗");
+            return StatusCode(500, new { 錯誤 = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 簡單測試 - 直接驗證能否成功訪問台積電個股頁面
+    /// </summary>
+    [HttpPost("download/test-simple")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> TestSimpleAccess()
+    {
+        try
+        {
+            _logger.LogInformation("開始簡單測試 - 訪問台積電個股頁面");
+
+            // 測試單一個股 - 台積電
+            var tsmc = new GoodInfoDownloadRequest
+            {
+                Name = "台積電測試",
+                Url = "https://goodinfo.tw/StockInfo/StockDetail.asp?STOCK_ID=2330",
+                StockId = "2330"
+            };
+
+            _logger.LogInformation("測試 URL: {Url}", tsmc.Url);
+
+            var result = await _goodInfoScraper.DownloadDataAsync(tsmc);
+
+            return Ok(new
+            {
+                Message = "台積電個股頁面訪問測試完成",
+                StockId = "2330",
+                StockName = "台積電",
+                Success = result,
+                Url = tsmc.Url
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "簡單訪問測試失敗");
             return StatusCode(500, new
             {
-                SuccessfulLinks = 0,
-                FailedLinks = 1,
-                FailedStocks = new List<object>
-                {
-                    new { Name = "系統錯誤", Error = ex.Message }
-                }
+                Message = "簡單訪問測試失敗",
+                Error = ex.Message
             });
         }
     }
 
     /// <summary>
-    /// 測試週轉率下載 - 這是100%會有的連結，用來驗證爬蟲是否正常工作
+    /// 測試週轉率下載 - 驗證舊系統功能移植
     /// </summary>
     [HttpPost("download/test-turnover")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -132,24 +172,22 @@ public class GoodInfoController : ControllerBase
         {
             _logger.LogInformation("開始測試週轉率下載");
 
-            // 只測試週轉率連結
-            var turnoverRequest = GoodInfoUrlConfig.GetAllRequests()
-                .FirstOrDefault(r => r.Name == "週轉率");
-
-            if (turnoverRequest == null)
+            // 週轉率下載請求 (來自舊系統 linkLabel9)
+            var turnoverRequest = new GoodInfoDownloadRequest
             {
-                return BadRequest(new { Error = "找不到週轉率連結配置" });
-            }
+                Name = "週轉率",
+                Url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%28%E7%95%B6%E6%97%A5%29%40%40%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%40%40%E7%95%B6%E6%97%A5",
+                CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)"
+            };
 
-            _logger.LogInformation("測試週轉率連結: {Url}", turnoverRequest.Url);
-            _logger.LogInformation("CSS選擇器: {CssSelector}", turnoverRequest.CssSelector);
+            _logger.LogInformation("測試 URL: {Url}", turnoverRequest.Url);
 
             var result = await _goodInfoScraper.DownloadDataAsync(turnoverRequest);
 
             return Ok(new
             {
-                Message = "週轉率測試完成",
-                LinkName = turnoverRequest.Name,
+                Message = "週轉率下載測試完成",
+                Name = "週轉率",
                 Success = result,
                 Url = turnoverRequest.Url,
                 CssSelector = turnoverRequest.CssSelector
@@ -160,7 +198,83 @@ public class GoodInfoController : ControllerBase
             _logger.LogError(ex, "週轉率下載測試失敗");
             return StatusCode(500, new
             {
-                Message = "週轉率測試失敗",
+                Message = "週轉率下載測試失敗",
+                Error = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// 清除反爬蟲冷卻期 - 用於測試或緊急情況
+    /// </summary>
+    [HttpPost("cooldown/clear")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> ClearCooldown()
+    {
+        try
+        {
+            _logger.LogInformation("清除 GoodInfo 冷卻期");
+            
+            // 清除 goodinfo.tw 的冷卻期
+            _antiCrawlerDetector.RemoveCooldown("https://goodinfo.tw", "API手動清除");
+            
+            return Ok(new
+            {
+                Message = "GoodInfo 冷卻期已清除",
+                Domain = "goodinfo.tw",
+                ClearedAt = DateTime.Now
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "清除冷卻期失敗");
+            return StatusCode(500, new
+            {
+                Message = "清除冷卻期失敗",
+                Error = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// 檢查反爬蟲冷卻期狀態
+    /// </summary>
+    [HttpGet("cooldown/status")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> GetCooldownStatus()
+    {
+        try
+        {
+            var cooldowns = _antiCrawlerDetector.GetAllCooldowns();
+            var goodInfoCooldown = cooldowns.FirstOrDefault(c => c.Domain.Contains("goodinfo"));
+            
+            if (goodInfoCooldown != null)
+            {
+                var remainingTime = goodInfoCooldown.CooldownUntil - DateTime.Now;
+                return Ok(new
+                {
+                    InCooldown = remainingTime > TimeSpan.Zero,
+                    Domain = goodInfoCooldown.Domain,
+                    Reason = goodInfoCooldown.Reason,
+                    CooldownUntil = goodInfoCooldown.CooldownUntil,
+                    RemainingTime = remainingTime > TimeSpan.Zero ? remainingTime.ToString(@"hh\:mm\:ss") : "00:00:00",
+                    Severity = goodInfoCooldown.Severity.ToString(),
+                    EscalationCount = goodInfoCooldown.EscalationCount
+                });
+            }
+            
+            return Ok(new
+            {
+                InCooldown = false,
+                Message = "沒有冷卻期限制"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "檢查冷卻期狀態失敗");
+            return StatusCode(500, new
+            {
+                Message = "檢查冷卻期狀態失敗",
                 Error = ex.Message
             });
         }

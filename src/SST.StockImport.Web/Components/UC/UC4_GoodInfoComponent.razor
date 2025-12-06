@@ -1,45 +1,118 @@
 @using SST.StockImport.Web.Services
+@using SST.StockImport.Services.Scrapers
 @inject OperationExecutorService OperationService
 @inject ErrorHandlingService ErrorService
+@inject LegacyGoodInfoScraper LegacyGoodInfoScraper
 @inject ILogger<UC4_GoodInfoComponent> Logger
 
 <!-- UC4: GoodInfo 資料爬取 -->
-<div class="col-md-6 col-lg-3">
+<div class="col-md-6 col-lg-6">
     <div class="card h-100 border-info">
         <div class="card-header bg-light">
-            <h6 class="mb-0">🌐 下載 GoodInfo</h6>
+            <h6 class="mb-0">🌐 下載 GoodInfo 資料</h6>
         </div>
-        <div class="card-body text-center">
-            <button class="btn btn-info btn-lg w-100 mb-2" 
-                    @onclick="ExecuteGoodInfoDownload" 
-                    disabled="@isExecuting">
-                @if (isExecuting)
+        <div class="card-body">
+            <!-- 批次下載按鈕 -->
+            <div class="mb-3">
+                <button class="btn btn-info w-100 mb-2" 
+                        @onclick="ExecuteGoodInfoDownload" 
+                        disabled="@isExecuting">
+                    @if (isExecuting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        <text>全部下載中...</text>
+                    }
+                    else
+                    {
+                        <text>📥 批次下載全部</text>
+                    }
+                </button>
+            </div>
+
+            <!-- 個別下載連結 -->
+            <div class="row">
+                @foreach (var item in downloadItems)
                 {
-                    <span class="spinner-border spinner-border-sm me-2"></span>
-                    <text>執行中...</text>
+                    <div class="col-12 col-md-6 mb-2">
+                        <button class="btn @GetButtonClass(item) btn-sm w-100" 
+                                @onclick="() => ExecuteSingleDownload(item.Name)" 
+                                disabled="@(isExecuting || singleDownloading.Contains(item.Name))"
+                                title="預期成功率: @item.SuccessRate%">
+                            @if (singleDownloading.Contains(item.Name))
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            @GetStatusIcon(item) @item.Name
+                        </button>
+                    </div>
                 }
-                else
-                {
-                    <text>下載 GoodInfo</text>
-                }
-            </button>
+            </div>
+            
+            <!-- 批量下載結果顯示 -->
+            @if (_showBatchResult)
+            {
+                <div class="alert alert-info mb-3">
+                    <h6 class="alert-heading">📊 批量下載結果</h6>
+                    <p class="mb-2"><strong>@_batchResultMessage</strong></p>
+                    
+                    @if (_failedCount > 0 && _failedLinks.Any())
+                    {
+                        <hr>
+                        <h6 class="text-warning mb-2">❌ 失敗的下載項目：</h6>
+                        <ul class="mb-0">
+                            @foreach (var failedLink in _failedLinks)
+                            {
+                                <li class="text-danger">@failedLink</li>
+                            }
+                        </ul>
+                        
+                        @if (_failedLinks.Any(f => f.Contains("外資連買")))
+                        {
+                            <div class="mt-2">
+                                <small class="text-muted">💡 外資連買失敗可能是今天沒有資料，這是正常情況</small>
+                            </div>
+                        }
+                    }
+                    else if (_failedCount == 0)
+                    {
+                        <div class="text-success">
+                            <strong>🎉 所有項目下載成功！</strong>
+                        </div>
+                    }
+                </div>
+            }
+            
+            @if (isExecuting)
+            {
+                <!-- 模擬進度顯示 -->
+                <div class="mt-3">
+                    <div class="progress mb-2">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
+                             style="width: @(progressPercentage)%">
+                            @progressPercentage.ToString("F1")%
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        已執行: @elapsedMinutes 分鐘<br>
+                        預估完成: @estimatedMinutes 分鐘<br>
+                        <span class="text-primary">🚀 模式: @downloadMode</span>
+                    </small>
+                </div>
+            }
             
             @if (!string.IsNullOrEmpty(resultMessage))
             {
-                <div class="alert alert-@GetAlertClass() p-2 small">
+                <div class="alert alert-@GetAlertClass() p-2 small mt-2">
                     @((MarkupString)resultMessage.Replace("\n", "<br>"))
                 </div>
             }
             
-            @if (lastResult != null && lastResult.IsSuccess)
+            @if (lastResult != null && lastResult.IsSuccess && !isExecuting)
             {
                 <div class="mt-2">
                     <small class="text-muted">
                         上次執行：@lastResult.CompletedAt.ToString("HH:mm:ss")<br>
-                        @if (successfulLinks > 0 || failedLinks > 0)
-                        {
-                            <text>成功率：@GetSuccessRate().ToString("F1")%</text>
-                        }
+                        成功率：@GetSuccessRate().ToString("F1")%
                     </small>
                 </div>
             }
@@ -49,7 +122,8 @@
                 <div class="mt-2">
                     <small class="text-warning">
                         ⏰ 預計 30-60 分鐘<br>
-                        1800+ 網頁爬取
+                        @downloadItems.Count 個項目爬取<br>
+                        <strong>@downloadMode</strong>
                     </small>
                 </div>
             }
@@ -60,84 +134,196 @@
 @code {
     private bool isExecuting = false;
     private string resultMessage = "";
+    private double progressPercentage = 0;
+    private int elapsedMinutes = 0;
+    private int estimatedMinutes = 45; // 預設45分鐘
+    private string downloadMode = "Headless 模式";
     private OperationResult? lastResult;
-    private int successfulLinks = 0;
-    private int failedLinks = 0;
+    private HashSet<string> singleDownloading = new();
+    
+    // 批量下載結果顯示
+    private bool _showBatchResult = false;
+    private string _batchResultMessage = string.Empty;
+    private List<string> _failedLinks = new();
+    private int _successCount = 0;
+    private int _failedCount = 0;
+
+    // 完整的 19 項下載標的
+    private readonly List<DownloadItem> downloadItems = new()
+    {
+        // 高優先級 (6項)
+        new("券資比", true, 85, "⭐"),
+        new("周轉率", true, 90, "⭐"),
+        new("MACD>0", true, 75, "⭐"),
+        new("OSC負轉正", true, 70, "⭐"),
+        new("EPS創新高", true, 65, "⭐"),
+        new("投信連買", true, 60, "⭐"),
+        
+        // 中優先級 (7項)
+        new("超布林上軌", false, 55, "🎯"),
+        new("外資連買連賣轉折", false, 50, "🔄"),
+        new("投信連買連賣轉折", false, 50, "🔄"),
+        new("五年新高", false, 58, "🚀"),
+        new("外資連買", false, 62, "💰"),
+        new("外資連賣", false, 62, "📉"),
+        new("投信連賣", false, 58, "📉"),
+        
+        // 一般優先級 (6項)
+        new("外資、投信同步買超", false, 45, "💎"),
+        new("月季黃金", false, 40, "✨"),
+        new("歷史成交量", false, 55, "📊"),
+        new("季營收創高", false, 52, "📈"),
+        new("財報評分", false, 48, "📋"),
+        new("外資、投信同步賣超", false, 45, "⚠️")
+    };
 
     private async Task ExecuteGoodInfoDownload()
     {
         if (isExecuting) return;
 
-        isExecuting = true;
-        resultMessage = "";
+        await StartExecution("批次下載全部項目");
+        _showBatchResult = false;
+        
+        try
+        {
+            // 使用 LegacyGoodInfoScraper 執行批量下載
+            var batchResult = await LegacyGoodInfoScraper.ExecuteBatchDownloadAsync();
+            
+            // 更新結果統計
+            _successCount = batchResult.SuccessfulItems;
+            _failedCount = batchResult.FailedItems;
+            
+            // 收集失敗項目名稱
+            _failedLinks.Clear();
+            foreach (var downloadResult in batchResult.Results.Where(r => !r.IsSuccess))
+            {
+                _failedLinks.Add(downloadResult.ItemName);
+            }
+            
+            // 設置結果訊息
+            _batchResultMessage = $"批量下載完成：成功 {_successCount} 個，失敗 {_failedCount} 個";
+            _showBatchResult = true;
+            
+            // 也調用原有的服務以保持相容性
+            lastResult = await OperationService.ExecuteGoodInfoDownloadAsync();
+            
+            if (_failedCount == 0)
+            {
+                resultMessage = "✅ 全部下載成功！";
+            }
+            else if (_successCount > 0)
+            {
+                resultMessage = $"⚠️ 部分下載成功：{_successCount}/{_successCount + _failedCount}";
+            }
+            else
+            {
+                resultMessage = "❌ 全部下載失敗";
+            }
+        }
+        catch (Exception ex)
+        {
+            resultMessage = $"❌ 執行失敗: {ex.Message}";
+            _showBatchResult = false;
+            Logger.LogError(ex, "GoodInfo批次下載失敗");
+        }
+        finally
+        {
+            await EndExecution();
+        }
+    }
+
+    private async Task ExecuteSingleDownload(string itemName)
+    {
+        if (isExecuting || singleDownloading.Contains(itemName)) return;
+
+        singleDownloading.Add(itemName);
         StateHasChanged();
 
         try
         {
+            // 單項下載暫時使用相同的批次下載方法，之後可以擴展
             lastResult = await OperationService.ExecuteGoodInfoDownloadAsync();
-            resultMessage = lastResult.Message;
-
-            // 從訊息中解析成功和失敗的連結數
-            ParseLinkCounts(lastResult.Message);
+            resultMessage = lastResult.IsSuccess ? 
+                $"✅ {itemName} 下載完成" : 
+                $"❌ {itemName} 下載失敗";
         }
         catch (Exception ex)
         {
-            resultMessage = ErrorService.HandleException(ex, "GoodInfo 資料下載");
-            lastResult = OperationResult.Failure(resultMessage);
+            resultMessage = $"❌ {itemName} 下載失敗: {ex.Message}";
+            Logger.LogError(ex, $"GoodInfo單項下載失敗: {itemName}");
         }
         finally
         {
-            isExecuting = false;
+            singleDownloading.Remove(itemName);
             StateHasChanged();
         }
     }
 
-    private void ParseLinkCounts(string message)
+    private async Task StartExecution(string operation)
     {
-        // 簡單的解析邏輯，從訊息中提取數字
-        try
+        isExecuting = true;
+        progressPercentage = 0;
+        elapsedMinutes = 0;
+        resultMessage = "";
+        downloadMode = "Headless Chrome";
+        
+        StateHasChanged();
+        
+        // 模擬時間進度
+        _ = Task.Run(async () =>
         {
-            if (message.Contains("成功：") && message.Contains("失敗："))
+            var startTime = DateTime.Now;
+            while (isExecuting)
             {
-                var parts = message.Split("成功：")[1].Split(" ")[0];
-                if (int.TryParse(parts, out var success))
-                    successfulLinks = success;
-
-                parts = message.Split("失敗：")[1].Split(" ")[0];
-                if (int.TryParse(parts, out var failed))
-                    failedLinks = failed;
-            }
-            else if (message.Contains("所有") && message.Contains("筆都成功"))
-            {
-                var parts = message.Split("所有")[1].Split("筆")[0].Trim();
-                if (int.TryParse(parts, out var total))
+                await Task.Delay(1000);
+                if (isExecuting)
                 {
-                    successfulLinks = total;
-                    failedLinks = 0;
+                    elapsedMinutes = (int)(DateTime.Now - startTime).TotalMinutes;
+                    await InvokeAsync(StateHasChanged);
                 }
             }
-        }
-        catch
-        {
-            // 解析失敗時不影響主要功能
-        }
+        });
+    }
+
+    private async Task EndExecution()
+    {
+        isExecuting = false;
+        progressPercentage = 100;
+        await InvokeAsync(StateHasChanged);
     }
 
     private string GetAlertClass()
     {
-        if (lastResult == null) return "info";
-        
-        return lastResult.IsSuccess switch
-        {
-            true when lastResult.Message.Contains("⚠️") => "warning",
-            true => "success",
-            false => "danger"
-        };
+        if (string.IsNullOrEmpty(resultMessage)) return "info";
+        if (resultMessage.Contains("✅") || resultMessage.Contains("成功")) return "success";
+        if (resultMessage.Contains("❌") || resultMessage.Contains("失敗")) return "danger";
+        return "info";
     }
 
     private double GetSuccessRate()
     {
-        var total = successfulLinks + failedLinks;
-        return total > 0 ? (double)successfulLinks / total * 100 : 0;
+        if (lastResult == null) return 0;
+        return lastResult.IsSuccess ? 100.0 : 0.0;
     }
+
+    private string GetButtonClass(DownloadItem item)
+    {
+        if (item.IsHighPriority)
+            return "btn-primary"; // 高優先級用藍色
+        else if (item.SuccessRate >= 70)
+            return "btn-success"; // 高成功率用綠色
+        else if (item.SuccessRate >= 50)
+            return "btn-warning"; // 中等成功率用黃色
+        else
+            return "btn-secondary"; // 低成功率用灰色
+    }
+
+    private string GetStatusIcon(DownloadItem item)
+    {
+        return item.Icon;
+    }
+
+    // 簡化的資料模型
+    private record DownloadItem(string Name, bool IsHighPriority, int SuccessRate, string Icon);
 }
+

@@ -26,14 +26,27 @@ public class GoodInfoScraperTests : IDisposable
 
         var config = new GoodInfoScraperConfig
         {
-            PageLoadDelayMs = 2000,    // 測試時縮短等待時間
+            PageLoadDelayMs = 2000,     // 測試時縮短載入等待
             RequestDelayMs = 5000,      // 測試時縮短延遲（但仍要避免被封鎖）
             DownloadWaitMs = 1000,
             DownloadPath = _testDownloadPath,
             UseHeadlessMode = true      // 使用 headless 模式，背景執行不跳出視窗
         };
 
-        _scraper = new GoodInfoScraper(_mockLogger.Object, config);
+        // 創建 mock 依賴項目
+        var mockDataValidator = new Mock<GoodInfoDataValidator>();
+        var mockSuccessMonitor = new Mock<GoodInfoSuccessRateMonitor>();
+        var mockUrlManager = new Mock<GoodInfoUrlManager>();
+        var mockAntiCrawler = new Mock<AntiCrawlerDetector>(new Mock<ILogger<AntiCrawlerDetector>>().Object);
+
+        _scraper = new GoodInfoScraper(
+            _mockLogger.Object,
+            mockDataValidator.Object,
+            mockSuccessMonitor.Object,
+            mockUrlManager.Object,
+            mockAntiCrawler.Object,
+            config
+        );
     }
 
     [Fact(Skip = "需要實際瀏覽器環境和網路連接，手動測試時啟用")]

@@ -18,12 +18,23 @@ cd D:\vibeCoding\sst
 .\start-server.ps1
 
 前臺
-  cd d:\vibeCoding\sst\src\SST.StockImport.API; 
-  dotnet run --urls "http://localhost:5008"
+  cd D:\vibeCoding\sst  
+  .\start-web.ps1
   
   http://localhost:5089/
   
   
+=========================
+## 开工:
+1. 讀取 [copilot-instructions.md](http://copilot-instructions.md/)
+2. 從 git 讀取交接文件, 確認待辦事項
+3. 專案注意事項: Docs/projectNote.txt
 
-  
-  
+
+## 收工 Checklist
+請確認無縫交接 待辦事項 特別重要
+请依照 Docs\SESSION_CHECKLIST.md
+├─ Phase 1: 文件先行（完整版）
+├─ Phase 2: 代碼品質
+├─ Phase 3: 依賴與整潔
+└─ Phase 4: Git 提交

@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SST.StockImport.Shared\SST.StockImport.Shared.csproj" />
+    <ProjectReference Include="..\SST.StockImport.Services\SST.StockImport.Services.csproj" />
   </ItemGroup>
 
 </Project>

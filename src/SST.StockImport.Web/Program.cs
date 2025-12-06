@@ -1,5 +1,6 @@
 using SST.StockImport.Web.Components;
 using SST.StockImport.Web.Services;
+using SST.StockImport.Services.Scrapers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +25,9 @@ builder.Services.AddSingleton<ISystemStatusService, SystemStatusService>();
 builder.Services.AddSingleton<IExecutionLogService, ExecutionLogService>();
 builder.Services.AddScoped<OperationExecutorService>();
 builder.Services.AddScoped<ErrorHandlingService>();
+
+// Register LegacyGoodInfoScraper for GoodInfo downloads
+builder.Services.AddScoped<LegacyGoodInfoScraper>();
 
 var app = builder.Build();
 

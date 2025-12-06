@@ -43,6 +43,7 @@ public static class ServiceCollectionExtensions
         
         // 註冊 GoodInfoScraper 用於 GoodInfo.tw 資料下載 (Selenium)
         services.AddScoped<GoodInfoScraper>();
+        services.AddScoped<LegacyGoodInfoScraper>();
         services.AddSingleton(new GoodInfoScraperConfig
         {
             PageLoadDelayMs = 3000,

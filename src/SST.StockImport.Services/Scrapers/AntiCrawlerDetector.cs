@@ -78,11 +78,19 @@ public class AntiCrawlerDetector
             DetectionTime = DateTime.Now
         };
 
-        // 1. 檢查明顯的反爬蟲信息
-        var blockingKeywords = new[]
+        // 特殊域名處理：對於已知的正常網站，降低檢測敏感度
+        if (IsKnownLegitimateFinancialSite(result.Domain))
+        {
+            _logger.LogDebug("🎯 {Domain} 是已知金融網站，使用寬鬆檢測模式", result.Domain);
+            return DetectCriticalSignalsOnly(pageSource, result);
+        }
+
+        // 1. 檢查明顯的反爬蟲信息 - 調整敏感度，避免誤報
+        
+        // 高確信度阻擋關鍵字（直接觸發）
+        var highConfidenceBlockingKeywords = new[]
         {
             "blocked", "forbidden", "access denied", "禁止訪問", "封鎖",
-            "robot", "bot", "crawler", "spider", "爬蟲", "機器人",
             "suspicious activity", "異常活動", "可疑活動",
             "too many requests", "請求過多", "頻率過高",
             "please try again later", "請稍後再試",
@@ -93,7 +101,8 @@ public class AntiCrawlerDetector
             "service unavailable", "服務不可用"
         };
 
-        foreach (var keyword in blockingKeywords)
+        // 檢查高確信度關鍵字
+        foreach (var keyword in highConfidenceBlockingKeywords)
         {
             if (pageSource.Contains(keyword, StringComparison.OrdinalIgnoreCase))
             {
@@ -103,13 +112,37 @@ public class AntiCrawlerDetector
             }
         }
 
-        // 2. 檢查 HTTP 狀態碼相關錯誤
+        // 機器人相關關鍵字（需要上下文檢查，避免誤報）
+        var botRelatedKeywords = new[] { "robot", "bot", "crawler", "spider", "爬蟲", "機器人" };
+        
+        // 對於金融網站，跳過機器人關鍵字檢測，因為這些網站經常包含這些詞彙
+        if (!IsKnownLegitimateFinancialSite(result.Domain))
+        {
+            foreach (var keyword in botRelatedKeywords)
+            {
+                if (IsBlockingBotContext(pageSource, keyword))
+                {
+                    result.IsBlocked = true;
+                    result.BlockingSignals.Add($"機器人檢測: {keyword}");
+                    result.Severity = BlockingSeverity.Moderate; // 降低嚴重程度
+                }
+            }
+        }
+        else
+        {
+            _logger.LogDebug("🏦 {Domain} 是金融網站，跳過機器人關鍵字檢測", result.Domain);
+        }
+
+        // 2. 檢查 HTTP 狀態碼相關錯誤 - 調整為更精確的錯誤模式
         var httpErrorPatterns = new[]
         {
-            @"4\d{2}\s*(error|錯誤)",          // 4xx 錯誤
-            @"5\d{2}\s*(error|錯誤)",          // 5xx 錯誤
-            @"status.*4\d{2}",                 // Status 4xx
-            @"http.*error.*4\d{2}"             // HTTP Error 4xx
+            @"HTTP.*[Ee]rror.*4\d{2}",             // "HTTP Error 403"
+            @"[Ee]rror.*4\d{2}.*[Oo]ccurred",      // "Error 404 occurred"
+            @"[Ss]tatus.*[Cc]ode.*4\d{2}",         // "Status Code 403"
+            @"4\d{2}.*[Ff]orbidden",               // "403 Forbidden"
+            @"4\d{2}.*[Uu]nauthorized",            // "401 Unauthorized"
+            @"4\d{2}.*[Nn]ot.*[Ff]ound",           // "404 Not Found"
+            @"5\d{2}.*[Ii]nternal.*[Ee]rror"       // "500 Internal Error"
         };
 
         foreach (var pattern in httpErrorPatterns)
@@ -281,8 +314,14 @@ public class AntiCrawlerDetector
 
     private BlockingSeverity DetermineSeverity(string keyword)
     {
-        var highSeverityKeywords = new[] { "blocked", "forbidden", "robot", "bot", "crawler", "captcha" };
-        var moderateKeywords = new[] { "too many requests", "rate limit", "verification" };
+        // 高嚴重程度：明確的封鎖和禁止訊息
+        var highSeverityKeywords = new[] { "blocked", "forbidden", "access denied", "captcha" };
+        
+        // 中等嚴重程度：頻率限制和機器人檢測（降低bot關鍵字的嚴重程度）
+        var moderateKeywords = new[] { "too many requests", "rate limit", "verification", "robot", "bot", "crawler", "spider" };
+        
+        // 低嚴重程度：一般警告訊息
+        var lowSeverityKeywords = new[] { "suspicious", "unusual", "please try again" };
         
         if (highSeverityKeywords.Any(k => keyword.Contains(k, StringComparison.OrdinalIgnoreCase)))
             return BlockingSeverity.High;
@@ -297,22 +336,22 @@ public class AntiCrawlerDetector
     {
         var escalationCount = existing?.EscalationCount ?? 0;
         
-        // 基礎冷卻時間
+        // 基礎冷卻時間 - 調整為更寬鬆的策略
         var baseDuration = severity switch
         {
-            BlockingSeverity.Low => TimeSpan.FromMinutes(5),
-            BlockingSeverity.Moderate => INITIAL_COOLDOWN,
-            BlockingSeverity.High => ESCALATED_COOLDOWN,
-            BlockingSeverity.Severe => SEVERE_COOLDOWN,
-            _ => INITIAL_COOLDOWN
+            BlockingSeverity.Low => TimeSpan.FromMinutes(2),        // 2分鐘（降低）
+            BlockingSeverity.Moderate => TimeSpan.FromMinutes(5),    // 5分鐘（大幅降低）
+            BlockingSeverity.High => TimeSpan.FromMinutes(30),      // 30分鐘（降低）
+            BlockingSeverity.Severe => SEVERE_COOLDOWN,             // 8小時（維持）
+            _ => TimeSpan.FromMinutes(5)
         };
 
-        // 升級懲罰（每次升級增加基礎時間的 50%）
-        var escalationMultiplier = 1.0 + (escalationCount * 0.5);
+        // 降低升級懲罰（每次升級增加基礎時間的 25%，而非 50%）
+        var escalationMultiplier = 1.0 + (escalationCount * 0.25);
         var finalDuration = TimeSpan.FromMilliseconds(baseDuration.TotalMilliseconds * escalationMultiplier);
 
-        // 最大冷卻時間限制（12小時）
-        var maxDuration = TimeSpan.FromHours(12);
+        // 最大冷卻時間限制（6小時，降低）
+        var maxDuration = TimeSpan.FromHours(6);
         return finalDuration > maxDuration ? maxDuration : finalDuration;
     }
 
@@ -335,6 +374,56 @@ public class AntiCrawlerDetector
         return false;
     }
 
+    /// <summary>
+    /// 檢查機器人相關關鍵字是否出現在阻擋上下文中
+    /// 避免因為網頁正常內容中的 bot 關鍵字而誤報
+    /// </summary>
+    private bool IsBlockingBotContext(string pageSource, string keyword)
+    {
+        // 檢查是否出現在明確的阻擋語句中
+        var blockingPatterns = new[]
+        {
+            $@"(detected?|found|identify)\s+.*{keyword}",          // "detected bot"
+            $@"{keyword}\s+(detected?|blocked?|denied)",            // "bot detected"
+            $@"(anti|block|stop|prevent).*{keyword}",              // "anti-bot"
+            $@"{keyword}\s+(protection|defense|filter)",           // "bot protection"
+            $@"(sorry|error).*{keyword}",                          // "sorry, bot access denied"
+            $@"{keyword}\s+(access|request).*denied",              // "bot access denied"
+            $@"(you|your).*{keyword}",                             // "your bot behavior"
+            $@"{keyword}.*behavior.*detected?",                     // "bot behavior detected"
+            $@"(suspicious|unusual).*{keyword}",                   // "suspicious bot activity"
+            $@"{keyword}.*activity.*blocked?",                     // "bot activity blocked"
+        };
+
+        // 只有在特定上下文中才認為是阻擋信號
+        foreach (var pattern in blockingPatterns)
+        {
+            if (Regex.IsMatch(pageSource, pattern, RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        // 檢查關鍵字是否出現在錯誤頁面或警告訊息中
+        var errorContextPatterns = new[]
+        {
+            $@"<title[^>]*>.*{keyword}.*blocked?.*</title>",        // 頁面標題含阻擋信息
+            $@"<h[1-6][^>]*>.*{keyword}.*denied.*</h[1-6]>",        // 標題含拒絕信息
+            $@"<div[^>]*error[^>]*>.*{keyword}",                   // 錯誤區塊
+            $@"<span[^>]*warning[^>]*>.*{keyword}",                // 警告區塊
+        };
+
+        foreach (var pattern in errorContextPatterns)
+        {
+            if (Regex.IsMatch(pageSource, pattern, RegexOptions.IgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false; // 沒有在阻擋上下文中發現關鍵字
+    }
+
     private bool IsRedirectToVerification(string pageSource, string currentUrl)
     {
         // 檢查 meta refresh
@@ -352,6 +441,88 @@ public class AntiCrawlerDetector
         };
 
         return jsRedirectPatterns.Any(pattern => 
+            Regex.IsMatch(pageSource, pattern, RegexOptions.IgnoreCase));
+    }
+
+    /// <summary>
+    /// 檢查是否為已知的合法金融網站
+    /// </summary>
+    private bool IsKnownLegitimateFinancialSite(string domain)
+    {
+        var knownFinancialSites = new[]
+        {
+            "goodinfo.tw",      // GoodInfo 台灣股市資訊網
+            "twse.com.tw",      // 台灣證券交易所
+            "tpex.org.tw",      // 櫃買中心
+            "mops.twse.com.tw", // 公開資訊觀測站
+            "cnyes.com",        // 鉅亨網
+            "money.udn.com",    // 經濟日報
+            "ctee.com.tw"       // 工商時報
+        };
+
+        return knownFinancialSites.Any(site => domain.Contains(site, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// 對金融網站使用更寬鬆的檢測，只檢測明確的阻擋信號
+    /// </summary>
+    private AntiCrawlerDetectionResult DetectCriticalSignalsOnly(string pageSource, AntiCrawlerDetectionResult result)
+    {
+        // 只檢查最明確的反爬蟲信號
+        var criticalBlockingKeywords = new[]
+        {
+            "access denied", "禁止訪問", "blocked", "forbidden",
+            "captcha required", "驗證碼", "人機驗證",
+            "too many requests", "請求過多", "rate limit exceeded"
+        };
+
+        foreach (var keyword in criticalBlockingKeywords)
+        {
+            if (pageSource.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                result.IsBlocked = true;
+                result.BlockingSignals.Add($"嚴重阻擋信號: {keyword}");
+                result.Severity = BlockingSeverity.High;
+            }
+        }
+
+        // 檢查明確的錯誤頁面
+        if (IsDefinitiveErrorPage(pageSource))
+        {
+            result.IsBlocked = true;
+            result.BlockingSignals.Add("明確的錯誤頁面");
+            result.Severity = BlockingSeverity.High;
+        }
+
+        if (result.IsBlocked)
+        {
+            _logger.LogWarning("🚫 金融網站檢測到嚴重反爬蟲信號 [{Domain}]: {Signals}", 
+                result.Domain, string.Join(", ", result.BlockingSignals));
+        }
+        else
+        {
+            _logger.LogDebug("✅ {Domain} 通過寬鬆模式檢測", result.Domain);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 檢查是否為明確的錯誤頁面
+    /// </summary>
+    private bool IsDefinitiveErrorPage(string pageSource)
+    {
+        // 檢查頁面標題是否包含錯誤信息
+        var errorTitlePatterns = new[]
+        {
+            @"<title[^>]*>.*[Ee]rror.*</title>",
+            @"<title[^>]*>.*[Ff]orbidden.*</title>",
+            @"<title[^>]*>.*[Aa]ccess.*[Dd]enied.*</title>",
+            @"<title[^>]*>.*禁止.*</title>",
+            @"<title[^>]*>.*錯誤.*</title>"
+        };
+
+        return errorTitlePatterns.Any(pattern => 
             Regex.IsMatch(pageSource, pattern, RegexOptions.IgnoreCase));
     }
 }
