@@ -47,7 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(new GoodInfoScraperConfig
         {
             PageLoadDelayMs = 3000,
-            RequestDelayMs = 8000,  // 8 秒延遲，避免被封鎖
+            RequestDelayMs = 10000,  // 10 秒延遲（與舊系統 extraWait 一致），避免被判定為爬蟲
             DownloadWaitMs = 1000,
             UseHeadlessMode = true,  // 暫時恢復 Headless 模式以確保穩定性
             MaxRetries = 3,  // 增加重試次數，配合智能冷卻機制
