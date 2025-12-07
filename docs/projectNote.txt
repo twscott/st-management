@@ -42,10 +42,4 @@ cd D:\vibeCoding\sst
 ├─ Phase 3: 依賴與整潔
 └─ Phase 4: Git 提交
 
-請用 private void linkLabel4_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e) 
-作爲 keyword 尋找 _1_每日收盤匯入.cs
-D:\mywork\sstStock\TaskTrayApplication\_1_每日收盤匯入.Designer.cs
-重做 goodinfo 裏面的 券資比 下載
-原系統完全正確， 順利躲過反爬阻擋
-請先做 
-單元測試 -> 無伺服器整合測試
+

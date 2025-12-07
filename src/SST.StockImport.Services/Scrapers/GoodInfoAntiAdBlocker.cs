@@ -53,8 +53,9 @@ public class GoodInfoAntiAdBlocker
         options.AddArgument("--no-proxy-server");
         options.AddArgument("--disable-background-networking");
         
-        // 不使用無頭模式 - 這是關鍵！廣告需要在真實窗口中處理
-        // options.AddArgument("--headless");
+        // 使用無頭模式避免干擾用戶工作
+        options.AddArgument("--headless");
+        options.AddArgument("--window-size=1920,1080");
         
         return options;
     }
