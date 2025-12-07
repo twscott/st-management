@@ -1,30 +1,4 @@
-#!/usr/bin/env pwsh
-
-Write-Host "GoodInfo 5 Links Test" -ForegroundColor Cyan
-Write-Host "========================"
-
-try {
-    # Stop any running API processes
-    Write-Host "Cleaning environment..." -ForegroundColor Yellow
-    Get-Process -Name "*StockImport*" -ErrorAction SilentlyContinue | Stop-Process -Force
-    Start-Sleep 2
-
-    # Build project
-    Write-Host "Building project..." -ForegroundColor Yellow
-    Push-Location "d:\vibeCoding\sst"
-    
-    dotnet build src\SST.StockImport.Services\ --configuration Release --verbosity quiet | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Build failed" -ForegroundColor Red
-        exit 1
-    }
-    
-    Write-Host "Build successful, starting test..." -ForegroundColor Green
-    Write-Host ""
-    
-    # Create and run test script
-    $testScript = @"
-#r "src/SST.StockImport.Services/bin/Release/net8.0/SST.StockImport.Services.dll"
+﻿#r "src/SST.StockImport.Services/bin/Release/net8.0/SST.StockImport.Services.dll"
 #r "nuget: Microsoft.Extensions.DependencyInjection, 8.0.0"
 #r "nuget: Microsoft.Extensions.Logging, 8.0.0"
 #r "nuget: Microsoft.Extensions.Logging.Console, 8.0.0"
@@ -38,14 +12,14 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using SST.StockImport.Services.Scrapers;
 
-// 設置依賴注入
+// 閮剔蔭靘陷瘜典
 var services = new ServiceCollection();
 services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
 
-// 添加 HttpClient 服務
+// 瘛餃? HttpClient ??
 services.AddHttpClient();
 
-// 註冊配置
+// 閮餃??蔭
 var config = new GoodInfoScraperConfig
 {
     RequestDelayMs = 15000,
@@ -57,19 +31,19 @@ var config = new GoodInfoScraperConfig
 };
 services.AddSingleton(config);
 
-// 註冊所有必要的服務
+// 閮餃????閬???
 services.AddSingleton<GoodInfoDataValidator>();
 services.AddSingleton<GoodInfoSuccessRateMonitor>();
 services.AddSingleton<GoodInfoUrlManager>();
 services.AddSingleton<AntiCrawlerDetector>();
 
-// 註冊介面
+// 閮餃?隞
 services.AddSingleton<IGoodInfoDataValidator>(provider => provider.GetRequiredService<GoodInfoDataValidator>());
 services.AddSingleton<IGoodInfoSuccessRateMonitor>(provider => provider.GetRequiredService<GoodInfoSuccessRateMonitor>());
 services.AddSingleton<IGoodInfoUrlManager>(provider => provider.GetRequiredService<GoodInfoUrlManager>());
 services.AddSingleton<IAntiCrawlerDetector>(provider => provider.GetRequiredService<AntiCrawlerDetector>());
 
-// 註冊 GoodInfoScraper
+// 閮餃? GoodInfoScraper
 services.AddScoped<GoodInfoScraper>();
 
 var serviceProvider = services.BuildServiceProvider();
@@ -147,27 +121,3 @@ else
 {
     Console.WriteLine("Limited improvement, needs stronger measures");
 }
-"@
-
-    $scriptFile = "temp_test.csx"
-    $testScript | Out-File -FilePath $scriptFile -Encoding UTF8
-    
-    dotnet script $scriptFile
-    
-    Remove-Item $scriptFile -ErrorAction SilentlyContinue
-    
-}
-catch {
-    Write-Host "Test failed: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Possible causes:" -ForegroundColor Yellow
-    Write-Host "- Chrome browser not installed" -ForegroundColor Gray
-    Write-Host "- Network connectivity issues" -ForegroundColor Gray
-    Write-Host "- GoodInfo website temporarily inaccessible" -ForegroundColor Gray
-}
-finally {
-    Pop-Location
-}
-
-Write-Host ""
-Write-Host "Test completed at $(Get-Date -Format 'HH:mm:ss')" -ForegroundColor Gray

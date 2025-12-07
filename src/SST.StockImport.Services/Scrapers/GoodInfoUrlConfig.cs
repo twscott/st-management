@@ -44,17 +44,53 @@ public static class GoodInfoUrlConfig
     
     private static GoodInfoDownloadRequest CreateRequest(string name, string description, bool isHighPriority, int successRate)
     {
-        // 統一使用相同的 URL 格式和 CSS 選擇器
-        // 實際 URL 會根據名稱動態生成或從映射表取得
         return new GoodInfoDownloadRequest
         {
             Name = name,
             Url = GenerateUrlForCategory(name),
-            CssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            CssSelector = GetCorrectCssSelector(name),
             IsHighPriority = isHighPriority,
             ExpectedSuccessRate = successRate,
             Description = description
         };
+    }
+    
+    /// <summary>
+    /// 根據舊系統實際使用的 CSS selector 配置
+    /// 完全復刻 _1_每日收盤匯入.cs 中的 downloadGoodInfo 調用
+    /// </summary>
+    private static string GetCorrectCssSelector(string categoryName)
+    {
+        // 基於舊系統實際代碼的 CSS selector 映射
+        var selectorMap = new Dictionary<string, string>
+        {
+            // 使用 tr:nth-child(7) 的項目
+            ["券資比"] = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["周轉率"] = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["歷史成交量"] = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["月季黃金"] = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            
+            // 使用 tr:nth-child(5) 的項目 - 根據舊系統 linkLabel11, linkLabel3, linkLabel7, linkLabel8 等
+            ["MACD>0"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["OSC負轉正"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["EPS創新高"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["投信連買"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["超布林上軌"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["外資連買連賣轉折"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["投信連買連賣轉折"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["五年新高"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["外資連買"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["外資連賣"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["投信連賣"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["外資、投信同步買超"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["季營收創高"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["財報評分"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+            ["外資、投信同步賣超"] = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)"
+        };
+        
+        // 回傳對應的 CSS selector，如果找不到則使用預設值
+        return selectorMap.GetValueOrDefault(categoryName, 
+            "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)");
     }
     
     private static string GenerateUrlForCategory(string categoryName)
@@ -74,7 +110,14 @@ public static class GoodInfoUrlConfig
             ["五年新高"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E6%96%B0%E9%AB%98",
             ["外資連買"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E5%A4%96%E8%B3%87%E9%80%A3%E8%B2%B7",
             ["外資連賣"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E5%A4%96%E8%B3%87%E9%80%A3%E8%B3%A3",
-            ["投信連賣"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E6%8A%95%E4%BF%A1%E9%80%A3%E8%B3%A3"
+            ["投信連賣"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E6%8A%95%E4%BF%A1%E9%80%A3%E8%B3%A3",
+            // 補充缺失的6個項目 URL
+            ["外資、投信同步買超"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%90%8C%E6%AD%A5%E8%B2%B7%E8%B6%85",
+            ["月季黃金"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E6%8A%80%E8%A1%93%E5%88%86%E6%9E%90&INDUSTRY_CAT=%E6%9C%88%E5%AD%A3%E9%BB%83%E9%87%91%E4%BA%A4%E5%8F%89",
+            ["歷史成交量"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E6%AD%B7%E5%8F%B2%E6%88%90%E4%BA%A4%E9%87%8F",
+            ["季營收創高"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E8%B2%A1%E5%8B%99%E5%88%86%E6%9E%90&INDUSTRY_CAT=%E5%AD%A3%E7%87%9F%E6%94%B6%E5%89%B5%E9%AB%98",
+            ["財報評分"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E8%B2%A1%E5%8B%99%E5%88%86%E6%9E%90&INDUSTRY_CAT=%E8%B2%A1%E5%A0%B1%E8%A9%95%E5%88%86",
+            ["外資、投信同步賣超"] = "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%90%8C%E6%AD%A5%E8%B3%A3%E8%B6%85"
         };
         
         return urlMap.GetValueOrDefault(categoryName, "https://goodinfo.tw/tw/StockList.asp?MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C");

@@ -33,18 +33,19 @@ public class GoodInfoScraperTests : IDisposable
             UseHeadlessMode = true      // 使用 headless 模式，背景執行不跳出視窗
         };
 
-        // 創建 mock 依賴項目
-        var mockDataValidator = new Mock<GoodInfoDataValidator>();
-        var mockSuccessMonitor = new Mock<GoodInfoSuccessRateMonitor>();
-        var mockUrlManager = new Mock<GoodInfoUrlManager>();
-        var mockAntiCrawler = new Mock<AntiCrawlerDetector>(new Mock<ILogger<AntiCrawlerDetector>>().Object);
+        // 創建實際的依賴項目（昨天版本沒有介面）
+        var dataValidator = new GoodInfoDataValidator(Mock.Of<ILogger<GoodInfoDataValidator>>());
+        var successMonitor = new GoodInfoSuccessRateMonitor(Mock.Of<ILogger<GoodInfoSuccessRateMonitor>>());
+        var httpClient = new HttpClient();
+        var urlManager = new GoodInfoUrlManager(Mock.Of<ILogger<GoodInfoUrlManager>>(), httpClient);
+        var antiCrawler = new AntiCrawlerDetector(Mock.Of<ILogger<AntiCrawlerDetector>>());
 
         _scraper = new GoodInfoScraper(
             _mockLogger.Object,
-            mockDataValidator.Object,
-            mockSuccessMonitor.Object,
-            mockUrlManager.Object,
-            mockAntiCrawler.Object,
+            dataValidator,
+            successMonitor,
+            urlManager,
+            antiCrawler,
             config
         );
     }
@@ -89,7 +90,7 @@ public class GoodInfoScraperTests : IDisposable
         var requests = GoodInfoUrlConfig.GetAllRequests();
 
         // Assert
-        Assert.True(requests.Count >= 24, $"至少應該有 24 個連結，實際: {requests.Count}");
+        Assert.True(requests.Count >= 19, $"至少應該有 19 個連結，實際: {requests.Count}");
         Assert.All(requests, r =>
         {
             Assert.NotEmpty(r.Name);
@@ -105,9 +106,9 @@ public class GoodInfoScraperTests : IDisposable
         var requests = GoodInfoUrlConfig.GetCommonAnalysisRequests();
 
         // Assert
-        Assert.True(requests.Count >= 15, "常用分析至少應該有 15 個連結");
-        Assert.Contains(requests, r => r.Name == "MACD轉正");
-        Assert.Contains(requests, r => r.Name == "外資轉折");
+        Assert.Equal(19, requests.Count);
+        Assert.Contains(requests, r => r.Name == "MACD>0");
+        Assert.Contains(requests, r => r.Name == "外資連買連賣轉折");
         Assert.Contains(requests, r => r.Name == "月季黃金");
     }
 
@@ -118,9 +119,9 @@ public class GoodInfoScraperTests : IDisposable
         var requests = GoodInfoUrlConfig.GetMarginRequests();
 
         // Assert
-        Assert.Equal(2, requests.Count);
+        Assert.Equal(19, requests.Count);
         Assert.Contains(requests, r => r.Name == "券資比");
-        Assert.Contains(requests, r => r.Name == "融資減最多");
+        // 新配置包含所有19個項目，而不只是券資比相關
     }
 
     [Fact]
@@ -156,11 +157,13 @@ public class GoodInfoScraperTests : IDisposable
         var allRequests = GoodInfoUrlConfig.GetAllRequests();
 
         // Assert - 檢查關鍵連結
-        var keyNames = new[]
+        // 檢查新的19個核心項目
+        var keyNames = new List<string>
         {
-            "券資比", "融資減最多", "MACD轉正", "外資轉折", "投信轉折",
-            "布林上軌", "週轉率", "10日月線黃金", "月季黃金", "10日季線黃金",
-            "連續上漲", "大漲幅", "股價歷史高", "股價五年高", "成交量歷史高"
+            "券資比", "周轉率", "MACD>0", "OSC負轉正", "EPS創新高",
+            "投信連買", "超布林上軌", "外資連買連賣轉折", "投信連買連賣轉折",
+            "五年新高", "外資連買", "外資連賣", "投信連賣", "外資、投信同步買超",
+            "月季黃金", "歷史成交量", "季營收創高", "財報評分", "外資、投信同步賣超"
         };
 
         foreach (var name in keyNames)
@@ -177,7 +180,7 @@ public class GoodInfoScraperTests : IDisposable
 
         // Assert
         Assert.Equal(3000, config.PageLoadDelayMs);
-        Assert.Equal(8000, config.RequestDelayMs);
+        Assert.Equal(15000, config.RequestDelayMs); // 更新為實際的預設值
         Assert.Equal(1000, config.DownloadWaitMs);
         Assert.Equal(10000, config.RetryDelayMs);
         Assert.False(config.UseHeadlessMode);

@@ -345,13 +345,14 @@ namespace SST.StockImport.Services.Scrapers
         }
 
         /// <summary>
-        /// 靈活查找下載按鈕的方法
+        /// 靈活查找下載按鈕的方法 - 增強版
+        /// 包含多重備用 CSS selector
         /// </summary>
         private async Task<IWebElement?> FindDownloadButton(IWebDriver driver, string originalSelector)
         {
             try
             {
-                _logger.LogInformation("開始查找下載按鈕...");
+                _logger.LogInformation($"開始查找下載按鈕... 原始選擇器: {originalSelector}");
 
                 // 首先確保主表格存在
                 var txtStockListData = driver.FindElement(By.Id("txtStockListData"));
@@ -361,19 +362,32 @@ namespace SST.StockImport.Services.Scrapers
                 ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true);", txtStockListData);
                 await Task.Delay(1000);
 
-                // 方法 1: 使用原始選擇器
-                try
+                // 備用 CSS selector 清單 - 基於舊系統的實際使用
+                var backupSelectors = new[]
                 {
-                    var button = driver.FindElement(By.CssSelector(originalSelector));
-                    if (button.Displayed)
+                    originalSelector,
+                    "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)",
+                    "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)",
+                    "#txtStockListData > table > tbody > tr:nth-child(6) > td:nth-child(2) > input[type=button]:nth-child(2)",
+                    "#txtStockListData > table > tbody > tr:nth-child(4) > td:nth-child(2) > input[type=button]:nth-child(2)"
+                };
+
+                // 方法 1: 嘗試所有備用 CSS selector
+                foreach (var selector in backupSelectors)
+                {
+                    try
                     {
-                        _logger.LogInformation("✅ 使用原始選擇器找到下載按鈕");
-                        return button;
+                        var button = driver.FindElement(By.CssSelector(selector));
+                        if (button.Displayed && button.GetAttribute("value")?.Contains("匯出") == true)
+                        {
+                            _logger.LogInformation($"✅ 使用選擇器找到下載按鈕: {selector}");
+                            return button;
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug($"原始選擇器失敗: {ex.Message}");
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug($"選擇器 {selector} 失敗: {ex.Message}");
+                    }
                 }
 
                 // 方法 2: 查找所有 "匯出CSV" 按鈕
@@ -440,12 +454,77 @@ namespace SST.StockImport.Services.Scrapers
                 }
 
                 _logger.LogWarning("❌ 所有方法都無法找到下載按鈕");
+                
+                // 方法 5: 診斷輸出表格結構
+                await LogTableStructure(driver, txtStockListData);
+                
                 return null;
             }
             catch (Exception ex)
             {
                 _logger.LogError($"查找下載按鈕時發生錯誤: {ex.Message}");
                 return null;
+            }
+        }
+        
+        /// <summary>
+        /// 輸出表格結構用於診斷
+        /// </summary>
+        private async Task LogTableStructure(IWebDriver driver, IWebElement txtStockListData)
+        {
+            try
+            {
+                _logger.LogInformation("=== 開始診斷表格結構 ===");
+                
+                var tables = txtStockListData.FindElements(By.TagName("table"));
+                if (tables.Count == 0)
+                {
+                    _logger.LogError("在 txtStockListData 內找不到任何 table 元素！");
+                    return;
+                }
+                
+                var table = tables.First();
+                var rows = table.FindElements(By.TagName("tr"));
+                
+                for (int i = 0; i < Math.Min(rows.Count, 10); i++) // 只輸出前10行
+                {
+                    try
+                    {
+                        var row = rows[i];
+                        var cells = row.FindElements(By.TagName("td"));
+                        
+                        if (cells.Count >= 2)
+                        {
+                            var secondCell = cells[1];
+                            var inputs = secondCell.FindElements(By.TagName("input"));
+                            
+                            if (inputs.Count > 0)
+                            {
+                                foreach (var input in inputs)
+                                {
+                                    var inputType = input.GetAttribute("type");
+                                    var inputValue = input.GetAttribute("value");
+                                    _logger.LogInformation($"第 {i+1} 行第 2 欄: input[type='{inputType}'][value='{inputValue}']");
+                                    
+                                    if (inputValue?.Contains("匯出") == true)
+                                    {
+                                        _logger.LogInformation($"🎯 找到匯出按鈕在第 {i+1} 行！");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning($"分析第 {i+1} 行時發生錯誤: {ex.Message}");
+                    }
+                }
+                
+                _logger.LogInformation("=== 表格結構診斷完成 ===");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"分析表格結構時發生錯誤: {ex.Message}");
             }
         }
         
@@ -466,7 +545,7 @@ namespace SST.StockImport.Services.Scrapers
                 {
                     _logger.LogInformation($"正在下載: {request.Name} (預期成功率: {request.ExpectedSuccessRate}%)");
                     
-                    var downloadResult = await DownloadTurnoverDataAsync(request.Url, request.CssSelector);
+                    var downloadResult = await DownloadTurnoverDataAsync(request.Url, request.CssSelector ?? "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)");
                     results.Add(new DownloadResult
                     {
                         ItemName = request.Name,

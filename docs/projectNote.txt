@@ -5,9 +5,12 @@
 是要看哪個部分就用search到那個方向再讀進去
 不然三兩下就把你的Contact塞爆
 
+尤其是 goodinfo， 
+
+
 2. 測試金字塔 
-單元測試 -> 無伺服器整合測試 -> 有伺服器的整合測試 -> 出 Sandbox 測試 (單元測試 -> 無伺服器整合測試 -> 有伺服器的整合測試) -> 整合前台測試 -> UAT
-前一层是后一层的基础，层层相依
+單元測試 -> 無伺服器整合測試 -> 有伺服器的整合測試 (webapi) -> 出 Sandbox 測試 (單元測試 -> 無伺服器整合測試 -> 有伺服器的整合測試) -> 整合前台測試 -> UAT
+前一层是后一层的基础，层层相依 複雜漸增, 確保成功
 
 
 3. 本系統
@@ -23,7 +26,7 @@ cd D:\vibeCoding\sst
   
   http://localhost:5089/
   
-  
+开收工提示: 
 =========================
 ## 开工:
 1. 讀取 [copilot-instructions.md](http://copilot-instructions.md/)
@@ -38,3 +41,11 @@ cd D:\vibeCoding\sst
 ├─ Phase 2: 代碼品質
 ├─ Phase 3: 依賴與整潔
 └─ Phase 4: Git 提交
+
+請用 private void linkLabel4_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e) 
+作爲 keyword 尋找 _1_每日收盤匯入.cs
+D:\mywork\sstStock\TaskTrayApplication\_1_每日收盤匯入.Designer.cs
+重做 goodinfo 裏面的 券資比 下載
+原系統完全正確， 順利躲過反爬阻擋
+請先做 
+單元測試 -> 無伺服器整合測試

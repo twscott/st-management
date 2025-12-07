@@ -7,7 +7,7 @@ namespace SST.StockImport.Services.Scrapers;
 /// 反爬蟲檢測和智能冷卻管理器
 /// 核心理念：一旦被判定為爬蟲，立即停止並進入冷卻期，避免浪費時間和加重封鎖
 /// </summary>
-public class AntiCrawlerDetector
+public class AntiCrawlerDetector : IAntiCrawlerDetector
 {
     private readonly ILogger<AntiCrawlerDetector> _logger;
     private readonly Dictionary<string, CooldownStatus> _domainCooldowns = new();

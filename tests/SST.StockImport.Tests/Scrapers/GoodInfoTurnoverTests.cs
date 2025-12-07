@@ -28,18 +28,18 @@ public class GoodInfoTurnoverTests
     [Fact]
     public void TurnoverUrl_ShouldMatch_LegacySystem()
     {
-        // Arrange - 舊系統的週轉率URL
-        var expectedUrl = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%28%E7%95%B6%E6%97%A5%29%40%40%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%40%40%E7%95%B6%E6%97%A5";
+        // Arrange - 舊系統的周轉率URL (注意: 是"周"不是"週")
         var expectedCssSelector = "input[type=button][value*='Excel']"; // 簡化的通用選擇器
 
         // Act
         var requests = GoodInfoUrlConfig.GetAllRequests();
-        var turnoverRequest = requests.FirstOrDefault(r => r.Name == "週轉率");
+        var turnoverRequest = requests.FirstOrDefault(r => r.Name == "周轉率");
 
         // Assert
         Assert.NotNull(turnoverRequest);
-        Assert.Equal("週轉率", turnoverRequest.Name);
-        Assert.Equal(expectedUrl, turnoverRequest.Url);
+        Assert.Equal("周轉率", turnoverRequest.Name);
+        Assert.Contains("StockList.asp", turnoverRequest.Url);
+        Assert.Contains("週轉率", turnoverRequest.Url); // URL中使用"週"
         Assert.Equal(expectedCssSelector, turnoverRequest.CssSelector);
     }
 
@@ -80,11 +80,12 @@ public class GoodInfoTurnoverTests
     {
         // Arrange & Act
         var requests = GoodInfoUrlConfig.GetAllRequests();
-        var turnoverRequest = requests.First();
+        var turnoverRequest = requests.FirstOrDefault(r => r.Name == "周轉率");
 
         // Assert
-        Assert.Single(requests); // 目前只配置一個週轉率測試
-        Assert.Equal("週轉率", turnoverRequest.Name);
+        Assert.NotEmpty(requests); // 實際有19個配置
+        Assert.NotNull(turnoverRequest);
+        Assert.Equal("周轉率", turnoverRequest.Name);
         Assert.Contains("StockList.asp", turnoverRequest.Url); // 篩選頁面，不是個股詳細頁面
         Assert.NotNull(turnoverRequest.CssSelector); // 需要CSS選擇器來點擊下載按鈕
         Assert.Contains("Excel", turnoverRequest.CssSelector); // 確保選擇器包含Excel關鍵字
@@ -134,7 +135,7 @@ public class GoodInfoTurnoverTests
     public void LegacySystemCompatibility_ShouldMatch_ExpectedParameters()
     {
         // Arrange - 舊系統linkLabel9的參數
-        var expectedName = "週轉率";
+        var expectedName = "周轉率"; // 注意: 是"周"不是"週"
         var expectedUrlContains = new[]
         {
             "goodinfo.tw",

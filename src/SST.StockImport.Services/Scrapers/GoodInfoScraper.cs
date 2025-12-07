@@ -106,6 +106,14 @@ public class GoodInfoScraper : IDisposable
             // 等待頁面載入
             await Task.Delay(_config.PageLoadDelayMs);
 
+            // 1. 先處理廣告和彈窗（在檢查之前就先移除，避免干擾）
+            var adResult = await _dataValidator.HandleAdvertisementsAsync(_driver, request.Name);
+            if (adResult.Success && (adResult.RemovedAdsCount > 0 || adResult.ClosedPopupsCount > 0))
+            {
+                _logger.LogInformation("[{Name}] 🧹 廣告清理完成: {AdCount} 廣告, {PopupCount} 彈窗", 
+                    request.Name, adResult.RemovedAdsCount, adResult.ClosedPopupsCount);
+            }
+
             // 1.5. 反爬蟲檢測 - 優先檢查，一旦發現立即停止
             var pageSource = _driver.PageSource;
             var antiCrawlerResult = _antiCrawlerDetector.DetectAntiCrawlerSignals(pageSource, targetUrl);
@@ -138,14 +146,6 @@ public class GoodInfoScraper : IDisposable
                 _logger.LogWarning("[{Name}] ❌ 資料驗證失敗: {Issues}", 
                     request.Name, string.Join(", ", validationResult.Issues));
                 return false;
-            }
-
-            // 3. 處理廣告和彈窗
-            var adResult = await _dataValidator.HandleAdvertisementsAsync(_driver, request.Name);
-            if (adResult.Success && (adResult.RemovedAdsCount > 0 || adResult.ClosedPopupsCount > 0))
-            {
-                _logger.LogInformation("[{Name}] 🧹 廣告清理完成: {AdCount} 廣告, {PopupCount} 彈窗", 
-                    request.Name, adResult.RemovedAdsCount, adResult.ClosedPopupsCount);
             }
 
             // 4. 判斷是個股詳細頁面還是需要下載的頁面
@@ -615,15 +615,16 @@ public class GoodInfoScraperConfig
 {
     /// <summary>
     /// 頁面載入後等待時間 (毫秒)
+    /// 舊系統設定：快速載入，避免等待過久
     /// </summary>
-    public int PageLoadDelayMs { get; set; } = 3000;
+    public int PageLoadDelayMs { get; set; } = 1500;
 
     /// <summary>
-    /// 每個請求之間的延遲 (毫秒) - 預設 15-20 秒
-    /// 注意：這是關鍵參數，太快會被 GoodInfo 封鎖
-    /// 針對反爬蟲加強，延長間隔時間
+    /// 每個請求之間的延遲 (毫秒)
+    /// 舊系統設定：6-8秒間隔即可，不需要太長
+    /// 注意：太長會導致整體下載時間過久
     /// </summary>
-    public int RequestDelayMs { get; set; } = 15000;
+    public int RequestDelayMs { get; set; } = 6000;
 
     /// <summary>
     /// 下載完成後等待時間 (毫秒)

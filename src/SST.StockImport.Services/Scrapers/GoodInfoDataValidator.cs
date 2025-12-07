@@ -108,15 +108,24 @@ public class GoodInfoDataValidator
         {
             _logger.LogDebug("[{PageName}] 開始廣告處理", pageName);
 
-            // 常見廣告選擇器
+            // GoodInfo 特定廣告選擇器（根據實際觀察）
             var adSelectors = new[]
             {
+                // 彈出式廣告（如麥當勞廣告）- 最優先處理
+                "div[style*='position: fixed']",
+                "div[style*='position: absolute'][style*='z-index']",
+                ".popup, .modal, .overlay, .popup-overlay",
+                
+                // 一般廣告
                 ".ad, .ads, .advertisement",
                 ".google-ad, .googlesyndication",
-                ".popup, .modal, .overlay",
                 "[id*='ad'], [class*='ad']",
                 ".banner, .promotion",
-                "iframe[src*='google'], iframe[src*='doubleclick']"
+                "iframe[src*='google'], iframe[src*='doubleclick']",
+                
+                // GoodInfo 特定廣告容器
+                "div[onclick*='window.open']",
+                "a[target='_blank'][href*='http']"
             };
 
             var removedAds = 0;
@@ -425,12 +434,16 @@ public class GoodInfoDataValidator
     private async Task<int> ClosePopupsAsync(IWebDriver driver, string pageName)
     {
         var closedCount = 0;
+        
+        // 1. 先嘗試點擊關閉按鈕
         var closeSelectors = new[]
         {
             ".close, .btn-close, .modal-close",
             "[aria-label='Close'], [aria-label='關閉']",
             ".popup-close, .dialog-close",
-            "button[title='關閉'], button[title='Close']"
+            "button[title='關閉'], button[title='Close']",
+            "a[href='#'][onclick*='close']", // GoodInfo 特定關閉連結
+            "img[src*='close'], img[alt*='關閉']" // 圖片關閉按鈕
         };
 
         foreach (var selector in closeSelectors)
@@ -450,6 +463,36 @@ public class GoodInfoDataValidator
                 _logger.LogDebug("[{PageName}] 關閉彈窗失敗 {Selector}: {Error}", 
                     pageName, selector, ex.Message);
             }
+        }
+
+        // 2. 如果沒找到關閉按鈕，直接用 JavaScript 強制移除大型彈窗
+        try
+        {
+            var script = @"
+                // 移除所有大型 fixed/absolute 元素（可能是廣告）
+                var elements = document.querySelectorAll('div[style*=""position: fixed""], div[style*=""position: absolute""]');
+                var removed = 0;
+                elements.forEach(function(el) {
+                    var rect = el.getBoundingClientRect();
+                    // 只移除大型元素（寬高都超過 200px）
+                    if (rect.width > 200 && rect.height > 200) {
+                        el.remove();
+                        removed++;
+                    }
+                });
+                return removed;
+            ";
+            
+            var removed = ((IJavaScriptExecutor)driver).ExecuteScript(script);
+            if (removed != null && Convert.ToInt32(removed) > 0)
+            {
+                closedCount += Convert.ToInt32(removed);
+                _logger.LogDebug("[{PageName}] JavaScript 移除 {Count} 個大型彈窗", pageName, removed);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug("[{PageName}] JavaScript 移除彈窗失敗: {Error}", pageName, ex.Message);
         }
 
         return closedCount;

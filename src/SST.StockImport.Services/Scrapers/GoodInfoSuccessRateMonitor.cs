@@ -7,7 +7,7 @@ namespace SST.StockImport.Services.Scrapers;
 /// GoodInfo 成功率監控服務 - 追蹤和分析下載成功率
 /// 目標：改善目前約 70% 的成功率
 /// </summary>
-public class GoodInfoSuccessRateMonitor
+public class GoodInfoSuccessRateMonitor : IGoodInfoSuccessRateMonitor
 {
     private readonly ILogger<GoodInfoSuccessRateMonitor> _logger;
     private readonly List<DownloadAttempt> _attempts = new();

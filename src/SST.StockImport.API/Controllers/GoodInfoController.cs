@@ -13,13 +13,13 @@ public class GoodInfoController : ControllerBase
     private readonly ILogger<GoodInfoController> _logger;
     private readonly GoodInfoScraper _goodInfoScraper;
     private readonly LegacyGoodInfoScraper _legacyGoodInfoScraper;
-    private readonly AntiCrawlerDetector _antiCrawlerDetector;
+    private readonly IAntiCrawlerDetector _antiCrawlerDetector;
 
     public GoodInfoController(
         ILogger<GoodInfoController> logger,
         GoodInfoScraper goodInfoScraper,
         LegacyGoodInfoScraper legacyGoodInfoScraper,
-        AntiCrawlerDetector antiCrawlerDetector)
+        IAntiCrawlerDetector antiCrawlerDetector)
     {
         _logger = logger;
         _goodInfoScraper = goodInfoScraper;
@@ -75,6 +75,69 @@ public class GoodInfoController : ControllerBase
                 {
                     new { Name = "系統錯誤", Error = ex.Message }
                 }
+            });
+        }
+    }
+
+    /// <summary>
+    /// 測試兩種CSS selector路徑 - 各測一個代表項目
+    /// 測試項目: 周轉率(tr:nth-child(7)) 和 MACD>0(tr:nth-child(5))
+    /// </summary>
+    [HttpPost("test-two-paths")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> TestTwoPaths()
+    {
+        try
+        {
+            _logger.LogInformation("開始測試兩種 CSS selector 路徑");
+
+            // 選取兩個代表項目
+            var allRequests = GoodInfoUrlConfig.GetAllRequests();
+            var testRequests = allRequests.Where(r => 
+                r.Name == "周轉率" ||  // tr:nth-child(7) 路徑代表
+                r.Name == "MACD>0"    // tr:nth-child(5) 路徑代表
+            ).ToList();
+
+            _logger.LogInformation("準備測試 {Count} 個代表項目: {Items}", 
+                testRequests.Count, 
+                string.Join(", ", testRequests.Select(r => r.Name)));
+
+            var result = await _goodInfoScraper.DownloadBatchAsync(testRequests);
+            
+            _logger.LogInformation("兩路徑測試完成 - 成功：{Success}，失敗：{Failed}", 
+                result.SuccessCount, result.FailedCount);
+
+            return Ok(new
+            {
+                Message = "兩路徑代表測試完成",
+                SuccessCount = result.SuccessCount,
+                FailedCount = result.FailedCount,
+                TotalRequests = result.TotalRequests,
+                SuccessRate = result.TotalRequests > 0 ? (double)result.SuccessCount / result.TotalRequests * 100 : 0,
+                Duration = result.TotalDuration.ToString(@"mm\:ss"),
+                SuccessfulDownloads = result.SuccessfulDownloads.ToList(),
+                FailedDownloads = result.FailedDownloads.Select(f => new
+                {
+                    Name = f.Name,
+                    Error = f.Error
+                }).ToList(),
+                PathAnalysis = new
+                {
+                    Path7Success = result.SuccessfulDownloads.Contains("周轉率"),
+                    Path5Success = result.SuccessfulDownloads.Contains("MACD>0")
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "兩路徑測試失敗");
+            return StatusCode(500, new
+            {
+                Message = "兩路徑測試失敗",
+                SuccessCount = 0,
+                FailedCount = 2,
+                TotalRequests = 2,
+                Error = ex.Message
             });
         }
     }

@@ -46,4 +46,23 @@ public interface ITradeDataRepository
         DateTime tradeDate, 
         string? market = null, 
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 查詢指定股票代號和日期的交易數據
+    /// </summary>
+    /// <param name="stockId">股票代號</param>
+    /// <param name="transDate">交易日期</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>交易數據實體或null</returns>
+    Task<TradeData?> GetByStockIdAndDateAsync(
+        string stockId,
+        DateTime transDate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 更新交易數據
+    /// </summary>
+    /// <param name="tradeData">交易數據實體</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    Task UpdateAsync(TradeData tradeData, CancellationToken cancellationToken = default);
 }

@@ -18,19 +18,26 @@ public class GoodInfoIntegrationTests
         // Arrange
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+        services.AddHttpClient(); // 註冊 HttpClient 供 GoodInfoUrlManager 使用
         
-        // 使用修復後的配置
+        // 使用舊系統的快速配置
         var config = new GoodInfoScraperConfig
         {
-            RequestDelayMs = 15000,      // 15秒間隔 (修復: 原8秒)
-            MaxRetries = 1,              // 1次重試 (修復: 原2次)
+            RequestDelayMs = 6000,       // 6秒間隔（舊系統設定）
+            MaxRetries = 1,              // 1次重試
             UseHeadlessMode = false,     // 顯示瀏覽器避免檢測
-            PageLoadDelayMs = 5000,      // 5秒等待頁面載入
-            RetryDelayMs = 30000,        // 30秒重試間隔
+            PageLoadDelayMs = 1500,      // 1.5秒等待頁面載入（舊系統設定）
+            RetryDelayMs = 10000,        // 10秒重試間隔（舊系統設定）
             DownloadPath = Path.GetTempPath()
         };
         
         services.AddSingleton(config);
+        
+        // 註冊所有必要的依賴服務（昨天版本沒有介面）
+        services.AddSingleton<GoodInfoDataValidator>();
+        services.AddSingleton<GoodInfoSuccessRateMonitor>();  
+        services.AddSingleton<GoodInfoUrlManager>();
+        services.AddSingleton<AntiCrawlerDetector>();
         services.AddSingleton<GoodInfoScraper>();
         
         var serviceProvider = services.BuildServiceProvider();
@@ -142,11 +149,11 @@ public class GoodInfoIntegrationTests
     [Fact]
     public void GoodInfoConfig_ShouldUseFixedSettings()
     {
-        // 驗證修復後的配置是否正確
+        // 驗證舊系統配置是否正確應用
         var config = new GoodInfoScraperConfig();
         
-        Assert.Equal(15000, config.RequestDelayMs); // 15秒間隔
-        Assert.Equal(1, config.MaxRetries);         // 1次重試
+        Assert.Equal(6000, config.RequestDelayMs);  // 6秒間隔（舊系統設定）
+        Assert.Equal(3, config.MaxRetries);         // 3次重試
         Assert.Equal(30000, config.RetryDelayMs);   // 30秒重試間隔
         Assert.True(config.UserAgents.Count >= 8);   // 至少8個User-Agent
     }

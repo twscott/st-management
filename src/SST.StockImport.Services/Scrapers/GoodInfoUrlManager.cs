@@ -7,7 +7,7 @@ namespace SST.StockImport.Services.Scrapers;
 /// <summary>
 /// GoodInfo URL 生命週期管理器 - 處理 URL 變更和停供問題
 /// </summary>
-public class GoodInfoUrlManager
+public class GoodInfoUrlManager : IGoodInfoUrlManager
 {
     private readonly ILogger<GoodInfoUrlManager> _logger;
     private readonly HttpClient _httpClient;

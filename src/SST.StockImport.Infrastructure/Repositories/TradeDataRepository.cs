@@ -136,6 +136,30 @@ public class TradeDataRepository : ITradeDataRepository
     }
 
     /// <summary>
+    /// 查詢指定股票代號和日期的交易數據
+    /// </summary>
+    public async Task<TradeData?> GetByStockIdAndDateAsync(
+        string stockId,
+        DateTime transDate,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.TradeData
+            .FirstOrDefaultAsync(t => 
+                t.StockID == stockId && 
+                t.TransDate == transDate,
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// 更新交易數據
+    /// </summary>
+    public async Task UpdateAsync(TradeData tradeData, CancellationToken cancellationToken = default)
+    {
+        _context.TradeData.Update(tradeData);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// 刪除指定股票代碼和日期的資料
     /// </summary>
     public async Task<bool> DeleteAsync(string stockCode, DateTime tradeDate, CancellationToken cancellationToken = default)
