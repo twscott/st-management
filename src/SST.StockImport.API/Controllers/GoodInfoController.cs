@@ -157,21 +157,38 @@ public class GoodInfoController : ControllerBase
             // 直接調用批量下載功能（就像整合測試一樣）
             var result = await _legacyGoodInfoScraper.ExecuteBatchDownloadAsync();
             
-            _logger.LogInformation("批量下載完成 - 成功：{Success}，失敗：{Failed}", 
-                result.SuccessfulItems, result.FailedItems);
-
             // 建立失敗項目清單，符合前端期望格式
-            var failedStocks = result.Results
+            var failedItems = result.Results
                 .Where(r => !r.IsSuccess)
                 .Select(r => new { Name = r.ItemName, Error = r.ErrorMessage ?? "下載失敗" })
                 .ToList();
 
-            // 返回符合 GoodInfoDownloadResult 格式的物件
+            var successItems = result.Results
+                .Where(r => r.IsSuccess)
+                .Select(r => r.ItemName)
+                .ToList();
+
+            _logger.LogInformation("✅ 批量下載完成 - 成功 {Success}/{Total}，失敗 {Failed}", 
+                result.SuccessfulItems, result.TotalItems, result.FailedItems);
+            
+            if (failedItems.Any())
+            {
+                _logger.LogWarning("❌ 失敗的 Links: {FailedNames}", 
+                    string.Join(", ", failedItems.Select(f => f.Name)));
+            }
+
+            // 返回符合要求的格式：成功/失敗的 Link 數和所有失敗的 Link 名稱
             return Ok(new
             {
+                Message = $"下載完成：成功 {result.SuccessfulItems}/{result.TotalItems}，失敗 {result.FailedItems}",
+                TotalLinks = result.TotalItems,
                 SuccessfulLinks = result.SuccessfulItems,
                 FailedLinks = result.FailedItems,
-                FailedStocks = failedStocks
+                SuccessRate = result.TotalItems > 0 ? (double)result.SuccessfulItems / result.TotalItems * 100 : 0,
+                Duration = $"{result.TotalDuration.TotalMinutes:F1} 分鐘",
+                SuccessfulLinkNames = successItems,
+                FailedLinkNames = failedItems.Select(f => f.Name).ToList(),
+                FailedDetails = failedItems
             });
         }
         catch (Exception ex)

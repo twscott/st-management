@@ -563,8 +563,9 @@ namespace SST.StockImport.Services.Scrapers
                         _logger.LogWarning($"❌ {request.Name} 下載失敗，繼續下一項");
                     }
                     
-                    // 防止過於頻繁的請求
-                    await Task.Delay(2000);
+                    // 防止被判定為爬蟲：間隔 10 秒（與舊系統 extraWait 一致）
+                    _logger.LogInformation($"⏳ 等待 10 秒後處理下一個項目...");
+                    await Task.Delay(10000);
                 }
                 catch (Exception ex)
                 {
@@ -577,8 +578,9 @@ namespace SST.StockImport.Services.Scrapers
                         Duration = DateTime.Now - startTime
                     });
                     
-                    // 發生例外時等待更長時間
-                    await Task.Delay(5000);
+                    // 發生例外時等待 10 秒
+                    _logger.LogInformation($"⏳ 等待 10 秒後處理下一個項目...");
+                    await Task.Delay(10000);
                 }
             }
             
