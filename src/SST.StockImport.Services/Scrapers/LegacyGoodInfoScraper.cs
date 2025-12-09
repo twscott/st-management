@@ -96,6 +96,13 @@ namespace SST.StockImport.Services.Scrapers
             options.AddArgument("--no-sandbox");
             options.AddArgument("--disable-dev-shm-usage");
 
+            // 明確指定下載路徑（使用當前使用者的 Downloads 資料夾）
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var downloadPath = Path.Combine(userProfile, "Downloads");
+            options.AddUserProfilePreference("download.default_directory", downloadPath);
+            options.AddUserProfilePreference("download.prompt_for_download", false);
+            options.AddUserProfilePreference("disable-popup-blocking", "true");
+
             return options;
         }
 
@@ -109,6 +116,15 @@ namespace SST.StockImport.Services.Scrapers
             
             try
             {
+                // 刪除舊的 CSV 檔案（避免使用到舊資料）
+                var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                var csvPath = Path.Combine(userProfile, "Downloads", "StockList.csv");
+                if (File.Exists(csvPath))
+                {
+                    File.Delete(csvPath);
+                    _logger.LogInformation($"已刪除舊的 CSV: {csvPath}");
+                }
+                
                 // 建立 WebDriver (舊系統方式)
                 driver = new ChromeDriver(options);
 
@@ -172,9 +188,10 @@ namespace SST.StockImport.Services.Scrapers
                         await Task.Delay(1000);
                         
                         downloadButton.Click();
-                        await Task.Delay(3000);
+                        // 增加等待時間，確保 CSV 檔案下載並寫入完成
+                        await Task.Delay(5000);
                         
-                        _logger.LogInformation("舊系統備用方法執行成功");
+                        _logger.LogInformation("舊系統下載方法執行成功");
                         return true;
                     }
                     catch (Exception ex2)

@@ -65,4 +65,11 @@ public interface ITradeDataRepository
     /// <param name="tradeData">交易數據實體</param>
     /// <param name="cancellationToken">取消令牌</param>
     Task UpdateAsync(TradeData tradeData, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 取得最新的交易日期（SELECT MAX(TransDate) FROM TradeData）
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>最新交易日期，若無資料則回傳null</returns>
+    Task<DateTime?> GetMaxTransDateAsync(CancellationToken cancellationToken = default);
 }

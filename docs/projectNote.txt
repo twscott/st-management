@@ -37,9 +37,13 @@ cd D:\vibeCoding\sst
 ## 收工 Checklist
 請確認無縫交接 待辦事項 特別重要
 请依照 Docs\SESSION_CHECKLIST.md
-├─ Phase 1: 文件先行（完整版）
-├─ Phase 2: 代碼品質
-├─ Phase 3: 依賴與整潔
-└─ Phase 4: Git 提交
+ Phase 1: 文件先行（完整版）
+ Phase 2: 代碼品質
+ Phase 3: 依賴與整潔
+	  錯的/舊的過期程式就直接刪除
+	  不要留在專案， 造成未來的混淆 
+ Phase 4: Git 提交
+
+
 
 

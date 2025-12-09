@@ -40,6 +40,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<GoodInfoSuccessRateMonitor>();
         services.AddSingleton<GoodInfoUrlManager>();
         services.AddSingleton<AntiCrawlerDetector>();
+        services.AddScoped<Helpers.GoodInfoCsvValidator>();
         
         // 註冊 GoodInfoScraper 用於 GoodInfo.tw 資料下載 (Selenium)
         services.AddScoped<GoodInfoScraper>();
@@ -64,6 +65,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Processors.TechnicalIndicatorsProcessor>();
         services.AddScoped<Processors.PriceAnalysisProcessor>();
         services.AddScoped<Processors.VolumeStatisticsProcessor>();
+
+        // 註冊 GoodInfo 整合測試服務
+        services.AddScoped<GoodInfoIntegrationTestService>();
 
         return services;
     }

@@ -176,4 +176,13 @@ public class TradeDataRepository : ITradeDataRepository
         await _context.SaveChangesAsync(cancellationToken);
         return true;
     }
+
+    /// <summary>
+    /// 取得最新的交易日期（SELECT MAX(TransDate) FROM TradeData）
+    /// </summary>
+    public async Task<DateTime?> GetMaxTransDateAsync(CancellationToken cancellationToken = default)
+    {
+        return await _context.TradeData
+            .MaxAsync(t => (DateTime?)t.TransDate, cancellationToken);
+    }
 }
