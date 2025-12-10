@@ -46,13 +46,14 @@ public class GoodInfo19LinksTests : IDisposable
     /// linkLabel: linkLabel9
     /// 原始碼行號: 564-580
     /// ifScroll: true (使用 cssSelector)
+    /// 注意：舊系統使用 tr:7，但頁面可能已改版，嘗試 tr:5
     /// </summary>
     [Fact]
     public void Test_02_周轉率_Should_Success()
     {
         var testName = "周轉率";
-        var url = @"https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%28%E7%95%B6%E6%97%A5%29%40%40%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%40%40%E7%95%B6%E6%97%A5";
-        var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)";
+        var url = @"https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%28%E7%95%B6%E6%97%A5%29%40%40%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%40%40%E7%95%B6%E6%97%A5#txtStockListData";
+        var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)";  // 改用 tr:5
         var ifScroll = true;
 
         TestLink(testName, url, cssSelector, null, ifScroll);
@@ -223,7 +224,7 @@ public class GoodInfo19LinksTests : IDisposable
     public void Test_12_投信連賣_Should_Success()
     {
         var testName = "投信連賣";
-        var url = @"https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E6%8A%95%E4%BF%A1%E9%80%A3%E8%B3%A3+%E2%80%93+%E6%97%A5%40%40%E6%8A%95%E4%BF%A1%E9%80%A3%E7%BA%8C%E8%B3%A3%E8%B6%85%40%40%E6%8A%95%E4%BF%A1%E9%80%A3%E7%BA%8C%E8%B3%A3%E8%B6%85+%E2%80%93+%E6%97%A5";
+        var url = @"https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E6%8A%95%E4%BF%A1%E9%80%A3%E8%B3%A3+%E2%80%93+%E6%97%A5%40%40%E6%8A%95%E4%BF%A1%E9%80%A3%E7%BA%8C%E8%B3%A3%E8%B6%85%40%40%E6%8A%95%E4%BF%A1%E9%80%A3%E7%BA%8C%E8%B3%A3%E8%B6%85+%E2%80%93+%E6%97%A5#txtStockListData";
         var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)";
         var ifScroll = true;
 
@@ -269,13 +270,14 @@ public class GoodInfo19LinksTests : IDisposable
     /// linkLabel: linkLabel1
     /// 原始碼行號: 456-469
     /// ifScroll: true (使用 cssSelector)
+    /// 注意：舊系統使用 tr:7，但頁面可能已改版，嘗試 tr:5
     /// </summary>
     [Fact]
     public void Test_15_歷史成交量_Should_Success()
     {
         var testName = "歷史成交量";
         var url = @"https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E6%97%A5%E6%88%90%E4%BA%A4%E5%BC%B5%E6%95%B8%E5%89%B5%E6%AD%B7%E6%97%A5%E6%96%B0%E9%AB%98%40%40%E6%88%90%E4%BA%A4%E5%BC%B5%E6%95%B8%E5%89%B5%E6%AD%B7%E5%8F%B2%E6%96%B0%E9%AB%98%2F%E4%BD%8E%40%40%E6%97%A5%E6%88%90%E4%BA%A4%E5%BC%B5%E6%95%B8%E5%89%B5%E6%AD%B7%E6%97%A5%E6%96%B0%E9%AB%98#txtStockListData";
-        var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)";
+        var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)";  // 改用 tr:5
         var ifScroll = true;
 
         TestLink(testName, url, cssSelector, null, ifScroll);
@@ -455,15 +457,20 @@ public class GoodInfo19LinksTests : IDisposable
             Console.WriteLine("  → 正在建立 ChromeDriver...");
             driver = new ChromeDriver(options);
             
-            // Navigate and Refresh
-            Console.WriteLine($"  → 正在導航...");
+            // Navigate and Refresh（舊系統邏輯：先導航，再 Refresh，再 Maximize）
+            Console.WriteLine($"  → 正在導航並刷新頁面...");
             driver.Navigate().GoToUrl(url);
+            Thread.Sleep(2000);  // 增加等待時間讓頁面載入
             driver.Navigate().Refresh();
+            Thread.Sleep(2000);  // Refresh 後再等待
             driver.Manage().Window.Maximize();
             
-            // 舊系統的錯誤處理機制
+            // 舊系統的錯誤處理機制（雙層 try-catch）
             try
             {
+                // 等待頁面完全載入
+                Thread.Sleep(2000);
+                
                 if (ifScroll)
                 {
                     var element = driver.FindElement(By.Id("txtStockListData"));
@@ -480,10 +487,15 @@ public class GoodInfo19LinksTests : IDisposable
             catch (Exception ex)
             {
                 Console.WriteLine($"  ⚠ 第一次嘗試失敗: {ex.Message}");
-                Console.WriteLine($"  → 嘗試備用方法...");
+                Console.WriteLine($"  → 嘗試備用方法（舊系統第二層 catch）...");
                 
                 try
                 {
+                    // 舊系統的備用方案：再次嘗試 scroll + click
+                    var element = driver.FindElement(By.Id("txtStockListData"));
+                    ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true);", element);
+                    Thread.Sleep(2000);
+                    
                     driver.FindElement(By.CssSelector(cssSelector!)).Click();
                     Console.WriteLine("  → 備用方法成功");
                     Thread.Sleep(3000);
@@ -494,7 +506,7 @@ public class GoodInfo19LinksTests : IDisposable
                 }
             }
             
-            // 等待下載完成
+            // 等待下載完成（舊系統 wait(3)）
             Console.WriteLine("  → 等待下載完成...");
             Thread.Sleep(7000);
             
@@ -543,41 +555,26 @@ public class GoodInfo19LinksTests : IDisposable
             Console.WriteLine("  → 正在建立 ChromeDriver...");
             driver = new ChromeDriver(options);
             
-            // Navigate and Refresh
-            Console.WriteLine($"  → 正在導航...");
+            // Navigate and Refresh（完全按照舊系統）
+            Console.WriteLine($"  → 正在導航並刷新頁面...");
             driver.Navigate().GoToUrl(url);
-            Thread.Sleep(3000);  // 增加等待時間讓頁面完全載入
+            Thread.Sleep(2000);
             driver.Navigate().Refresh();
-            Thread.Sleep(3000);  // Refresh 後再等待
+            Thread.Sleep(2000);
             driver.Manage().Window.Maximize();
             
-            // 舊系統的錯誤處理機制
+            // 舊系統的錯誤處理機制（雙層 try-catch）
             try
             {
+                // 等待頁面完全載入
+                Thread.Sleep(2000);
+                
                 if (ifScroll)
                 {
-                    // 多次嘗試找到元素（因為頁面可能還在載入）
-                    IWebElement? element = null;
-                    for (int i = 0; i < 5; i++)
-                    {
-                        try
-                        {
-                            element = driver.FindElement(By.Id("txtStockListData"));
-                            break;
-                        }
-                        catch
-                        {
-                            Console.WriteLine($"  → 等待頁面載入... ({i + 1}/5)");
-                            Thread.Sleep(2000);
-                        }
-                    }
-                    
-                    if (element != null)
-                    {
-                        ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true);", element);
-                        Console.WriteLine("  → 已 scroll 到目標區域");
-                        Thread.Sleep(2000);
-                    }
+                    var element = driver.FindElement(By.Id("txtStockListData"));
+                    ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true);", element);
+                    Console.WriteLine("  → 已 scroll 到目標區域");
+                    Thread.Sleep(2000);
                 }
                 
                 Console.WriteLine($"  → 正在點擊下載按鈕 (Type2-tr7)...");
@@ -588,11 +585,15 @@ public class GoodInfo19LinksTests : IDisposable
             catch (Exception ex)
             {
                 Console.WriteLine($"  ⚠ 第一次嘗試失敗: {ex.Message}");
-                Console.WriteLine($"  → 嘗試備用方法（不 scroll，直接點擊）...");
+                Console.WriteLine($"  → 嘗試備用方法（舊系統第二層 catch）...");
                 
                 try
                 {
+                    // 舊系統的備用方案：再次嘗試 scroll + click
+                    var element = driver.FindElement(By.Id("txtStockListData"));
+                    ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true);", element);
                     Thread.Sleep(2000);
+                    
                     driver.FindElement(By.CssSelector(cssSelector!)).Click();
                     Console.WriteLine("  → 備用方法成功");
                     Thread.Sleep(3000);
@@ -603,7 +604,7 @@ public class GoodInfo19LinksTests : IDisposable
                 }
             }
             
-            // 等待下載完成
+            // 等待下載完成（舊系統 wait(3)）
             Console.WriteLine("  → 等待下載完成...");
             Thread.Sleep(7000);
             
