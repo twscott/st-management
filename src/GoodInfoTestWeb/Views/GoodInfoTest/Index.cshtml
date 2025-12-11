@@ -1,0 +1,375 @@
+@model List<GoodInfoTestWeb.Controllers.LinkInfo>
+@{
+    ViewData["Title"] = "GoodInfo 19 Links 測試工具";
+}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>@ViewData["Title"]</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Microsoft JhengHei', Arial, sans-serif; 
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 { 
+            color: #2c3e50; 
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .actions {
+            margin-bottom: 30px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        .btn-primary:hover { background: #2980b9; }
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+        .btn-success:hover { background: #229954; }
+        .btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .summary {
+            display: none;
+            padding: 20px;
+            background: #ecf0f1;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .summary.show { display: block; }
+        .summary-stats {
+            display: flex;
+            gap: 30px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .stat-success { color: #27ae60; }
+        .stat-fail { color: #e74c3c; }
+        .links-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 15px;
+        }
+        .link-card {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            background: #fff;
+            transition: all 0.3s;
+        }
+        .link-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .link-card.testing {
+            background: #fff9e6;
+            border-color: #f39c12;
+        }
+        .link-card.success {
+            background: #e8f8f5;
+            border-color: #27ae60;
+        }
+        .link-card.fail {
+            background: #fdf2f2;
+            border-color: #e74c3c;
+        }
+        .link-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .link-id {
+            background: #34495e;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .link-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            flex: 1;
+            margin: 0 10px;
+        }
+        .link-url {
+            font-size: 11px;
+            color: #7f8c8d;
+            margin-bottom: 10px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .link-status {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 10px;
+        }
+        .status-text {
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+        .status-text.testing { color: #f39c12; font-weight: 600; }
+        .status-text.success { color: #27ae60; font-weight: 600; }
+        .status-text.fail { color: #e74c3c; font-weight: 600; }
+        .btn-test {
+            padding: 6px 16px;
+            font-size: 12px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #f39c12;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 5px;
+        }
+        @@keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .progress-bar {
+            display: none;
+            width: 100%;
+            height: 4px;
+            background: #ecf0f1;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        .progress-bar.show { display: block; }
+        .progress-fill {
+            height: 100%;
+            background: #3498db;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 GoodInfo 19 Links 測試工具</h1>
+        <p class="subtitle">即時測試 GoodInfo 資料下載功能，支援單一測試與整合測試</p>
+
+        <div class="actions">
+            <button class="btn btn-success" onclick="testAll()" id="btnTestAll">
+                ▶ 執行整合測試 (19個)
+            </button>
+            <button class="btn btn-primary" onclick="resetAll()">
+                🔄 重置
+            </button>
+            <span id="testingInfo" style="color: #7f8c8d; display: none;">
+                <span class="spinner"></span>測試進行中...
+            </span>
+        </div>
+
+        <div class="progress-bar" id="progressBar">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+
+        <div class="summary" id="summary">
+            <div class="summary-stats">
+                <div><span class="stat-success">✓ 成功: <span id="successCount">0</span></span></div>
+                <div><span class="stat-fail">✗ 失敗: <span id="failCount">0</span></span></div>
+                <div>總計: <span id="totalCount">19</span></div>
+            </div>
+            <div id="failedLinksSection" style="margin-top: 15px; display: none;">
+                <div style="font-weight: 600; color: #e74c3c; margin-bottom: 8px;">失敗的連結：</div>
+                <ul id="failedLinksList" style="color: #c0392b; padding-left: 20px;">
+                </ul>
+            </div>
+        </div>
+
+        <div class="links-grid" id="linksGrid">
+            @foreach (var link in Model)
+            {
+                <div class="link-card" id="card-@link.Id">
+                    <div class="link-header">
+                        <span class="link-id">#@link.Id</span>
+                        <span class="link-name">@link.Name</span>
+                    </div>
+                    <div class="link-url" title="@link.Url">@link.Url</div>
+                    <div class="link-status">
+                        <span class="status-text" id="status-@link.Id">等待測試</span>
+                        <button class="btn btn-primary btn-test" onclick="testSingle(@link.Id)" id="btn-@link.Id">
+                            測試
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <script>
+        let isTesting = false;
+
+        async function testSingle(id) {
+            if (isTesting) return;
+            
+            const card = document.getElementById(`card-${id}`);
+            const status = document.getElementById(`status-${id}`);
+            const btn = document.getElementById(`btn-${id}`);
+            
+            card.className = 'link-card testing';
+            status.innerHTML = '<span class="spinner"></span>測試中...';
+            status.className = 'status-text testing';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/GoodInfoTest/TestSingle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ linkId: id })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    card.className = 'link-card success';
+                    status.textContent = `✓ ${result.message} (${result.duration}秒)`;
+                    status.className = 'status-text success';
+                } else {
+                    card.className = 'link-card fail';
+                    status.textContent = `✗ ${result.message}`;
+                    status.className = 'status-text fail';
+                }
+            } catch (error) {
+                card.className = 'link-card fail';
+                status.textContent = `✗ 錯誤: ${error.message}`;
+                status.className = 'status-text fail';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function testAll() {
+            if (isTesting) return;
+            isTesting = true;
+            
+            const btnTestAll = document.getElementById('btnTestAll');
+            const testingInfo = document.getElementById('testingInfo');
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            const summary = document.getElementById('summary');
+            
+            btnTestAll.disabled = true;
+            testingInfo.style.display = 'inline';
+            progressBar.classList.add('show');
+            summary.classList.remove('show');
+            
+            // 重置所有卡片
+            resetAll();
+            
+            try {
+                const response = await fetch('/GoodInfoTest/TestAll', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                // 更新每個測試結果
+                data.results.forEach((result, index) => {
+                    const card = document.getElementById(`card-${result.id}`);
+                    const status = document.getElementById(`status-${result.id}`);
+                    
+                    if (result.success) {
+                        card.className = 'link-card success';
+                        status.textContent = `✓ ${result.message} (${result.duration}秒)`;
+                        status.className = 'status-text success';
+                    } else {
+                        card.className = 'link-card fail';
+                        status.textContent = `✗ ${result.message}`;
+                        status.className = 'status-text fail';
+                    }
+                    
+                    // 更新進度條
+                    const progress = ((index + 1) / 19) * 100;
+                    progressFill.style.width = `${progress}%`;
+                });
+                
+                // 顯示摘要
+                document.getElementById('successCount').textContent = data.successCount;
+                document.getElementById('failCount').textContent = data.failCount;
+                
+                // 顯示失敗的連結
+                if (data.failedLinks && data.failedLinks.length > 0) {
+                    const failedLinksSection = document.getElementById('failedLinksSection');
+                    const failedLinksList = document.getElementById('failedLinksList');
+                    failedLinksList.innerHTML = '';
+                    data.failedLinks.forEach(linkName => {
+                        const li = document.createElement('li');
+                        li.textContent = linkName;
+                        failedLinksList.appendChild(li);
+                    });
+                    failedLinksSection.style.display = 'block';
+                } else {
+                    document.getElementById('failedLinksSection').style.display = 'none';
+                }
+                
+                summary.classList.add('show');
+            } catch (error) {
+                alert(`測試失敗: ${error.message}`);
+            } finally {
+                isTesting = false;
+                btnTestAll.disabled = false;
+                testingInfo.style.display = 'none';
+                setTimeout(() => {
+                    progressBar.classList.remove('show');
+                    progressFill.style.width = '0%';
+                }, 1000);
+            }
+        }
+
+        function resetAll() {
+            document.querySelectorAll('.link-card').forEach(card => {
+                card.className = 'link-card';
+            });
+            document.querySelectorAll('.status-text').forEach(status => {
+                status.textContent = '等待測試';
+                status.className = 'status-text';
+            });
+            document.querySelectorAll('.btn-test').forEach(btn => {
+                btn.disabled = false;
+            });
+            document.getElementById('summary').classList.remove('show');
+        }
+    </script>
+</body>
+</html>

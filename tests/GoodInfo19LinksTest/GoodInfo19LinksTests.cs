@@ -53,7 +53,7 @@ public class GoodInfo19LinksTests : IDisposable
     {
         var testName = "周轉率";
         var url = @"https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%28%E7%95%B6%E6%97%A5%29%40%40%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%40%40%E7%95%B6%E6%97%A5#txtStockListData";
-        var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(5) > td:nth-child(2) > input[type=button]:nth-child(2)";  // 改用 tr:5
+        var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)";  // Type2: tr:7
         var ifScroll = true;
 
         TestLink(testName, url, cssSelector, null, ifScroll);
@@ -427,6 +427,11 @@ public class GoodInfo19LinksTests : IDisposable
         Console.WriteLine($"   檔案位置: {csvPath}");
         Console.WriteLine($"   檔案大小: {fileInfo.Length:N0} bytes");
         
+        // ⚠️ 關鍵：每個測試後強制清理所有 Chrome 進程
+        Console.WriteLine($"\n🔄 清理 Chrome 進程...");
+        KillChromeProcesses();
+        Thread.Sleep(2000);  // 等待進程完全結束
+        
         // ⚠️ 重要：每個測試之間間隔 10 秒（防止 GoodInfo 反爬蟲機制）
         Console.WriteLine($"\n⏳ 等待 10 秒後執行下一個測試...");
         Thread.Sleep(10000);
@@ -558,16 +563,16 @@ public class GoodInfo19LinksTests : IDisposable
             // Navigate and Refresh（完全按照舊系統）
             Console.WriteLine($"  → 正在導航並刷新頁面...");
             driver.Navigate().GoToUrl(url);
-            Thread.Sleep(2000);
+            Thread.Sleep(3000);  // 初次載入等待 3 秒
             driver.Navigate().Refresh();
-            Thread.Sleep(2000);
+            Thread.Sleep(5000);  // Refresh 後等待 5 秒（頁面需要 3-5 秒載入）
             driver.Manage().Window.Maximize();
             
             // 舊系統的錯誤處理機制（雙層 try-catch）
             try
             {
                 // 等待頁面完全載入
-                Thread.Sleep(2000);
+                Thread.Sleep(3000);  // 再等 3 秒確保元素載入
                 
                 if (ifScroll)
                 {
@@ -589,10 +594,13 @@ public class GoodInfo19LinksTests : IDisposable
                 
                 try
                 {
+                    // 再等待一段時間讓頁面完全載入
+                    Thread.Sleep(3000);
+                    
                     // 舊系統的備用方案：再次嘗試 scroll + click
                     var element = driver.FindElement(By.Id("txtStockListData"));
                     ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true);", element);
-                    Thread.Sleep(2000);
+                    Thread.Sleep(3000);  // 增加等待時間
                     
                     driver.FindElement(By.CssSelector(cssSelector!)).Click();
                     Console.WriteLine("  → 備用方法成功");

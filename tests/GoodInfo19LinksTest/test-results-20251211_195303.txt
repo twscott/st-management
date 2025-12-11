@@ -1,0 +1,156 @@
+﻿
+
+Number    : 1
+Name      : Test_01_?貉?瘥Should_Success
+Status    : PASS
+StartTime : 19:48:55
+EndTime   : 19:48:59
+Duration  : 3.5
+Error     : 
+
+Number    : 2
+Name      : Test_02_?刻??Should_Success
+Status    : PASS
+StartTime : 19:49:09
+EndTime   : 19:49:12
+Duration  : 3.6
+Error     : 
+
+Number    : 3
+Name      : Test_03_MACD鞎?甇δShould_Success
+Status    : PASS
+StartTime : 19:49:22
+EndTime   : 19:49:26
+Duration  : 3.5
+Error     : 
+
+Number    : 4
+Name      : Test_04_OSC鞎?甇δShould_Success
+Status    : PASS
+StartTime : 19:49:36
+EndTime   : 19:49:39
+Duration  : 3.5
+Error     : 
+
+Number    : 5
+Name      : Test_05_EPS?菜擃Should_Success
+Status    : PASS
+StartTime : 19:49:49
+EndTime   : 19:49:53
+Duration  : 3.4
+Error     : 
+
+Number    : 6
+Name      : Test_06_?縑??眺_Should_Success
+Status    : PASS
+StartTime : 19:50:03
+EndTime   : 19:50:06
+Duration  : 3.5
+Error     : 
+
+Number    : 7
+Name      : Test_07_頞???頠Should_Success
+Status    : PASS
+StartTime : 19:50:16
+EndTime   : 19:50:20
+Duration  : 3.5
+Error     : 
+
+Number    : 8
+Name      : Test_08_憭???眺??都頧?_Should_Success
+Status    : PASS
+StartTime : 19:50:30
+EndTime   : 19:50:33
+Duration  : 3.5
+Error     : 
+
+Number    : 9
+Name      : Test_09_?縑??眺??都頧?_Should_Success
+Status    : PASS
+StartTime : 19:50:43
+EndTime   : 19:50:47
+Duration  : 3.5
+Error     : 
+
+Number    : 10
+Name      : Test_10_鈭僑?圈?_Should_Success
+Status    : PASS
+StartTime : 19:50:57
+EndTime   : 19:51:00
+Duration  : 3.4
+Error     : 
+
+Number    : 11
+Name      : Test_11_憭???都_Should_Success
+Status    : PASS
+StartTime : 19:51:10
+EndTime   : 19:51:14
+Duration  : 3.4
+Error     : 
+
+Number    : 12
+Name      : Test_12_?縑??都_Should_Success
+Status    : PASS
+StartTime : 19:51:24
+EndTime   : 19:51:27
+Duration  : 3.4
+Error     : 
+
+Number    : 13
+Name      : Test_13_憭??縑?郊鞎瑁?_Should_Success
+Status    : PASS
+StartTime : 19:51:37
+EndTime   : 19:51:41
+Duration  : 3.4
+Error     : 
+
+Number    : 14
+Name      : Test_14_?迤暺?_Should_Success
+Status    : PASS
+StartTime : 19:51:51
+EndTime   : 19:51:54
+Duration  : 3.3
+Error     : 
+
+Number    : 15
+Name      : Test_15_甇瑕?漱?Should_Success
+Status    : PASS
+StartTime : 19:52:04
+EndTime   : 19:52:07
+Duration  : 3.3
+Error     : 
+
+Number    : 16
+Name      : Test_16_摮???嗅擃Should_Success
+Status    : PASS
+StartTime : 19:52:17
+EndTime   : 19:52:21
+Duration  : 3.5
+Error     : 
+
+Number    : 17
+Name      : Test_17_鞎∪閰?_Should_Success
+Status    : PASS
+StartTime : 19:52:31
+EndTime   : 19:52:34
+Duration  : 3.4
+Error     : 
+
+Number    : 18
+Name      : Test_18_憭??縑?郊鞈??_Should_Success
+Status    : PASS
+StartTime : 19:52:44
+EndTime   : 19:52:48
+Duration  : 3.4
+Error     : 
+
+Number    : 19
+Name      : Test_19_憭???眺_Should_Success
+Status    : PASS
+StartTime : 19:52:58
+EndTime   : 19:53:01
+Duration  : 3.4
+Error     : 
+
+
+

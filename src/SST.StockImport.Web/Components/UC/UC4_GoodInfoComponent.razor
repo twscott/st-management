@@ -186,38 +186,45 @@
         
         try
         {
-            // 使用 LegacyGoodInfoScraper 執行批量下載
-            var batchResult = await LegacyGoodInfoScraper.ExecuteBatchDownloadAsync();
+            // 呼叫 GoodInfoTestWeb API (http://localhost:5001)
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(20); // 19 links 需要約 15 分鐘
             
-            // 更新結果統計
-            _successCount = batchResult.SuccessfulItems;
-            _failedCount = batchResult.FailedItems;
+            var response = await httpClient.PostAsync("http://localhost:5001/GoodInfoTest/TestAll", null);
+            response.EnsureSuccessStatusCode();
             
-            // 收集失敗項目名稱
-            _failedLinks.Clear();
-            foreach (var downloadResult in batchResult.Results.Where(r => !r.IsSuccess))
+            var content = await response.Content.ReadAsStringAsync();
+            Logger.LogInformation($"API 回傳內容: {content}");
+            
+            var result = System.Text.Json.JsonSerializer.Deserialize<TestAllResult>(content, 
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            
+            Logger.LogInformation($"解析結果: SuccessCount={result?.SuccessCount}, FailCount={result?.FailCount}, Total={result?.Total}");
+            
+            if (result != null)
             {
-                _failedLinks.Add(downloadResult.ItemName);
-            }
-            
-            // 設置結果訊息
-            _batchResultMessage = $"批量下載完成：成功 {_successCount} 個，失敗 {_failedCount} 個";
-            _showBatchResult = true;
-            
-            // 也調用原有的服務以保持相容性
-            lastResult = await OperationService.ExecuteGoodInfoDownloadAsync();
-            
-            if (_failedCount == 0)
-            {
-                resultMessage = "✅ 全部下載成功！";
-            }
-            else if (_successCount > 0)
-            {
-                resultMessage = $"⚠️ 部分下載成功：{_successCount}/{_successCount + _failedCount}";
-            }
-            else
-            {
-                resultMessage = "❌ 全部下載失敗";
+                _successCount = result.SuccessCount;
+                _failedCount = result.FailCount;
+                _failedLinks = result.FailedLinks ?? new List<string>();
+                
+                _batchResultMessage = $"批量下載完成：成功 {_successCount}/{result.Total}，失敗 {_failedCount}/{result.Total}";
+                _showBatchResult = true;
+                
+                if (_failedCount == 0)
+                {
+                    resultMessage = "✅ 全部 19 個連結下載成功！";
+                    lastResult = new OperationResult { IsSuccess = true, CompletedAt = DateTime.Now };
+                }
+                else if (_successCount > 0)
+                {
+                    resultMessage = $"⚠️ 部分下載成功：{_successCount}/19";
+                    lastResult = new OperationResult { IsSuccess = false, CompletedAt = DateTime.Now };
+                }
+                else
+                {
+                    resultMessage = "❌ 全部下載失敗";
+                    lastResult = new OperationResult { IsSuccess = false, CompletedAt = DateTime.Now };
+                }
             }
         }
         catch (Exception ex)
@@ -231,6 +238,26 @@
             await EndExecution();
         }
     }
+    
+    // API 回傳格式
+    private class TestAllResult
+    {
+        public bool Success { get; set; }
+        public int SuccessCount { get; set; }
+        public int FailCount { get; set; }
+        public int Total { get; set; }
+        public List<string>? FailedLinks { get; set; }
+        public List<TestResultItem>? Results { get; set; }
+    }
+    
+    private class TestResultItem
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+        public int Duration { get; set; }
+    }
 
     private async Task ExecuteSingleDownload(string itemName)
     {
@@ -241,11 +268,39 @@
 
         try
         {
-            // 單項下載暫時使用相同的批次下載方法，之後可以擴展
-            lastResult = await OperationService.ExecuteGoodInfoDownloadAsync();
-            resultMessage = lastResult.IsSuccess ? 
-                $"✅ {itemName} 下載完成" : 
-                $"❌ {itemName} 下載失敗";
+            // 查找對應的 linkId (1-19)
+            var linkId = GetLinkId(itemName);
+            if (linkId == 0)
+            {
+                resultMessage = $"❌ 找不到 {itemName} 對應的連結";
+                return;
+            }
+            
+            // 呼叫 GoodInfoTestWeb API
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(2);
+            
+            var requestBody = new { linkId = linkId };
+            var jsonContent = System.Text.Json.JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json");
+            
+            var response = await httpClient.PostAsync("http://localhost:5001/GoodInfoTest/TestSingle", content);
+            response.EnsureSuccessStatusCode();
+            
+            var responseText = await response.Content.ReadAsStringAsync();
+            var result = System.Text.Json.JsonSerializer.Deserialize<TestSingleResult>(responseText,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            
+            if (result != null && result.Success)
+            {
+                resultMessage = $"✅ {itemName} 下載完成 ({result.Duration}秒)";
+                lastResult = new OperationResult { IsSuccess = true, CompletedAt = DateTime.Now };
+            }
+            else
+            {
+                resultMessage = $"❌ {itemName} 下載失敗: {result?.Message ?? "未知錯誤"}";
+                lastResult = new OperationResult { IsSuccess = false, CompletedAt = DateTime.Now };
+            }
         }
         catch (Exception ex)
         {
@@ -257,6 +312,42 @@
             singleDownloading.Remove(itemName);
             StateHasChanged();
         }
+    }
+    
+    // 將按鈕名稱對應到 linkId (1-19)
+    private int GetLinkId(string itemName)
+    {
+        return itemName switch
+        {
+            "券資比" => 1,
+            "周轉率" => 2,
+            "MACD>0" => 3,
+            "OSC負轉正" => 4,
+            "EPS創新高" => 5,
+            "投信連買" => 6,
+            "超布林上軌" => 7,
+            "外資連買連賣轉折" => 8,
+            "投信連買連賣轉折" => 9,
+            "五年新高" => 10,
+            "外資連賣" => 11,
+            "投信連賣" => 12,
+            "外資、投信同步買超" => 13,
+            "月季黃金" => 14,
+            "歷史成交量" => 15,
+            "季營收創高" => 16,
+            "財報評分" => 17,
+            "外資、投信同步賣超" => 18,
+            "外資連買" => 19,
+            _ => 0
+        };
+    }
+    
+    // API 回傳格式
+    private class TestSingleResult
+    {
+        public bool Success { get; set; }
+        public string? Message { get; set; }
+        public int Duration { get; set; }
     }
 
     private async Task StartExecution(string operation)
