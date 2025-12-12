@@ -409,6 +409,8 @@ public class GoodInfoDataValidator
     {
         var downloadSelectors = new[]
         {
+            "input[type='button'][value*='匯出']",      // GoodInfo 主要按鈕
+            "input[type='button'][value*='CSV']",      // CSV 按鈕
             "input[type='button'][value*='下載']",
             "input[type='submit'][value*='下載']",
             "input[value='下載EXCEL檔']",
@@ -419,10 +421,13 @@ public class GoodInfoDataValidator
         {
             try
             {
-                var button = driver.FindElement(By.CssSelector(selector));
-                if (button != null && button.Displayed && button.Enabled)
+                var buttons = driver.FindElements(By.CssSelector(selector));
+                foreach (var button in buttons)
                 {
-                    return (true, "找到可用的下載按鈕");
+                    if (button != null && button.Displayed && button.Enabled)
+                    {
+                        return (true, $"找到可用的下載按鈕: {selector}");
+                    }
                 }
             }
             catch { /* 繼續嘗試下個選擇器 */ }

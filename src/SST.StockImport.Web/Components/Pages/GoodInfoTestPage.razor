@@ -1,5 +1,5 @@
 @page "/goodinfo-test"
-@inject HttpClient Http
+@inject IHttpClientFactory HttpClientFactory
 @rendermode InteractiveServer
 
 <PageTitle>GoodInfo 測試</PageTitle>
@@ -161,7 +161,13 @@
 
         try
         {
-            var response = await Http.PostAsJsonAsync("http://localhost:5001/GoodInfoTest/TestSingle", new { linkId = id });
+            // ✅ 修改為調用 localhost:5008 的新 API
+            using var httpClient = HttpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(10); // 單項測試最多 10 分鐘
+            
+            var response = await httpClient.PostAsJsonAsync(
+                "http://localhost:5008/api/goodinfo/test/single", 
+                new { linkId = id });
             var result = await response.Content.ReadFromJsonAsync<TestResult>();
 
             if (result?.Success == true)
@@ -197,7 +203,12 @@
 
         try
         {
-            var response = await Http.PostAsync("http://localhost:5001/GoodInfoTest/TestAll", null);
+            // ✅ 修改為調用 localhost:5008 的新 API
+            // 整合測試需要很長時間 (19個 Links × 10秒間隔 ≈ 3-4分鐘)
+            using var httpClient = HttpClientFactory.CreateClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(30); // 整合測試最多 30 分鐘
+            
+            var response = await httpClient.PostAsync("http://localhost:5008/api/goodinfo/test/all", null);
             var data = await response.Content.ReadFromJsonAsync<TestAllResult>();
 
             if (data?.Results != null)

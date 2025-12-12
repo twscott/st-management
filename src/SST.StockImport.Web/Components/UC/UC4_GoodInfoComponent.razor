@@ -2,7 +2,7 @@
 @using SST.StockImport.Services.Scrapers
 @inject OperationExecutorService OperationService
 @inject ErrorHandlingService ErrorService
-@inject LegacyGoodInfoScraper LegacyGoodInfoScraper
+@inject IImportApiService ApiService
 @inject ILogger<UC4_GoodInfoComponent> Logger
 
 <!-- UC4: GoodInfo 資料爬取 -->
@@ -29,19 +29,14 @@
                 </button>
             </div>
 
-            <!-- 個別下載連結 -->
+            <!-- 個別下載連結 (暫時禁用 - API 端點待實現) -->
             <div class="row">
                 @foreach (var item in downloadItems)
                 {
                     <div class="col-12 col-md-6 mb-2">
                         <button class="btn @GetButtonClass(item) btn-sm w-100" 
-                                @onclick="() => ExecuteSingleDownload(item.Name)" 
-                                disabled="@(isExecuting || singleDownloading.Contains(item.Name))"
-                                title="預期成功率: @item.SuccessRate%">
-                            @if (singleDownloading.Contains(item.Name))
-                            {
-                                <span class="spinner-border spinner-border-sm me-1"></span>
-                            }
+                                disabled="true"
+                                title="單項下載功能暫時停用 - 請使用批次下載">
                             @GetStatusIcon(item) @item.Name
                         </button>
                     </div>
@@ -186,45 +181,32 @@
         
         try
         {
-            // 呼叫 GoodInfoTestWeb API (http://localhost:5001)
-            using var httpClient = new HttpClient();
-            httpClient.Timeout = TimeSpan.FromMinutes(20); // 19 links 需要約 15 分鐘
+            // 透過 ImportApiService 呼叫正確的 Web API
+            var result = await ApiService.DownloadGoodInfoDataAsync();
             
-            var response = await httpClient.PostAsync("http://localhost:5001/GoodInfoTest/TestAll", null);
-            response.EnsureSuccessStatusCode();
+            Logger.LogInformation($"API 回傳結果: TotalCount={result.TotalCount}, SuccessCount={result.SuccessCount}, FailureCount={result.FailureCount}");
             
-            var content = await response.Content.ReadAsStringAsync();
-            Logger.LogInformation($"API 回傳內容: {content}");
+            _successCount = result.SuccessCount;
+            _failedCount = result.FailureCount;
+            _failedLinks = result.FailedStocks?.Select(f => f.Name).ToList() ?? new List<string>();
             
-            var result = System.Text.Json.JsonSerializer.Deserialize<TestAllResult>(content, 
-                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            _batchResultMessage = $"批量下載完成：成功 {_successCount}/{result.TotalCount}，失敗 {_failedCount}/{result.TotalCount}";
+            _showBatchResult = true;
             
-            Logger.LogInformation($"解析結果: SuccessCount={result?.SuccessCount}, FailCount={result?.FailCount}, Total={result?.Total}");
-            
-            if (result != null)
+            if (_failedCount == 0)
             {
-                _successCount = result.SuccessCount;
-                _failedCount = result.FailCount;
-                _failedLinks = result.FailedLinks ?? new List<string>();
-                
-                _batchResultMessage = $"批量下載完成：成功 {_successCount}/{result.Total}，失敗 {_failedCount}/{result.Total}";
-                _showBatchResult = true;
-                
-                if (_failedCount == 0)
-                {
-                    resultMessage = "✅ 全部 19 個連結下載成功！";
-                    lastResult = new OperationResult { IsSuccess = true, CompletedAt = DateTime.Now };
-                }
-                else if (_successCount > 0)
-                {
-                    resultMessage = $"⚠️ 部分下載成功：{_successCount}/19";
-                    lastResult = new OperationResult { IsSuccess = false, CompletedAt = DateTime.Now };
-                }
-                else
-                {
-                    resultMessage = "❌ 全部下載失敗";
-                    lastResult = new OperationResult { IsSuccess = false, CompletedAt = DateTime.Now };
-                }
+                resultMessage = "✅ 全部 19 個連結下載成功！";
+                lastResult = new OperationResult { IsSuccess = true, CompletedAt = DateTime.Now };
+            }
+            else if (_successCount > 0)
+            {
+                resultMessage = $"⚠️ 部分下載成功：{_successCount}/{result.TotalCount}";
+                lastResult = new OperationResult { IsSuccess = false, CompletedAt = DateTime.Now };
+            }
+            else
+            {
+                resultMessage = "❌ 全部下載失敗";
+                lastResult = new OperationResult { IsSuccess = false, CompletedAt = DateTime.Now };
             }
         }
         catch (Exception ex)

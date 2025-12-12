@@ -157,6 +157,11 @@ public record GoodInfoDownloadResult(
 )
 {
     public List<GoodInfoFailedStock> FailedStocks { get; init; } = FailedStocks ?? new List<GoodInfoFailedStock>();
+    
+    // 便捷屬性 - 總計數和成功數
+    public int TotalCount => SuccessfulLinks + FailedLinks;
+    public int SuccessCount => SuccessfulLinks;
+    public int FailureCount => FailedLinks;
 }
 
 public record GoodInfoFailedStock(

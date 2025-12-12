@@ -8,6 +8,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// Add HttpClientFactory for test pages
+builder.Services.AddHttpClient();
+
 // Configure HttpClient for API calls
 builder.Services.AddHttpClient<ImportApiService>(client =>
 {

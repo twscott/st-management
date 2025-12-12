@@ -16,55 +16,38 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-Write-Host "`n🛑 停止舊的 API 程序..." -ForegroundColor Yellow
+Write-Host "`n🛑 停止舊的 API 程序 (Port 5008)..." -ForegroundColor Yellow
 
 # 停止所有背景任務
 Get-Job | Stop-Job -ErrorAction SilentlyContinue
 Get-Job | Remove-Job -ErrorAction SilentlyContinue
 
 # 停止占用 5008 端口的所有進程
-try {
-    $connections = Get-NetTCPConnection -LocalPort 5008 -State Listen -ErrorAction SilentlyContinue
+for ($i = 1; $i -le 3; $i++) {
+    $connections = Get-NetTCPConnection -LocalPort 5008 -ErrorAction SilentlyContinue
     if ($connections) {
+        Write-Host "  [嘗試 $i/3] 發現 Port 5008 被占用，正在清理..." -ForegroundColor Yellow
         foreach ($conn in $connections) {
             $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
             if ($proc) {
-                Write-Host "  Killing process on port 5008: $($proc.ProcessName) (PID $($proc.Id))" -ForegroundColor Gray
+                Write-Host "    -> Killing: $($proc.ProcessName) (PID $($proc.Id))" -ForegroundColor Gray
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             }
         }
-    }
-} catch {
-    Write-Host "  No process found on port 5008" -ForegroundColor Gray
-}
-
-# 停止所有 dotnet 程序
-$dotnetProcesses = Get-Process -Name dotnet -ErrorAction SilentlyContinue
-if ($dotnetProcesses) {
-    foreach ($proc in $dotnetProcesses) {
-        try {
-            Write-Host "  Killing dotnet process: PID $($proc.Id)" -ForegroundColor Gray
-            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        } catch {
-            # 忽略錯誤
-        }
+        Start-Sleep -Seconds 2
+    } else {
+        Write-Host "  ✅ Port 5008 已釋放" -ForegroundColor Green
+        break
     }
 }
 
-# 停止所有 SST.StockImport.API 程序
-$apiProcesses = Get-Process | Where-Object {$_.ProcessName -like "*StockImport*"} -ErrorAction SilentlyContinue
-if ($apiProcesses) {
-    foreach ($proc in $apiProcesses) {
-        try {
-            Write-Host "  Killing API process: $($proc.ProcessName) (PID $($proc.Id))" -ForegroundColor Gray
-            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        } catch {
-            # 忽略錯誤
-        }
-    }
+# 最後檢查
+$finalCheck = Get-NetTCPConnection -LocalPort 5008 -ErrorAction SilentlyContinue
+if ($finalCheck) {
+    Write-Host "  ⚠️  警告: Port 5008 仍被占用，強制繼續..." -ForegroundColor Red
 }
 
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 1
 
 if (-not $NoBuild) {
     Write-Host "`n🔨 編譯專案..." -ForegroundColor Cyan

@@ -18,7 +18,7 @@ public class GoodInfoScraper : IDisposable
     private readonly GoodInfoDataValidator _dataValidator;
     private readonly GoodInfoSuccessRateMonitor _successMonitor;
     private readonly GoodInfoUrlManager _urlManager;
-    private readonly AntiCrawlerDetector _antiCrawlerDetector;
+    private readonly IAntiCrawlerDetector _antiCrawlerDetector;
     private IWebDriver? _driver;
     private readonly Random _random = new();
 
@@ -27,7 +27,7 @@ public class GoodInfoScraper : IDisposable
         GoodInfoDataValidator dataValidator,
         GoodInfoSuccessRateMonitor successMonitor,
         GoodInfoUrlManager urlManager,
-        AntiCrawlerDetector antiCrawlerDetector,
+        IAntiCrawlerDetector antiCrawlerDetector,
         GoodInfoScraperConfig? config = null)
     {
         _logger = logger;

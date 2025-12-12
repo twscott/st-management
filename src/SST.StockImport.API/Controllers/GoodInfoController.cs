@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http.Timeouts;
 using SST.StockImport.Services.Scrapers;
 
 namespace SST.StockImport.API.Controllers;
@@ -285,6 +286,161 @@ public class GoodInfoController : ControllerBase
     }
 
     /// <summary>
+    /// 測試所有 19 個 GoodInfo Links - 用於測試 UI 頁面
+    /// </summary>
+    [HttpPost("test/all")]
+    [RequestTimeout("LongRunning")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> TestAllLinks()
+    {
+        try
+        {
+            _logger.LogInformation("開始測試所有 19 個 GoodInfo Links");
+            var startTime = DateTime.Now;
+
+            var allRequests = GoodInfoUrlConfig.GetAllRequests();
+            var results = new List<object>();
+            var successCount = 0;
+            var failCount = 0;
+            var failedLinks = new List<string>();
+
+            for (int i = 0; i < allRequests.Count; i++)
+            {
+                var request = allRequests[i];
+                var linkStartTime = DateTime.Now;
+                
+                _logger.LogInformation("  [{Index}/{Total}] 測試: {LinkName}", i + 1, allRequests.Count, request.Name);
+
+                try
+                {
+                    var success = await _goodInfoScraper.DownloadDataAsync(request);
+                    var duration = (int)(DateTime.Now - linkStartTime).TotalSeconds;
+
+                    results.Add(new
+                    {
+                        id = i + 1,
+                        name = request.Name,
+                        success = success,
+                        message = success ? "測試成功" : "測試失敗",
+                        duration = duration
+                    });
+
+                    if (success)
+                    {
+                        successCount++;
+                        _logger.LogInformation("    成功 ({Duration}秒)", duration);
+                    }
+                    else
+                    {
+                        failCount++;
+                        failedLinks.Add(request.Name);
+                        _logger.LogWarning("    失敗 ({Duration}秒)", duration);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var duration = (int)(DateTime.Now - linkStartTime).TotalSeconds;
+                    failCount++;
+                    failedLinks.Add(request.Name);
+                    
+                    results.Add(new
+                    {
+                        id = i + 1,
+                        name = request.Name,
+                        success = false,
+                        message = $"錯誤: {ex.Message}",
+                        duration = duration
+                    });
+
+                    _logger.LogError(ex, "    例外失敗: {LinkName}", request.Name);
+                }
+
+                // 每個測試間隔 10 秒
+                if (i < allRequests.Count - 1)
+                {
+                    _logger.LogInformation("    等待 10 秒...");
+                    await Task.Delay(10000);
+                }
+            }
+
+            var totalDuration = (DateTime.Now - startTime).TotalMinutes;
+            _logger.LogInformation("測試完成 - 成功 {Success}/{Total}，失敗 {Failed}，耗時 {Duration:F1} 分鐘",
+                successCount, allRequests.Count, failCount, totalDuration);
+
+            return Ok(new
+            {
+                success = successCount > 0,
+                successCount = successCount,
+                failCount = failCount,
+                totalCount = allRequests.Count,
+                failedLinks = failedLinks,
+                results = results,
+                duration = $"{totalDuration:F1} 分鐘"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "整合測試失敗");
+            return StatusCode(500, new
+            {
+                success = false,
+                successCount = 0,
+                failCount = 19,
+                totalCount = 19,
+                failedLinks = new[] { "系統錯誤" },
+                results = new List<object>(),
+                error = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// 測試單一 GoodInfo Link - 用於測試 UI 頁面
+    /// </summary>
+    [HttpPost("test/single")]
+    [RequestTimeout("LongRunning")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<object>> TestSingleLink([FromBody] SingleLinkTestRequest request)
+    {
+        try
+        {
+            var allRequests = GoodInfoUrlConfig.GetAllRequests();
+            
+            // 修正：直接用索引取得 (LinkId 是 1-based，陣列是 0-based)
+            if (request.LinkId < 1 || request.LinkId > allRequests.Count)
+                return Ok(new { success = false, message = "找不到測試項目", duration = 0 });
+            
+            var targetRequest = allRequests[request.LinkId - 1];
+
+            _logger.LogInformation("測試單一 Link: [{Id}] {Name}", request.LinkId, targetRequest.Name);
+
+            var startTime = DateTime.Now;
+            var success = await _goodInfoScraper.DownloadDataAsync(targetRequest);
+            var duration = (int)(DateTime.Now - startTime).TotalSeconds;
+
+            var message = success ? "測試成功" : "測試失敗";
+            _logger.LogInformation("  {Message} ({Duration}秒)", message, duration);
+
+            return Ok(new
+            {
+                success = success,
+                message = message,
+                duration = duration
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "單項測試失敗: LinkId={LinkId}", request.LinkId);
+            return Ok(new
+            {
+                success = false,
+                message = $"錯誤: {ex.Message}",
+                duration = 0
+            });
+        }
+    }
+
+    /// <summary>
     /// 清除反爬蟲冷卻期 - 用於測試或緊急情況
     /// </summary>
     [HttpPost("cooldown/clear")]
@@ -360,3 +516,7 @@ public class GoodInfoController : ControllerBase
         }
     }
 }
+/// &lt;summary>
+/// 單一 Link 測試請求
+/// &lt;/summary>
+public record SingleLinkTestRequest(int LinkId);

@@ -39,7 +39,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<GoodInfoDataValidator>();
         services.AddSingleton<GoodInfoSuccessRateMonitor>();
         services.AddSingleton<GoodInfoUrlManager>();
-        services.AddSingleton<AntiCrawlerDetector>();
+        services.AddSingleton<IAntiCrawlerDetector, AntiCrawlerDetector>();
         services.AddScoped<Helpers.GoodInfoCsvValidator>();
         
         // 註冊 GoodInfoScraper 用於 GoodInfo.tw 資料下載 (Selenium)
