@@ -72,4 +72,10 @@ public interface ITradeDataRepository
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>最新交易日期，若無資料則回傳null</returns>
     Task<DateTime?> GetMaxTransDateAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 獲取最新交易日期 (從 weekall 資料表)
+    /// </summary>
+    /// <returns>最新交易日期</returns>
+    Task<DateTime> GetLatestTradingDateAsync();
 }

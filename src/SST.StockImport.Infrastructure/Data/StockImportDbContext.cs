@@ -44,6 +44,11 @@ public class StockImportDbContext : DbContext
     /// </summary>
     public DbSet<AlertLog> AlertLogs { get; set; } = null!;
 
+    /// <summary>
+    /// 每週股票資料表 (weekall)
+    /// </summary>
+    public DbSet<WeekAll> WeekAll { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -54,6 +59,10 @@ public class StockImportDbContext : DbContext
         // Stock60Days: 複合主鍵 (StockID, StockDate) - 必須使用 HasKey
         modelBuilder.Entity<Stock60Days>()
             .HasKey(s => new { s.StockID, s.StockDate });
+
+        // WeekAll: 複合主鍵 (StockID, StockDate)
+        modelBuilder.Entity<WeekAll>()
+            .HasKey(w => new { w.StockID, w.StockDate });
 
         // TradeData: 主鍵 trade_ID (AUTO_INCREMENT), 唯一索引 (StockID, TransDate)
         // BuyIn: 主鍵 BuyIn_ID (AUTO_INCREMENT)

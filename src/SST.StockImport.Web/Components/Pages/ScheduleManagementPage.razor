@@ -263,8 +263,13 @@
         {
             AddLog("⏰ 預計處理時間：45-90 分鐘 (四個處理器：警示+技術+價格+成交量)");
             
+            // 獲取最新交易日期
+            var latestDate = await ApiService.GetLatestTradingDateAsync();
+            var targetDate = latestDate ?? DateTime.Today.AddDays(-1);
+            AddLog($"📅 使用目標日期: {targetDate:yyyy-MM-dd}");
+            
             // 調用真實 API
-            var result = await ApiService.ProcessSupplementDataAsync(DateTime.Today.AddDays(-1));
+            var result = await ApiService.ProcessSupplementDataAsync(targetDate);
             
             if (result.Success)
             {

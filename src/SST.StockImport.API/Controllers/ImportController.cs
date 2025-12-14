@@ -72,6 +72,24 @@ public class ImportController : ControllerBase
     }
 
     /// <summary>
+    /// 獲取最新交易日期 (從 weekall 資料表)
+    /// </summary>
+    [HttpGet("latest-date")]
+    public async Task<IActionResult> GetLatestTradingDate()
+    {
+        try
+        {
+            var latestDate = await _importService.GetLatestTradingDateAsync();
+            return Ok(new { LatestDate = latestDate });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取最新交易日期失敗");
+            return StatusCode(500, new { Error = "獲取最新交易日期失敗", Message = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// 下載交易資料 (新增支援排程管理) - 使用真實的數據匯入服務
     /// </summary>
     [HttpPost("trading-data")]

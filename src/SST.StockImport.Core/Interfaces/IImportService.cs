@@ -63,4 +63,10 @@ public interface IImportService
         DateTime tradeDate,
         bool includeGoodInfo = false,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 獲取最新交易日期 (從 weekall 資料表)
+    /// </summary>
+    /// <returns>最新交易日期</returns>
+    Task<DateTime> GetLatestTradingDateAsync();
 }

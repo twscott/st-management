@@ -648,4 +648,12 @@ public class ImportService : IImportService
             _logger.LogError(ex, "Failed to log error for Stock: {StockCode}", stockCode);
         }
     }
+
+    /// <summary>
+    /// 獲取最新交易日期 (從 weekall 資料表)
+    /// </summary>
+    public async Task<DateTime> GetLatestTradingDateAsync()
+    {
+        return await _tradeDataRepository.GetLatestTradingDateAsync();
+    }
 }

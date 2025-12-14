@@ -185,4 +185,17 @@ public class TradeDataRepository : ITradeDataRepository
         return await _context.TradeData
             .MaxAsync(t => (DateTime?)t.TransDate, cancellationToken);
     }
+
+    /// <summary>
+    /// 獲取最新交易日期 (從 weekall 資料表)
+    /// </summary>
+    public async Task<DateTime> GetLatestTradingDateAsync()
+    {
+        var latestDate = await _context.WeekAll
+            .OrderByDescending(w => w.StockDate)
+            .Select(w => w.StockDate)
+            .FirstOrDefaultAsync();
+        
+        return latestDate != default ? latestDate : DateTime.Today.AddDays(-1);
+    }
 }

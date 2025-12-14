@@ -56,4 +56,7 @@ public interface IImportApiService
     /// 更新排程狀態
     /// </summary>
     Task<bool> UpdateScheduleStatusAsync(int scheduleId, bool isEnabled);
-}
+    /// <summary>
+    /// 獲取最新交易日期
+    /// </summary>
+    Task<DateTime?> GetLatestTradingDateAsync();}

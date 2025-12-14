@@ -218,4 +218,20 @@ public class ImportApiService : IImportApiService
             return false;
         }
     }
+
+    public async Task<DateTime?> GetLatestTradingDateAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<LatestDateResponse>("/api/import/latest-date");
+            return response?.LatestDate;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取最新交易日期失敗");
+            return null;
+        }
+    }
+
+    private record LatestDateResponse(DateTime LatestDate);
 }
