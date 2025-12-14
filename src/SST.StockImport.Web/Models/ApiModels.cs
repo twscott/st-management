@@ -169,10 +169,28 @@ public record GoodInfoFailedStock(
     string Error = ""
 );
 
+public record ProcessorExecutionInfo(
+    string ProcessorName,
+    bool Success,
+    int ProcessedCount,
+    double DurationMilliseconds,
+    string? ErrorMessage = null
+);
+
 public record StatisticsProcessResult(
+    int TotalProcessors = 0,
+    int SuccessfulProcessors = 0,
+    int FailedProcessors = 0,
+    double TotalDurationSeconds = 0,
+    List<ProcessorExecutionInfo>? ProcessorDetails = null,
     List<string>? ExceptionLogs = null
 )
 {
+    public int TotalProcessors { get; init; } = TotalProcessors;
+    public int SuccessfulProcessors { get; init; } = SuccessfulProcessors;
+    public int FailedProcessors { get; init; } = FailedProcessors;
+    public double TotalDurationSeconds { get; init; } = TotalDurationSeconds;
+    public List<ProcessorExecutionInfo> ProcessorDetails { get; init; } = ProcessorDetails ?? new List<ProcessorExecutionInfo>();
     public List<string> ExceptionLogs { get; init; } = ExceptionLogs ?? new List<string>();
 }
 

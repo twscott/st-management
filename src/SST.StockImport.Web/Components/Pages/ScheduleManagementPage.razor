@@ -376,10 +376,28 @@
             // 調用真實 API
             var result = await ApiService.ProcessAllStatisticsAsync(DateTime.Today.AddDays(-1));
             
+            // 顯示詳細的處理器信息
+            if (result.TotalProcessors > 0)
+            {
+                AddLog($"✅ 處理完成 - 處理器總數：{result.TotalProcessors}，成功：{result.SuccessfulProcessors}，失敗：{result.FailedProcessors}");
+                AddLog($"   總耗時：{result.TotalDurationSeconds:F2} 秒 ({result.TotalDurationSeconds / 60:F2} 分鐘)");
+                
+                // 顯示每個處理器的詳細信息
+                if (result.ProcessorDetails.Count > 0)
+                {
+                    AddLog("   處理器執行詳情：");
+                    foreach (var processor in result.ProcessorDetails)
+                    {
+                        var status = processor.Success ? "✓" : "✗";
+                        AddLog($"     {status} {processor.ProcessorName}: {processor.DurationMilliseconds:F2}ms (已處理：{processor.ProcessedCount} 筆)");
+                    }
+                }
+            }
+            
             if (result.ExceptionLogs.Count > 0)
             {
-                statisticsMessage = $"✅ 統計處理完成，發生 {result.ExceptionLogs.Count} 個例外但已繼續";
-                AddLog($"⚠️ 統計處理完成，有 {result.ExceptionLogs.Count} 個例外");
+                statisticsMessage = $"⚠️ 統計處理完成，發生 {result.ExceptionLogs.Count} 個例外但已繼續";
+                AddLog($"⚠️ 有 {result.ExceptionLogs.Count} 個例外");
                 foreach (var log in result.ExceptionLogs.Take(3))
                 {
                     AddLog($"   - {log}");
