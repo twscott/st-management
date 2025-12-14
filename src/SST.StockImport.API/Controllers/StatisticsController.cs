@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using SST.StockImport.Core.DTOs;
 using SST.StockImport.Core.Interfaces;
 
 namespace SST.StockImport.API.Controllers;
@@ -9,114 +10,113 @@ namespace SST.StockImport.API.Controllers;
 public record StatisticsRequest(DateTime TargetDate);
 
 /// <summary>
-/// 統計資料處理 API
+/// 統計資料處理結果
+/// </summary>
+public record StatisticsProcessResult(List<string> ExceptionLogs);
+
+/// <summary>
+/// 詳細的統計資料處理結果（包含所有處理器的執行信息）
+/// </summary>
+public record StatisticsProcessDetailedResult(
+    int TotalProcessors,
+    int SuccessfulProcessors,
+    int FailedProcessors,
+    double TotalDurationSeconds,
+    List<ProcessorExecutionInfo> ProcessorDetails,
+    List<string> ExceptionLogs);
+
+/// <summary>
+/// 單個處理器的執行信息
+/// </summary>
+public record ProcessorExecutionInfo(
+    string ProcessorName,
+    bool Success,
+    int ProcessedCount,
+    double DurationMilliseconds,
+    string? ErrorMessage);
+
+/// <summary>
+/// 統計資料處理 API (處理統計資料按鈕 - 11個 Processors)
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class StatisticsController : ControllerBase
 {
-    private readonly ISupplementDataService _supplementService;
+    private readonly IStatisticsDataService _statisticsService;
     private readonly ILogger<StatisticsController> _logger;
 
     public StatisticsController(
-        ISupplementDataService supplementService,
+        IStatisticsDataService statisticsService,
         ILogger<StatisticsController> logger)
     {
-        _supplementService = supplementService;
+        _statisticsService = statisticsService;
         _logger = logger;
     }
 
     /// <summary>
-    /// 處理全部統計資料 (All4 統計)
+    /// 處理全部統計資料 (11個 Processors: 4個按鈕操作 + 1個警報統計 + 6個資料庫更新)
     /// </summary>
     [HttpPost("process-all")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<object>> ProcessAllStatistics([FromBody] StatisticsRequest request)
+    [ProducesResponseType(typeof(StatisticsProcessDetailedResult), StatusCodes.Status200OK)]
+    public async Task<ActionResult<StatisticsProcessDetailedResult>> ProcessAllStatistics([FromBody] StatisticsRequest request)
     {
         try
         {
-            _logger.LogInformation("開始處理全部統計資料: {TargetDate}", request.TargetDate);
+            _logger.LogInformation("開始處理全部統計資料 (11個 Processors): {TargetDate}", request.TargetDate);
+
+            var result = await _statisticsService.ProcessAllAsync(request.TargetDate);
 
             var exceptionLogs = new List<string>();
-
-            try
+            var processorDetails = new List<ProcessorExecutionInfo>();
+            
+            // 收集所有處理器的執行信息
+            foreach (var processorResult in result.ProcessorResults)
             {
-                // 1. 警示統計處理
-                _logger.LogInformation("執行警示統計處理...");
-                var alertResult = await _supplementService.ProcessAlertStatisticsAsync(request.TargetDate);
-                if (!alertResult.Success && !string.IsNullOrEmpty(alertResult.ErrorMessage))
+                processorDetails.Add(new ProcessorExecutionInfo(
+                    ProcessorName: processorResult.ProcessorName,
+                    Success: processorResult.Success,
+                    ProcessedCount: processorResult.ProcessedCount,
+                    DurationMilliseconds: processorResult.Duration.TotalMilliseconds,
+                    ErrorMessage: processorResult.ErrorMessage));
+
+                if (!processorResult.Success)
                 {
-                    exceptionLogs.Add($"警示統計: {alertResult.ErrorMessage}");
+                    var errorMsg = $"{processorResult.ProcessorName}: {processorResult.ErrorMessage ?? "執行失敗"}";
+                    exceptionLogs.Add(errorMsg);
+                    _logger.LogWarning("處理器失敗 - {ErrorMsg}", errorMsg);
                 }
             }
-            catch (Exception ex)
-            {
-                exceptionLogs.Add($"警示統計異常: {ex.Message}");
-                _logger.LogError(ex, "警示統計處理失敗");
-            }
 
-            try
-            {
-                // 2. 技術指標處理
-                _logger.LogInformation("執行技術指標處理...");
-                var techResult = await _supplementService.ProcessTechnicalIndicatorsAsync(request.TargetDate);
-                if (!techResult.Success && !string.IsNullOrEmpty(techResult.ErrorMessage))
-                {
-                    exceptionLogs.Add($"技術指標: {techResult.ErrorMessage}");
-                }
-            }
-            catch (Exception ex)
-            {
-                exceptionLogs.Add($"技術指標異常: {ex.Message}");
-                _logger.LogError(ex, "技術指標處理失敗");
-            }
+            var processorCount = result.ProcessorResults.Count;
+            var successCount = result.ProcessorResults.Count(r => r.Success);
+            var failedCount = exceptionLogs.Count;
+            
+            _logger.LogInformation(
+                "統計資料處理完成 - 總數: {Total}, 成功: {Success}, 失敗: {Failed}, 耗時: {Duration:mm\\:ss}",
+                processorCount,
+                successCount,
+                failedCount,
+                result.TotalDuration);
 
-            try
-            {
-                // 3. 價格分析處理
-                _logger.LogInformation("執行價格分析處理...");
-                var priceResult = await _supplementService.ProcessPriceAnalysisAsync(request.TargetDate);
-                if (!priceResult.Success && !string.IsNullOrEmpty(priceResult.ErrorMessage))
-                {
-                    exceptionLogs.Add($"價格分析: {priceResult.ErrorMessage}");
-                }
-            }
-            catch (Exception ex)
-            {
-                exceptionLogs.Add($"價格分析異常: {ex.Message}");
-                _logger.LogError(ex, "價格分析處理失敗");
-            }
-
-            try
-            {
-                // 4. 成交量統計處理
-                _logger.LogInformation("執行成交量統計處理...");
-                var volumeResult = await _supplementService.ProcessVolumeStatisticsAsync(request.TargetDate);
-                if (!volumeResult.Success && !string.IsNullOrEmpty(volumeResult.ErrorMessage))
-                {
-                    exceptionLogs.Add($"成交量統計: {volumeResult.ErrorMessage}");
-                }
-            }
-            catch (Exception ex)
-            {
-                exceptionLogs.Add($"成交量統計異常: {ex.Message}");
-                _logger.LogError(ex, "成交量統計處理失敗");
-            }
-
-            _logger.LogInformation("統計資料處理完成，異常數量: {Count}", exceptionLogs.Count);
-
-            return Ok(new
-            {
-                ExceptionLogs = exceptionLogs
-            });
+            return Ok(new StatisticsProcessDetailedResult(
+                TotalProcessors: processorCount,
+                SuccessfulProcessors: successCount,
+                FailedProcessors: failedCount,
+                TotalDurationSeconds: result.TotalDuration.TotalSeconds,
+                ProcessorDetails: processorDetails,
+                ExceptionLogs: exceptionLogs));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "統計資料處理發生嚴重錯誤");
-            return StatusCode(500, new
-            {
-                ExceptionLogs = new List<string> { $"系統錯誤: {ex.Message}" }
-            });
+            return StatusCode(500, new StatisticsProcessDetailedResult(
+                TotalProcessors: 0,
+                SuccessfulProcessors: 0,
+                FailedProcessors: 1,
+                TotalDurationSeconds: 0,
+                ProcessorDetails: new List<ProcessorExecutionInfo>(),
+                ExceptionLogs: new List<string> { $"系統錯誤: {ex.Message}" }
+            ));
         }
     }
 }

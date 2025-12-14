@@ -59,12 +59,29 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IImportService, ImportService>();
         services.AddScoped<IStatisticsService, StatisticsService>();
         
-        // 註冊補充數據處理服務
+        // 註冊補充數據處理服務 (All4 功能 - 4個 Processors)
         services.AddScoped<ISupplementDataService, SupplementDataService>();
         services.AddScoped<Processors.AlertStatisticsProcessor>();
         services.AddScoped<Processors.TechnicalIndicatorsProcessor>();
         services.AddScoped<Processors.PriceAnalysisProcessor>();
         services.AddScoped<Processors.VolumeStatisticsProcessor>();
+
+        // 註冊統計資料處理服務 (處理統計資料功能 - 11個 Processors)
+        services.AddScoped<IStatisticsDataService, StatisticsDataService>();
+        
+        // Phase 1: 核心按鈕操作 Processors
+        services.AddScoped<Processors.WeekAll4Processor>();
+        services.AddScoped<Processors.AfterHourTradeProcessor>();
+        services.AddScoped<Processors.ThreeMainTablesProcessor>();
+        services.AddScoped<Processors.AlertInstanceProcessor>();
+        
+        // Phase 3: 資料庫更新 Processors (Phase 2 的 AlertStatisticsProcessor 已在上面註冊)
+        services.AddScoped<Processors.InvestBaseDataProcessor>();
+        services.AddScoped<Processors.MovingAverageProcessor>();
+        services.AddScoped<Processors.KTypeProcessor>();
+        services.AddScoped<Processors.JumpKongProcessor>();
+        services.AddScoped<Processors.NotifyLogProcessor>();
+        services.AddScoped<Processors.LowShadowProcessor>();
 
         // 註冊 GoodInfo 整合測試服務
         services.AddScoped<GoodInfoIntegrationTestService>();

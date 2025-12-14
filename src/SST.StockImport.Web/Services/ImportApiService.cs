@@ -179,6 +179,7 @@ public class ImportApiService : IImportApiService
     {
         try
         {
+            // 保持使用舊的 Statistics API（已有完整邏輯）
             var response = await _httpClient.PostAsJsonAsync("/api/statistics/process-all", new { targetDate });
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<StatisticsProcessResult>();
