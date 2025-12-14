@@ -12,7 +12,7 @@
 | GoodInfo 19 Links | `POST /api/goodinfo/download` | ✅ 17/18 通過 | ✅ 使用中 | 2025-12-12 10:28 |
 | 交易資料下載 | `POST /api/import/trading-data` | ⚠️ 待測試 | ✅ 使用中 | - |
 | 補充資料處理 | `POST /api/supplement/process-all` | ⚠️ 待測試 | ✅ 使用中 | - |
-| 統計資料處理 | `POST /api/statistics/process-all` | ⚠️ 待測試 | ✅ 使用中 | - |
+| 統計資料處理 | `POST /api/statistics/process-all` | ✅ 11/11 通過 | ✅ 集成完成 | 2025-12-14 13:00 |
 
 ### 2️⃣ 每次測試後必做清單
 

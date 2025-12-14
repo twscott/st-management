@@ -188,7 +188,7 @@ public class ImportApiService : IImportApiService
         catch (Exception ex)
         {
             _logger.LogError(ex, "處理統計資料失敗");
-            return new StatisticsProcessResult(new List<string> { ex.Message });
+            return new StatisticsProcessResult(ExceptionLogs: new List<string> { ex.Message });
         }
     }
 
