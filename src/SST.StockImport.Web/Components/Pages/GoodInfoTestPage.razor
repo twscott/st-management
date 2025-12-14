@@ -161,14 +161,12 @@
 
         try
         {
-            // ✅ 修改為調用 localhost:5008 的新 API
             using var httpClient = HttpClientFactory.CreateClient();
-            httpClient.Timeout = TimeSpan.FromMinutes(10); // 單項測試最多 10 分鐘
+            httpClient.Timeout = TimeSpan.FromMinutes(10);
             
-            var response = await httpClient.PostAsJsonAsync(
-                "http://localhost:5008/api/goodinfo/test/single", 
-                new { linkId = id });
-            var result = await response.Content.ReadFromJsonAsync<TestResult>();
+            var response = await httpClient.PostAsync(
+                $"http://localhost:5008/api/goodinfo/test/link/{id}", null);
+            var result = await response.Content.ReadFromJsonAsync<SingleTestResult>();
 
             if (result?.Success == true)
             {
@@ -203,30 +201,35 @@
 
         try
         {
-            // ✅ 修改為調用 localhost:5008 的新 API
-            // 整合測試需要很長時間 (19個 Links × 10秒間隔 ≈ 3-4分鐘)
             using var httpClient = HttpClientFactory.CreateClient();
-            httpClient.Timeout = TimeSpan.FromMinutes(30); // 整合測試最多 30 分鐘
+            httpClient.Timeout = TimeSpan.FromMinutes(30);
             
-            var response = await httpClient.PostAsync("http://localhost:5008/api/goodinfo/test/all", null);
-            var data = await response.Content.ReadFromJsonAsync<TestAllResult>();
+            var response = await httpClient.PostAsync("http://localhost:5008/api/goodinfo/test/all-links", null);
+            var data = await response.Content.ReadFromJsonAsync<AllTestResult>();
 
             if (data?.Results != null)
             {
+                int index = 0;
                 foreach (var result in data.Results)
                 {
-                    linkStatus[result.Id] = result.Success ? "success" : "fail";
-                    linkStatusText[result.Id] = result.Success 
+                    index++;
+                    linkStatus[result.LinkId] = result.Success ? "success" : "fail";
+                    linkStatusText[result.LinkId] = result.Success 
                         ? $"✓ {result.Message} ({result.Duration}秒)"
                         : $"✗ {result.Message}";
                     
-                    progress = ((double)(data.Results.IndexOf(result) + 1) / 19) * 100;
+                    if (result.Success)
+                        successCount++;
+                    else
+                    {
+                        failCount++;
+                        failedLinks.Add($"{result.LinkId}. {result.LinkName}");
+                    }
+                    
+                    progress = ((double)index / 19) * 100;
                     StateHasChanged();
                 }
 
-                successCount = data.SuccessCount;
-                failCount = data.FailCount;
-                failedLinks = data.FailedLinks ?? new List<string>();
                 showSummary = true;
             }
         }
@@ -283,27 +286,31 @@
         public string Url { get; set; } = "";
     }
 
-    private class TestResult
+    private class SingleTestResult
     {
         public bool Success { get; set; }
+        public int LinkId { get; set; }
+        public string LinkName { get; set; } = "";
         public string Message { get; set; } = "";
-        public int Duration { get; set; }
+        public double Duration { get; set; }
     }
 
-    private class TestAllResult
+    private class AllTestResult
     {
-        public bool Success { get; set; }
+        public int TotalTests { get; set; }
         public int SuccessCount { get; set; }
         public int FailCount { get; set; }
-        public List<string>? FailedLinks { get; set; }
+        public double SuccessRate { get; set; }
+        public double TotalDuration { get; set; }
         public List<TestResultItem> Results { get; set; } = new();
     }
 
     private class TestResultItem
     {
-        public int Id { get; set; }
+        public int LinkId { get; set; }
+        public string LinkName { get; set; } = "";
         public bool Success { get; set; }
         public string Message { get; set; } = "";
-        public int Duration { get; set; }
+        public double Duration { get; set; }
     }
 }

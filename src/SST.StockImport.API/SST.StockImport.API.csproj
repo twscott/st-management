@@ -25,6 +25,7 @@
     <ProjectReference Include="..\SST.StockImport.Services\SST.StockImport.Services.csproj" />
     <ProjectReference Include="..\SST.StockImport.Infrastructure\SST.StockImport.Infrastructure.csproj" />
     <ProjectReference Include="..\SST.StockImport.Shared\SST.StockImport.Shared.csproj" />
+    <ProjectReference Include="..\..\tests\GoodInfo19LinksTest\GoodInfo19LinksTest.csproj" />
   </ItemGroup>
 
 </Project>

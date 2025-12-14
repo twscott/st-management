@@ -306,31 +306,48 @@
     {
         isDownloadingGoodInfo = true;
         currentStatus = "下載 GoodInfo 資料";
-        AddLog("開始下載 GoodInfo 資料...");
+        AddLog("開始下載 GoodInfo 19 Links 資料...");
 
         try
         {
-            AddLog("⏰ 預計處理時間：30-60 分鐘 (1800+ 網頁爬取，有反爬蟲限制)");
+            AddLog("⏰ 預計處理時間：5-10 分鐘 (19 個網頁爬取，每個間隔 10 秒)");
             
-            // 調用真實 API
-            var result = await ApiService.DownloadGoodInfoDataAsync();
+            // 調用新的 19 Links 測試 API
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(30);
             
-            successfulLinks = result.SuccessfulLinks;
-            failedLinks = result.FailedLinks;
+            var response = await httpClient.PostAsync("http://localhost:5008/api/goodinfo/test/all-links", null);
+            var result = await response.Content.ReadFromJsonAsync<GoodInfoTestAllResult>();
             
-            // 顯示具體的 link 狀況，不只是數字
-            var failedStockNames = result.FailedStocks?.Select(f => f.Name).ToList() ?? new List<string>();
-            
-            if (result.FailedLinks > 0)
+            if (result != null)
             {
-                goodInfoMessage = $"⚠️ 下載完成 - 成功：{result.SuccessfulLinks} 筆\n失敗：{result.FailedLinks} 筆\n失敗的股票：{string.Join(", ", failedStockNames)}";
-                AddLog($"⚠️ GoodInfo 下載部分失敗 - 成功：{result.SuccessfulLinks}，失敗：{result.FailedLinks}");
-                AddLog($"失敗的股票：{string.Join(", ", failedStockNames)}");
+                successfulLinks = result.SuccessCount;
+                failedLinks = result.FailCount;
+                
+                // 收集失敗的 links 名稱
+                var failedLinkNames = result.Results?
+                    .Where(r => !r.Success)
+                    .Select(r => $"{r.LinkId}. {r.LinkName}")
+                    .ToList() ?? new List<string>();
+                
+                if (result.FailCount > 0)
+                {
+                    goodInfoMessage = $"⚠️ 下載完成 - 成功：{result.SuccessCount}/{result.TotalTests}\n失敗：{result.FailCount}/{result.TotalTests}\n失敗的 Links：{string.Join(", ", failedLinkNames)}";
+                    AddLog($"⚠️ GoodInfo 下載部分失敗 - 成功：{result.SuccessCount}，失敗：{result.FailCount}");
+                    AddLog($"失敗的 Links：{string.Join(", ", failedLinkNames)}");
+                }
+                else
+                {
+                    goodInfoMessage = $"✅ 下載完成 - 所有 {result.SuccessCount} 個 Links 都成功！成功率 {result.SuccessRate}%";
+                    AddLog($"✅ GoodInfo 下載完成 - 所有 {result.SuccessCount} 個 Links 都成功！");
+                }
+                
+                AddLog($"總耗時：{result.TotalDuration} 分鐘");
             }
             else
             {
-                goodInfoMessage = $"✅ 下載完成 - 所有 {result.SuccessfulLinks} 筆都成功";
-                AddLog($"✅ GoodInfo 下載完成 - 所有 {result.SuccessfulLinks} 筆都成功");
+                goodInfoMessage = "❌ 無法獲取下載結果";
+                AddLog("❌ 無法獲取下載結果");
             }
         }
         catch (Exception ex)
@@ -396,5 +413,25 @@
         {
             executionLogs = executionLogs.TakeLast(25).ToList();
         }
+    }
+
+    // DTO for GoodInfo 19 Links Test Result
+    private class GoodInfoTestAllResult
+    {
+        public int TotalTests { get; set; }
+        public int SuccessCount { get; set; }
+        public int FailCount { get; set; }
+        public double SuccessRate { get; set; }
+        public double TotalDuration { get; set; }
+        public List<GoodInfoTestResultItem>? Results { get; set; }
+    }
+
+    private class GoodInfoTestResultItem
+    {
+        public int LinkId { get; set; }
+        public string LinkName { get; set; } = "";
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+        public double Duration { get; set; }
     }
 }
