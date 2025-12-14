@@ -1,0 +1,248 @@
+@page "/uc-schedule-management"
+@using SST.StockImport.Core.DTOs
+@using System.Text.Json
+@inject HttpClient HttpClient
+@inject ILogger<ScheduleManagementComponent> Logger
+@rendermode InteractiveServer
+
+<h1>⏰ 日程管理 (UC-ScheduleManagement)</h1>
+<p class="text-muted">5個自動執行時段 + 手動重新執行 + 實時狀態追蹤</p>
+
+<div class="row mb-3">
+    <div class="col-md-12">
+        <button class="btn btn-primary" @onclick="AutoRefreshStatus" disabled="@isRefreshing">
+            @if (isRefreshing)
+            {
+                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                <span>更新中...</span>
+            }
+            else
+            {
+                <span>🔄 刷新狀態</span>
+            }
+        </button>
+    </div>
+</div>
+
+@if (scheduleStatus != null && scheduleStatus.Slots != null && scheduleStatus.Slots.Count > 0)
+{
+    <div class="card">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">📅 今日執行時段 (@scheduleStatus.ExecutionDate.ToString("yyyy-MM-dd"))</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>時間</th>
+                            <th>任務</th>
+                            <th>狀態</th>
+                            <th>結果</th>
+                            <th>耗時</th>
+                            <th>成功/失敗</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var slot in scheduleStatus.Slots)
+                        {
+                            <tr style="background-color: @GetRowColor(slot.Status);">
+                                <td class="fw-bold">@slot.Time</td>
+                                <td><code>@slot.TaskChain</code></td>
+                                <td><span class="badge @GetStatusBadgeClass(slot.Status)">@slot.Status</span></td>
+                                <td>@slot.ResultSummary</td>
+                                <td>@(slot.DurationSeconds?.ToString() ?? "-") 秒</td>
+                                <td>
+                                    @if (slot.SuccessCount.HasValue)
+                                    {
+                                        <span class="text-success">✅ @slot.SuccessCount</span>
+                                    }
+                                    @if (slot.FailCount.HasValue && slot.FailCount > 0)
+                                    {
+                                        <span class="text-danger">❌ @slot.FailCount</span>
+                                    }
+                                </td>
+                                <td>
+                                    @if (slot.Status == "NotStarted")
+                                    {
+                                        <button class="btn btn-sm btn-success" @onclick="@(async (e) => { await ExecuteSlot(slot.Time); })" disabled="@isExecuting">
+                                            ▶️ 執行
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-warning" @onclick="@(async (e) => { await ReExecuteSlot(slot.Time); })" disabled="@isExecuting">
+                                            🔄 重執
+                                        </button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="alert alert-info">載入中...</div>
+}
+
+@if (executionLogs.Count > 0)
+{
+    <div class="card mt-3">
+        <div class="card-header">
+            <h5 class="mb-0">📝 執行日誌</h5>
+        </div>
+        <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+            @foreach (var log in executionLogs.OrderByDescending(l => l.Item1).Take(20))
+            {
+                <div>
+                    <small class="text-muted">@log.Item1.ToString("HH:mm:ss")</small>
+                    <p>@log.Item2</p>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private ScheduleExecutionStatusDto? scheduleStatus;
+    private List<(DateTime, string)> executionLogs = new();
+    private bool isRefreshing = false;
+    private bool isExecuting = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await AutoRefreshStatus();
+    }
+
+    private async Task AutoRefreshStatus()
+    {
+        isRefreshing = true;
+        try
+        {
+            var response = await HttpClient.GetAsync("http://localhost:5008/api/schedule/management/status");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                scheduleStatus = JsonSerializer.Deserialize<ScheduleExecutionStatusDto>(json, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                AddLog("✅ 日程狀態已更新");
+            }
+            else
+            {
+                AddLog($"❌ 獲取失敗: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLog($"❌ 錯誤: {ex.Message}");
+            Logger.LogError(ex, "獲取日程狀態異常");
+        }
+        finally
+        {
+            isRefreshing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExecuteSlot(string time)
+    {
+        isExecuting = true;
+        AddLog($"▶️ 執行 {time}...");
+        
+        try
+        {
+            var response = await HttpClient.PostAsync($"http://localhost:5008/api/schedule/management/execute/{time}", null);
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ExecutionResultDto>(json, 
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            
+            if (result?.Success == true)
+            {
+                AddLog($"✅ {time} 執行成功");
+            }
+            else
+            {
+                AddLog($"⚠️ {time} {result?.Message}");
+            }
+            
+            await AutoRefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            AddLog($"❌ 異常: {ex.Message}");
+        }
+        finally
+        {
+            isExecuting = false;
+        }
+    }
+
+    private async Task ReExecuteSlot(string time)
+    {
+        isExecuting = true;
+        AddLog($"🔄 重執 {time}...");
+        
+        try
+        {
+            var request = new { ScheduleTime = time };
+            var json = JsonSerializer.Serialize(request);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+            
+            var response = await HttpClient.PostAsync($"http://localhost:5008/api/schedule/management/reexecute", content);
+            var resultJson = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ExecutionResultDto>(resultJson, 
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            
+            if (result?.Success == true)
+            {
+                AddLog($"✅ {time} 重執成功");
+            }
+            else
+            {
+                AddLog($"⚠️ {time} {result?.Message}");
+            }
+            
+            await AutoRefreshStatus();
+        }
+        catch (Exception ex)
+        {
+            AddLog($"❌ 異常: {ex.Message}");
+        }
+        finally
+        {
+            isExecuting = false;
+        }
+    }
+
+    private void AddLog(string message)
+    {
+        executionLogs.Insert(0, (DateTime.Now, message));
+        if (executionLogs.Count > 100)
+            executionLogs = executionLogs.Take(100).ToList();
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Success" => "bg-success",
+        "InProgress" => "bg-info",
+        "PartialSuccess" => "bg-warning",
+        "Failed" => "bg-danger",
+        "NotStarted" => "bg-secondary",
+        _ => "bg-light"
+    };
+
+    private string GetRowColor(string status) => status switch
+    {
+        "Success" => "#f0fff4",
+        "InProgress" => "#eff6ff",
+        "PartialSuccess" => "#fffbf0",
+        "Failed" => "#fff5f5",
+        "NotStarted" => "#f9fafb",
+        _ => "white"
+    };
+}

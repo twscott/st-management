@@ -49,6 +49,26 @@ public class StockImportDbContext : DbContext
     /// </summary>
     public DbSet<WeekAll> WeekAll { get; set; } = null!;
 
+    /// <summary>
+    /// 日程執行記錄表 (UC-ScheduleManagement)
+    /// </summary>
+    public DbSet<ScheduleExecution> ScheduleExecutions { get; set; } = null!;
+
+    /// <summary>
+    /// GoodInfo 失敗連結追踪表
+    /// </summary>
+    public DbSet<GoodInfoFailedLinkTracking> GoodInfoFailedLinkTrackings { get; set; } = null!;
+
+    /// <summary>
+    /// AI 訓練日誌表
+    /// </summary>
+    public DbSet<AITrainingLog> AITrainingLogs { get; set; } = null!;
+
+    /// <summary>
+    /// 日程執行日誌表（審計）
+    /// </summary>
+    public DbSet<ScheduleExecutionLog> ScheduleExecutionLogs { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

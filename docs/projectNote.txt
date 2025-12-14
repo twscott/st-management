@@ -49,8 +49,5 @@ cd D:\vibeCoding\sst
  Phase 4: Git 提交
 
 
- Set-Location d:\vibeCoding\sst\src\GoodInfoTestWeb; dotnet run --no-build
- 
- cd d:\vibeCoding\sst\tests\GoodInfo19LinksTest; Get-ChildItem run*.ps1; Start-Sleep -Seconds 1; powershell -NoProfile -ExecutionPolicy Bypass -File "run-19-tests.ps1"
 
 

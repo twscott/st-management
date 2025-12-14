@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using SST.StockImport.Core.Interfaces;
 using SST.StockImport.Core.DTOs;
+using SST.StockImport.Services;
 
 namespace SST.StockImport.API.Controllers;
 
@@ -12,96 +13,96 @@ namespace SST.StockImport.API.Controllers;
 public class ScheduleController : ControllerBase
 {
     private readonly ILogger<ScheduleController> _logger;
-    private readonly IScheduleService _scheduleService;
+    private readonly IScheduleExecutionService _executionService;
 
     public ScheduleController(
         ILogger<ScheduleController> logger,
-        IScheduleService scheduleService)
+        IScheduleExecutionService executionService)
     {
         _logger = logger;
-        _scheduleService = scheduleService;
+        _executionService = executionService;
     }
 
+    // =============== UC-ScheduleManagement 新增 API ===============
+
     /// <summary>
-    /// 取得所有排程狀態
+    /// 獲取當前日程狀態
     /// </summary>
-    [HttpGet("status")]
+    [HttpGet("management/status")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<ScheduleStatusDto>>> GetScheduleStatus()
+    public async Task<ActionResult<ScheduleExecutionStatusDto>> GetScheduleManagementStatus()
     {
         try
         {
-            var statuses = await _scheduleService.GetAllScheduleStatusAsync();
-            return Ok(statuses);
+            var status = await _executionService.GetScheduleStatusAsync();
+            return Ok(status);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "取得排程狀態失敗");
+            _logger.LogError(ex, "獲取日程狀態失敗");
             return StatusCode(500, new { Error = ex.Message });
         }
     }
 
     /// <summary>
-    /// 更新排程狀態
+    /// 執行指定時間段的任務
     /// </summary>
-    [HttpPost("update")]
+    [HttpPost("management/execute/{time}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult> UpdateScheduleStatus([FromBody] UpdateScheduleRequest request)
+    public async Task<ActionResult<ExecutionResultDto>> ExecuteSchedule(string time)
     {
         try
         {
-            var success = await _scheduleService.UpdateScheduleStatusAsync(request.ScheduleId, request.IsEnabled);
-            
-            if (success)
-            {
-                return Ok(new { Success = true });
-            }
-            else
-            {
-                return BadRequest(new { Success = false, Message = "無法更新排程狀態" });
-            }
+            var result = await _executionService.ExecuteScheduleAsync(time);
+            return Ok(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "更新排程狀態失敗，ScheduleId: {ScheduleId}", request.ScheduleId);
+            _logger.LogError(ex, "執行排程失敗，Time: {Time}", time);
             return StatusCode(500, new { Error = ex.Message });
         }
     }
 
     /// <summary>
-    /// 手動觸發排程執行
+    /// 重新執行已完成的任務
     /// </summary>
-    [HttpPost("trigger/{scheduleId}")]
+    [HttpPost("management/reexecute")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult> TriggerSchedule(int scheduleId)
+    public async Task<ActionResult<ExecutionResultDto>> ReExecuteSchedule([FromBody] ReExecuteScheduleRequest request)
     {
         try
         {
-            var result = await _scheduleService.TriggerScheduleAsync(scheduleId);
-            
-            if (result.Success)
-            {
-                return Ok(result);
-            }
-            else
-            {
-                return BadRequest(result);
-            }
+            var result = await _executionService.ReExecuteScheduleAsync(request.ScheduleTime);
+            return Ok(result);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "手動觸發排程失敗，ScheduleId: {ScheduleId}", scheduleId);
+            _logger.LogError(ex, "重新執行排程失敗，Time: {Time}", request.ScheduleTime);
+            return StatusCode(500, new { Error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 查詢執行日誌
+    /// </summary>
+    [HttpGet("management/logs")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult> GetExecutionLogs([FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate)
+    {
+        try
+        {
+            var from = fromDate ?? DateTime.Now.Date.AddDays(-7);
+            var to = toDate ?? DateTime.Now.Date.AddDays(1);
+
+            var logs = await _executionService.GetExecutionLogsAsync(from, to);
+            return Ok(logs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "查詢執行日誌失敗");
             return StatusCode(500, new { Error = ex.Message });
         }
     }
 }
-
-/// <summary>
-/// 更新排程請求
-/// </summary>
-public record UpdateScheduleRequest(
-    int ScheduleId,
-    bool IsEnabled
-);

@@ -44,6 +44,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRecommandStockRepository, RecommandStockRepository>();
         services.AddScoped<IInvestBaseRepository, InvestBaseRepository>();
 
+        // =============== UC-ScheduleManagement Repository 註冊 ===============
+        services.AddScoped<IScheduleRepository, ScheduleRepository>();
+
         return services;
     }
 }

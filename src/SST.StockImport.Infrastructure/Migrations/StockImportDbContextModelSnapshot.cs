@@ -235,7 +235,7 @@ namespace SST.StockImport.Infrastructure.Migrations
                     b.HasIndex("StockID", "Created")
                         .IsUnique();
 
-                    b.ToTable("alertlog");
+                    b.ToTable("alertlog", (string)null);
                 });
 
             modelBuilder.Entity("SST.StockImport.Core.Entities.BuyIn", b =>
@@ -445,7 +445,7 @@ namespace SST.StockImport.Infrastructure.Migrations
 
                     b.HasKey("BuyInId");
 
-                    b.ToTable("buyin");
+                    b.ToTable("buyin", (string)null);
                 });
 
             modelBuilder.Entity("SST.StockImport.Core.Entities.InvestBase", b =>
@@ -683,7 +683,7 @@ namespace SST.StockImport.Infrastructure.Migrations
 
                     b.HasKey("StockID");
 
-                    b.ToTable("investbase");
+                    b.ToTable("investbase", (string)null);
                 });
 
             modelBuilder.Entity("SST.StockImport.Core.Entities.RecommandStock", b =>
@@ -892,7 +892,7 @@ namespace SST.StockImport.Infrastructure.Migrations
 
                     b.HasKey("RecommandId");
 
-                    b.ToTable("recommandstock");
+                    b.ToTable("recommandstock", (string)null);
                 });
 
             modelBuilder.Entity("SST.StockImport.Core.Entities.Stock60Days", b =>
@@ -1156,7 +1156,7 @@ namespace SST.StockImport.Infrastructure.Migrations
 
                     b.HasKey("StockID", "StockDate");
 
-                    b.ToTable("stock60days");
+                    b.ToTable("stock60days", (string)null);
                 });
 
             modelBuilder.Entity("SST.StockImport.Core.Entities.TradeData", b =>
@@ -1809,7 +1809,7 @@ namespace SST.StockImport.Infrastructure.Migrations
 
                     b.HasKey("TradeId");
 
-                    b.ToTable("tradedata");
+                    b.ToTable("tradedata", (string)null);
                 });
 #pragma warning restore 612, 618
         }

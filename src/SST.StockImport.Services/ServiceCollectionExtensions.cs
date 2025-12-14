@@ -86,6 +86,34 @@ public static class ServiceCollectionExtensions
         // 註冊 GoodInfo 整合測試服務
         services.AddScoped<GoodInfoIntegrationTestService>();
 
+        // =============== UC-ScheduleManagement 服務註冊 ===============
+        
+        // 日程執行服務
+        services.AddScoped<IScheduleExecutionService, ScheduleExecutionService>();
+        
+        // GoodInfo 失敗鏈追蹤服務
+        services.AddScoped<IGoodInfoFailedLinkService, GoodInfoFailedLinkService>();
+        
+        // AI Training 服務
+        services.AddScoped<IAITrainingService, AITrainingService>();
+        
+        // 郵件服務（開發時使用 Mock，生產時使用 SMTP）
+        services.AddScoped<IEmailService>(provider =>
+        {
+            // 開發環境使用 Mock 郵件服務
+            return new MockEmailService();
+            
+            // 生產環境配置：
+            // var smtpConfig = configuration.GetSection("Email:Smtp");
+            // return new SmtpEmailService(
+            //     smtpConfig["Host"],
+            //     int.Parse(smtpConfig["Port"]),
+            //     smtpConfig["Username"],
+            //     smtpConfig["Password"],
+            //     smtpConfig["FromEmail"]
+            // );
+        });
+
         return services;
     }
 }
