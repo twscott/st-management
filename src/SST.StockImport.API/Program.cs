@@ -51,10 +51,14 @@ try
 
 // Add services to the container.
 // 註冊 Infrastructure 層（DbContext + Repositories）
+Log.Information("Adding Infrastructure Services...");
 builder.Services.AddInfrastructureServices(builder.Configuration);
+Log.Information("Infrastructure Services added successfully");
 
 // 註冊 Services 層（Business Logic）
+Log.Information("Adding Stock Import Services...");
 builder.Services.AddStockImportServices();
+Log.Information("Stock Import Services added successfully");
 
 // 註冊 Hangfire (暫時停用以解決啟動問題)
 /*
@@ -134,6 +138,25 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+
+Log.Information("Application built successfully");
+
+// 初始化數據庫表（如果需要）
+Log.Information("Initializing database tables...");
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
+    try
+    {
+        // 自動遷移應用待機的遷移
+        dbContext.Database.Migrate();
+        Log.Information("Database migration completed");
+    }
+    catch (Exception ex)
+    {
+        Log.Warning(ex, "Database migration failed or no pending migrations. This is expected in some scenarios.");
+    }
+}
 
 // Configure the HTTP request pipeline.
 // 啟用請求超時中間件
@@ -217,6 +240,7 @@ app.MapPost("/api/system/shutdown", async (IHostApplicationLifetime lifetime) =>
     return Results.Ok(new { message = "API is shutting down..." });
 });
 
+    Log.Information("All middleware and endpoints configured. Starting application...");
     app.Run();
     Log.Information("SST Stock Import API stopped cleanly");
 }

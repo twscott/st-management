@@ -115,15 +115,29 @@ public class ScheduleRepository : IScheduleRepository
 
     public async Task<List<ScheduleExecutionLog>> GetExecutionLogsAsync(DateTime fromDate, DateTime toDate)
     {
-        return await _context.ScheduleExecutionLogs
-            .Where(x => x.ExecutionDate >= fromDate && x.ExecutionDate <= toDate)
-            .OrderByDescending(x => x.OperationTime)
-            .ToListAsync();
+        try
+        {
+            return await _context.ScheduleExecutionLogs
+                .Where(x => x.ExecutionDate >= fromDate && x.ExecutionDate <= toDate)
+                .OrderByDescending(x => x.OperationTime)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("無法從數據庫查詢執行日誌", ex);
+        }
     }
 
     public async Task SaveExecutionLogAsync(ScheduleExecutionLog log)
     {
-        _context.ScheduleExecutionLogs.Add(log);
-        await _context.SaveChangesAsync();
+        try
+        {
+            _context.ScheduleExecutionLogs.Add(log);
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("無法保存執行日誌到數據庫", ex);
+        }
     }
 }

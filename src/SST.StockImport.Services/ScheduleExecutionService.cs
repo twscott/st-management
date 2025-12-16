@@ -160,7 +160,7 @@ public class ScheduleExecutionService : IScheduleExecutionService
             Operation = "Execute",
             OperationTime = DateTime.Now,
             Status = execution.Status,
-            Details = execution.ErrorMessage
+            Details = execution.ResultMessage ?? execution.ErrorMessage
         };
         
         try
@@ -176,7 +176,16 @@ public class ScheduleExecutionService : IScheduleExecutionService
 
     public async Task<List<ScheduleExecutionLog>> GetExecutionLogsAsync(DateTime fromDate, DateTime toDate)
     {
-        return await _repository.GetExecutionLogsAsync(fromDate, toDate);
+        try
+        {
+            return await _repository.GetExecutionLogsAsync(fromDate, toDate);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "無法從數據庫查詢執行日誌，返回空列表");
+            // 數據庫不可用時返回空列表，而不是拋出異常
+            return new List<ScheduleExecutionLog>();
+        }
     }
 
     private async Task<ExecutionResultDto> Execute1630Async(ScheduleExecution execution)

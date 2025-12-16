@@ -94,15 +94,58 @@ else
 {
     <div class="card mt-3">
         <div class="card-header">
-            <h5 class="mb-0">📝 執行日誌</h5>
+            <h5 class="mb-0">📝 實時操作日誌</h5>
         </div>
-        <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+        <div class="card-body" style="max-height: 300px; overflow-y: auto; background-color: #f8f9fa;">
             @foreach (var log in executionLogs.OrderByDescending(l => l.Item1).Take(20))
             {
-                <div>
+                <div style="border-left: 3px solid #007bff; padding-left: 10px; margin-bottom: 8px; padding-top: 5px;">
                     <small class="text-muted">@log.Item1.ToString("HH:mm:ss")</small>
-                    <p>@log.Item2</p>
+                    <p class="mb-0" style="word-break: break-word;">@log.Item2</p>
                 </div>
+            }
+        </div>
+    </div>
+}
+
+@if (databaseLogs.Count > 0)
+{
+    <div class="card mt-3">
+        <div class="card-header">
+            <h5 class="mb-0">📊 數據庫執行日誌 (@databaseLogs.Count 條)</h5>
+        </div>
+        <div class="card-body">
+            @if (databaseLogs.Count > 0)
+            {
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm table-striped">
+                        <thead class="table-light" style="position: sticky; top: 0;">
+                            <tr>
+                                <th>執行時間</th>
+                                <th>時段</th>
+                                <th>操作</th>
+                                <th>狀態</th>
+                                <th>詳細信息</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in databaseLogs.OrderByDescending(l => l.OperationTime).Take(50))
+                            {
+                                <tr>
+                                    <td><small>@log.OperationTime?.ToString("yyyy-MM-dd HH:mm:ss")</small></td>
+                                    <td><code>@(log.ScheduleSlot ?? "-")</code></td>
+                                    <td>@(log.Operation ?? "-")</td>
+                                    <td><span class="badge @GetLogStatusBadgeClass(log.Status)">@(log.Status ?? "-")</span></td>
+                                    <td><small>@(log.Details ?? "-")</small></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <p class="text-muted">暫無日誌記錄</p>
             }
         </div>
     </div>
@@ -111,12 +154,47 @@ else
 @code {
     private ScheduleExecutionStatusDto? scheduleStatus;
     private List<(DateTime, string)> executionLogs = new();
+    private List<ScheduleExecutionLogDto> databaseLogs = new();
     private bool isRefreshing = false;
     private bool isExecuting = false;
+    private System.Timers.Timer? autoRefreshTimer;
 
     protected override async Task OnInitializedAsync()
     {
         await AutoRefreshStatus();
+        await LoadDatabaseLogs();
+        
+        // 設置自動刷新 (每 30 秒)
+        autoRefreshTimer = new System.Timers.Timer(30000);
+        autoRefreshTimer.Elapsed += async (s, e) => {
+            await AutoRefreshStatus();
+            await LoadDatabaseLogs();
+        };
+        autoRefreshTimer.Start();
+    }
+
+    private async Task LoadDatabaseLogs()
+    {
+        try
+        {
+            var response = await HttpClient.GetAsync("http://localhost:5008/api/schedule/management/logs");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var logs = JsonSerializer.Deserialize<List<ScheduleExecutionLogDto>>(json, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                
+                if (logs != null)
+                {
+                    databaseLogs = logs;
+                    StateHasChanged();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "加載數據庫日誌異常");
+        }
     }
 
     private async Task AutoRefreshStatus()
@@ -163,7 +241,7 @@ else
             
             if (result?.Success == true)
             {
-                AddLog($"✅ {time} 執行成功");
+                AddLog($"✅ {time} 執行成功 (成功: {result.SuccessCount}, 失敗: {result.FailCount})");
             }
             else
             {
@@ -171,6 +249,7 @@ else
             }
             
             await AutoRefreshStatus();
+            await LoadDatabaseLogs();
         }
         catch (Exception ex)
         {
@@ -200,7 +279,7 @@ else
             
             if (result?.Success == true)
             {
-                AddLog($"✅ {time} 重執成功");
+                AddLog($"✅ {time} 重執成功 (成功: {result.SuccessCount}, 失敗: {result.FailCount})");
             }
             else
             {
@@ -208,6 +287,7 @@ else
             }
             
             await AutoRefreshStatus();
+            await LoadDatabaseLogs();
         }
         catch (Exception ex)
         {
@@ -234,6 +314,15 @@ else
         "Failed" => "bg-danger",
         "NotStarted" => "bg-secondary",
         _ => "bg-light"
+    };
+
+    private string GetLogStatusBadgeClass(string? status) => status?.ToLower() switch
+    {
+        "success" => "bg-success",
+        "inprogress" => "bg-info",
+        "partialsuccess" => "bg-warning",
+        "failed" => "bg-danger",
+        _ => "bg-secondary"
     };
 
     private string GetRowColor(string status) => status switch
