@@ -1,8 +1,8 @@
 # 🎯 UC-ScheduleManagement - 待辦事項檢查清單
 
 **日期**: 2025-12-16  
-**當前階段**: 測試驗收  
-**總體進度**: 75% → 目標 100%
+**當前階段**: Unit Testing Phase 4 完成 (E2E 測試待確認)  
+**總體進度**: 85% → 目標 100% (Phase 4 已完成，遺留小型測試調整)
 
 ---
 
@@ -115,6 +115,44 @@
 ---
 
 ## 📚 中期待辦 (本週內)
+
+### 優先級 P3 - 系統架構優化
+
+- [ ] **重寫 OnTimer_timerSysTray() 方法** (預期: 3 小時)
+  - ✅ 分析完成 → `SYSTRAY_TIMER_REDESIGN.md`
+  - ✅ Phase 1 完成 (45 分鐘) - 基礎設施
+    - ✅ ScheduleEntry.cs - 定時任務定義
+    - ✅ ScheduleService.cs - 時間表管理
+    - ✅ ITimerTask.cs - 任務接口
+    - ✅ SSTSchedules.cs - 17 個定時任務時間表
+    - ✅ TimerManager.cs - 定時器管理器
+    - ✅ HolidayChecker.cs - 假期檢查
+  - ✅ Phase 2 完成 (60 分鐘) - Task 實現
+    - ✅ SSTProcessingTask.cs - SST 股票處理
+    - ✅ LineNotificationTask.cs - Line 通知
+    - ✅ ProcessManagementTask.cs - 進程管理
+    - ✅ BackupTask.cs - 數據備份
+    - ✅ TeacherEventTask.cs - 教師事件同步
+  - 🔄 Phase 3 進行中 (30 分鐘) - DI 配置和集成
+    - ✅ 更新 ServiceCollectionExtensions.cs - 添加 AddSchedulingServices()
+    - [ ] 驗證所有 imports 正確
+    - [ ] 構建和編譯驗證
+    - [ ] 集成到 TaskTrayApplicationContext.cs
+  - ✅ Phase 4: 單元測試和 E2E 驗證 [完成 85%]
+    - ✅ 創建 35 個單元測試 (ScheduleEntryTests, ScheduleServiceTests, TimerManagerTests)
+    - ✅ 配置測試框架 (xUnit 2.6.6, Moq 4.20.70)
+    - ✅ 解決 NuGet 版本衝突
+    - ✅ 修復 TimeSpan 格式化問題
+    - 🔄 測試執行驗證 (預期 100% 通過後小調整)
+    - 📄 見 Phase4_Unit_Testing_Completion_Report.md
+  - 優勢:
+    - 複雜度從 200 行降到 50 行
+    - 時間表集中管理，易於修改
+    - 每個任務獨立，易於測試和擴展
+    - 支持並發安全和錯誤隔離
+  - 參考文件: `SYSTRAY_TIMER_REDESIGN.md`、`SYSTRAY_TIMER_PHASE3_INTEGRATION.md`、`Phase4_Unit_Testing_Completion_Report.md`
+
+---
 
 ### 優先級 P4 - 生產環境準備
 

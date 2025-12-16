@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SST.StockImport.Core.Interfaces;
+using SST.StockImport.Core.Scheduling;
+using SST.StockImport.Core.Scheduling.Tasks;
 using SST.StockImport.Infrastructure.Data;
 using SST.StockImport.Infrastructure.Repositories;
 
@@ -47,6 +49,32 @@ public static class ServiceCollectionExtensions
         // =============== UC-ScheduleManagement Repository 註冊 ===============
         services.AddScoped<IScheduleRepository, ScheduleRepository>();
 
+        // =============== OnTimer_timerSysTray 重寫 - 定時調度服務 ===============
+        services.AddSchedulingServices();
+
+        return services;
+    }
+
+    /// <summary>
+    /// 註冊定時調度相關服務
+    /// 用於替換原來的 OnTimer_timerSysTray() 方法
+    /// </summary>
+    public static IServiceCollection AddSchedulingServices(this IServiceCollection services)
+    {
+        // 核心服務
+        services.AddSingleton<ScheduleService>();
+        services.AddSingleton<TimerManager>();
+        
+        // 假期檢查
+        services.AddScoped<IHolidayChecker, HolidayChecker>();
+        
+        // 所有 Timer Tasks (每個任務都註冊為 ITimerTask)
+        services.AddScoped<ITimerTask, SSTProcessingTask>();
+        services.AddScoped<ITimerTask, LineNotificationTask>();
+        services.AddScoped<ITimerTask, ProcessManagementTask>();
+        services.AddScoped<ITimerTask, BackupTask>();
+        services.AddScoped<ITimerTask, TeacherEventTask>();
+        
         return services;
     }
 }
