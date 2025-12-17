@@ -16,17 +16,20 @@ namespace SST.StockImport.Core.Scheduling
         private readonly Dictionary<string, ITimerTask> _tasks;
         private readonly ILogger<TimerManager> _logger;
         private readonly IHolidayChecker _holidayChecker;
+        private readonly TimerExecutionLogService _logService;
         
         public TimerManager(
             ScheduleService scheduleService,
             IEnumerable<ITimerTask> tasks,
             ILogger<TimerManager> logger,
-            IHolidayChecker holidayChecker)
+            IHolidayChecker holidayChecker,
+            TimerExecutionLogService logService)
         {
             _scheduleService = scheduleService ?? throw new ArgumentNullException(nameof(scheduleService));
             _tasks = tasks?.ToDictionary(t => t.Name) ?? new Dictionary<string, ITimerTask>();
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _holidayChecker = holidayChecker ?? throw new ArgumentNullException(nameof(holidayChecker));
+            _logService = logService ?? throw new ArgumentNullException(nameof(logService));
         }
         
         /// <summary>
@@ -75,6 +78,61 @@ namespace SST.StockImport.Core.Scheduling
                 await SendEmailAlertAsync(ex);
             }
         }
+
+        /// <summary>
+        /// 手動觸發任務執行
+        /// </summary>
+        public async Task<bool> ExecuteTaskManuallyAsync(string taskName)
+        {
+            if (string.IsNullOrEmpty(taskName) || !_tasks.ContainsKey(taskName))
+            {
+                _logger.LogWarning($"Task not found: {taskName}");
+                return false;
+            }
+
+            var now = DateTime.Now;
+            var isTradeDay = await IsTradeDay(now);
+
+            try
+            {
+                _logger.LogInformation($"Manual trigger for task: {taskName}");
+                _logService.LogTaskStart(taskName);
+
+                var context = new TimerExecutionContext
+                {
+                    ExecutionTime = now,
+                    IsTradeDay = isTradeDay
+                };
+
+                var task = _tasks[taskName];
+                var startTime = DateTime.Now;
+
+                try
+                {
+                    if (task is ITimerTask timerTask)
+                    {
+                        await timerTask.ExecuteAsync(context);
+                    }
+
+                    var duration = DateTime.Now - startTime;
+                    _logService.LogTaskSuccess(taskName, $"手動觸發執行，耗時: {duration.TotalSeconds:F2} 秒");
+                    _logger.LogInformation($"Task {taskName} completed successfully");
+                    
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _logService.LogTaskFailure(taskName, ex.Message, ex);
+                    _logger.LogError($"Task {taskName} failed: {ex}");
+                    throw;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Manual trigger failed for {taskName}: {ex}");
+                return false;
+            }
+        }
         
         /// <summary>
         /// 執行任務並處理錯誤
@@ -83,9 +141,13 @@ namespace SST.StockImport.Core.Scheduling
             ScheduleEntry schedule, 
             TimerExecutionContext context)
         {
+            var startTime = DateTime.Now;
+            var taskName = schedule.Name;
+            
             try
             {
-                _logger.LogInformation($"Starting task: {schedule.Name}");
+                _logger.LogInformation($"Starting task: {taskName}");
+                _logService.LogTaskStart(taskName);
                 
                 // 執行 Action 委托
                 if (schedule.Action != null)
@@ -93,13 +155,16 @@ namespace SST.StockImport.Core.Scheduling
                     await schedule.Action();
                 }
                 
-                _logger.LogInformation($"Task completed: {schedule.Name}");
+                var duration = DateTime.Now - startTime;
+                _logger.LogInformation($"Task completed: {taskName}");
+                _logService.LogTaskSuccess(taskName, $"定時執行完成，耗時: {duration.TotalSeconds:F2} 秒");
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Task {schedule.Name} failed: {ex}");
+                _logger.LogError($"Task {taskName} failed: {ex}");
+                _logService.LogTaskFailure(taskName, ex.Message, ex);
                 // 記錄錯誤但不中斷其他任務
-                await NotifyTaskFailureAsync(schedule.Name, ex);
+                await NotifyTaskFailureAsync(taskName, ex);
             }
         }
         

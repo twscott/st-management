@@ -63,7 +63,11 @@ public static class ServiceCollectionExtensions
     {
         // 核心服務
         services.AddSingleton<ScheduleService>();
-        services.AddSingleton<TimerManager>();
+        // TimerManager 改為 Transient，因為它依賴 Scoped 的 ITimerTask
+        services.AddTransient<TimerManager>();
+        
+        // 執行日誌服務（用於記錄和查詢日誌）
+        services.AddSingleton<TimerExecutionLogService>();
         
         // 假期檢查
         services.AddScoped<IHolidayChecker, HolidayChecker>();

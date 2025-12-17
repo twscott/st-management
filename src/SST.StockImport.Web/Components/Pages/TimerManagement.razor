@@ -1,0 +1,481 @@
+﻿@page "/timer-management"
+@rendermode InteractiveServer
+@using SST.StockImport.Core.Scheduling
+@using System.Collections.Generic
+@using System.Linq
+@using System.Text.Json
+@inject HttpClient Http
+@inject ILogger<TimerManagement> Logger
+@inject IJSRuntime JS
+
+<PageTitle>定时任务管理 - OnTimer_timerSysTray</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">
+        <i class="bi bi-clock-history"></i> 定时任务管理 - OnTimer_timerSysTray
+    </h1>
+
+    <!-- 统计信息卡片 -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <h5 class="card-title">总执行次数</h5>
+                    <p class="card-text fs-4">@(Statistics?.Total ?? 0)</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h5 class="card-title">成功</h5>
+                    <p class="card-text fs-4">@(Statistics?.Success ?? 0)</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-danger text-white">
+                <div class="card-body">
+                    <h5 class="card-title">失败</h5>
+                    <p class="card-text fs-4">@(Statistics?.Failed ?? 0)</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-dark">
+                <div class="card-body">
+                    <h5 class="card-title">跳过</h5>
+                    <p class="card-text fs-4">@(Statistics?.Skipped ?? 0)</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 操作按钮区 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <button class="btn btn-primary" @onclick="RefreshLogs" disabled="@IsLoading">
+                <i class="bi bi-arrow-clockwise"></i> 刷新日志
+            </button>
+            <button class="btn btn-info ms-2" @onclick="InitializeTestData" disabled="@IsLoading">
+                <i class="bi bi-plus-circle"></i> 加载测试数据
+            </button>
+            <button class="btn btn-danger ms-2" @onclick="ClearLogs" disabled="@IsLoading">
+                <i class="bi bi-trash"></i> 清空日志
+            </button>
+            <button class="btn btn-success ms-2" @onclick="ShowTriggerModal">
+                <i class="bi bi-play-circle"></i> 手动触发
+            </button>
+        </div>
+    </div>
+
+    <!-- 执行日志表格 -->
+    <div class="card">
+        <div class="card-header bg-dark text-white">
+            <h5 class="mb-0">执行日志（从近到远）</h5>
+        </div>
+        <div class="card-body">
+            @if (IsLoading)
+            {
+                <div class="text-center">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            }
+            else if (Logs == null || !Logs.Any())
+            {
+                <p class="text-muted text-center">暂无执行日志 - 点击"加载测试数据"查看示例</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>任务名称</th>
+                                <th>执行时间</th>
+                                <th>耗时(ms)</th>
+                                <th>状态</th>
+                                <th>结果描述</th>
+                                <th>错误信息</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in Logs)
+                            {
+                                <tr class="@GetRowClass(log.Status)">
+                                    <td>
+                                        <span class="badge bg-primary">@log.TaskName</span>
+                                    </td>
+                                    <td>
+                                        <small>@log.StartTime.ToString("yyyy-MM-dd HH:mm:ss")</small>
+                                    </td>
+                                    <td>
+                                        @if (log.DurationMs.HasValue)
+                                        {
+                                            <span class="badge bg-info">@log.DurationMs</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="@GetStatusBadgeClass(log.Status)">
+                                            @GetStatusText(log.Status)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(log.ResultDescription))
+                                        {
+                                            <span>@log.ResultDescription</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(log.ErrorMessage))
+                                        {
+                                            <span class="text-danger">@log.ErrorMessage</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- 手动触发模态框 -->
+    @if (ShowModal)
+    {
+        <div class="modal show d-block" role="dialog" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">手动触发任务</h5>
+                        <button type="button" class="btn-close" @onclick="() => { ShowModal = false; StateHasChanged(); }"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label">选择要执行的任务：</label>
+                        <select class="form-select" @bind="SelectedTaskName">
+                            <option value="">-- 请选择 --</option>
+                            <option value="SST-Processing">SST 股票处理</option>
+                            <option value="Line-Notification">Line 通知</option>
+                            <option value="Process-Management">进程管理</option>
+                            <option value="Backup">数据备份</option>
+                            <option value="TeacherEvent-Sync">教师事件同步</option>
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="() => { ShowModal = false; StateHasChanged(); }">
+                            取消
+                        </button>
+                        <button type="button" class="btn btn-primary" @onclick="ExecuteTask" 
+                                disabled="@(string.IsNullOrEmpty(SelectedTaskName) || IsLoading)">
+                            执行
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private List<LogEntry> Logs = new();
+    private StatsData? Statistics = new StatsData();
+    private bool IsLoading = false;
+    private bool ShowModal = false;
+    private string SelectedTaskName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            Logger.LogInformation("頁面初始化開始");
+            await RefreshLogs();
+            Logger.LogInformation("頁面初始化完成");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"頁面初始化失敗: {ex.Message}\n{ex.StackTrace}");
+        }
+    }
+
+    private async Task RefreshLogs()
+    {
+        try
+        {
+            IsLoading = true;
+            StateHasChanged();
+            Logger.LogInformation("開始刷新日誌");
+            
+            if (Http == null)
+            {
+                Logger.LogError("HttpClient 未初始化");
+                return;
+            }
+            
+            var response = await Http.GetAsync("api/timermanagement/logs");
+            Logger.LogInformation($"API 響應狀態碼: {response.StatusCode}");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                Logger.LogInformation($"API 響應內容長度: {content.Length} bytes");
+                
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    Logger.LogWarning("API 返回空內容");
+                    return;
+                }
+                
+                using var doc = JsonDocument.Parse(content);
+                var root = doc.RootElement;
+                
+                // 提取统计数据
+                if (root.TryGetProperty("statistics", out var statsElement))
+                {
+                    Statistics = new StatsData
+                    {
+                        Total = statsElement.GetProperty("total").GetInt32(),
+                        Success = statsElement.GetProperty("success").GetInt32(),
+                        Failed = statsElement.GetProperty("failed").GetInt32(),
+                        Skipped = statsElement.GetProperty("skipped").GetInt32()
+                    };
+                    Logger.LogInformation($"統計: 總={Statistics.Total}, 成功={Statistics.Success}, 失敗={Statistics.Failed}, 跳過={Statistics.Skipped}");
+                }
+                
+                // 提取日志数据
+                Logs = new List<LogEntry>();
+                if (root.TryGetProperty("data", out var dataElement))
+                {
+                    foreach (var logElement in dataElement.EnumerateArray())
+                    {
+                        var log = new LogEntry
+                        {
+                            Id = logElement.GetProperty("id").GetInt32(),
+                            TaskName = logElement.GetProperty("taskName").GetString() ?? "",
+                            StartTime = logElement.GetProperty("startTime").GetDateTime(),
+                            DurationMs = logElement.TryGetProperty("durationMs", out var dur) && dur.ValueKind != JsonValueKind.Null 
+                                ? dur.GetInt32() 
+                                : null,
+                            Status = logElement.GetProperty("status").GetInt32(),
+                            ResultDescription = logElement.TryGetProperty("resultDescription", out var desc) && desc.ValueKind != JsonValueKind.Null
+                                ? desc.GetString()
+                                : "",
+                            ErrorMessage = logElement.TryGetProperty("errorMessage", out var err) && err.ValueKind != JsonValueKind.Null
+                                ? err.GetString()
+                                : "",
+                        };
+                        Logs.Add(log);
+                    }
+                }
+                
+                Logger.LogInformation($"刷新日誌成功，共 {Logs.Count} 條記錄");
+                StateHasChanged();
+            }
+            else
+            {
+                Logger.LogError($"API 返回錯誤: {response.StatusCode}");
+            }
+        }
+        catch (HttpRequestException hexEx)
+        {
+            Logger.LogError($"HTTP 請求異常: {hexEx.Message}\n{hexEx.StackTrace}");
+        }
+        catch (JsonException jexEx)
+        {
+            Logger.LogError($"JSON 解析異常: {jexEx.Message}\n{jexEx.StackTrace}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"刷新日誌異常: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task InitializeTestData()
+    {
+        try
+        {
+            IsLoading = true;
+            StateHasChanged();
+            Logger.LogInformation("開始加載測試數據");
+            
+            var response = await Http.PostAsync("api/timermanagement/test-data", null);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                Logger.LogInformation("測試數據已加載");
+                await RefreshLogs();
+                StateHasChanged();
+            }
+            else
+            {
+                Logger.LogError($"加載測試數據失敗: HTTP {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"加載測試數據失敗: {ex.Message}\n{ex.StackTrace}");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearLogs()
+    {
+        Logger.LogInformation("清空日誌操作開始");
+        if (await ConfirmAsync("確定要清空所有日誌嗎？"))
+        {
+            try
+            {
+                IsLoading = true;
+                StateHasChanged();
+                Logger.LogInformation("清空日誌確認");
+                
+                var response = await Http.DeleteAsync("api/timermanagement/logs");
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    Logs.Clear();
+                    Statistics = new StatsData();
+                    Logger.LogInformation("日誌已清空");
+                    StateHasChanged();
+                }
+                else
+                {
+                    Logger.LogError($"清空日誌失敗: HTTP {response.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"清空日誌失敗: {ex.Message}\n{ex.StackTrace}");
+            }
+            finally
+            {
+                IsLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void ShowTriggerModal()
+    {
+        Logger.LogInformation("打開手動觸發模態框");
+        ShowModal = true;
+        StateHasChanged();
+    }
+
+    private async Task ExecuteTask()
+    {
+        if (string.IsNullOrEmpty(SelectedTaskName))
+        {
+            Logger.LogWarning("沒有選擇任務");
+            return;
+        }
+
+        try
+        {
+            IsLoading = true;
+            StateHasChanged();
+            Logger.LogInformation($"手動觸發任務: {SelectedTaskName}");
+            
+            var response = await Http.PostAsync($"api/timermanagement/trigger/{SelectedTaskName}", null);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                ShowModal = false;
+                var taskName = SelectedTaskName;
+                SelectedTaskName = "";
+                await RefreshLogs();
+                Logger.LogInformation($"任務 {taskName} 已手動觸發");
+                StateHasChanged();
+            }
+            else
+            {
+                Logger.LogError($"手動觸發失敗: HTTP {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError($"執行任務失敗: {ex.Message}\n{ex.StackTrace}");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetStatusBadgeClass(int status) => status switch
+    {
+        0 => "badge bg-success",
+        1 => "badge bg-danger",
+        2 => "badge bg-warning text-dark",
+        3 => "badge bg-secondary",
+        4 => "badge bg-info",
+        _ => "badge bg-secondary"
+    };
+
+    private string GetStatusText(int status) => status switch
+    {
+        0 => "成功",
+        1 => "失败",
+        2 => "超时",
+        3 => "跳过",
+        4 => "运行中",
+        _ => "未知"
+    };
+
+    private string GetRowClass(int status) => status switch
+    {
+        0 => "table-success",
+        1 => "table-danger",
+        2 => "table-warning",
+        3 => "table-light",
+        _ => ""
+    };
+
+    private async Task<bool> ConfirmAsync(string message)
+    {
+        return await JS.InvokeAsync<bool>("confirm", message);
+    }
+
+    public class StatsData
+    {
+        public int Total { get; set; }
+        public int Success { get; set; }
+        public int Failed { get; set; }
+        public int Skipped { get; set; }
+    }
+
+    public class LogEntry
+    {
+        public int Id { get; set; }
+        public string TaskName { get; set; } = "";
+        public DateTime StartTime { get; set; }
+        public int? DurationMs { get; set; }
+        public int Status { get; set; }
+        public string ResultDescription { get; set; } = "";
+        public string ErrorMessage { get; set; } = "";
+    }
+}

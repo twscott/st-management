@@ -17,8 +17,9 @@
 標準 Port ： 5008
 標準脚本 :
 全部:
-cd D:\vibeCoding\sst
-.\start-all.ps1
+Get-Process dotnet | Stop-Process -Force
+Start-Sleep 2
+.\start-all-apps.ps1
  
 單獨 server： 
 cd D:\vibeCoding\sst
@@ -35,7 +36,7 @@ cd D:\vibeCoding\sst
 ## 开工:
 1. 讀取 [copilot-instructions.md](http://copilot-instructions.md/)
 2. 專案注意事項: Docs/projectNote.txt
-2. 從 git 讀取交接文件, 確認待辦事項
+3. 從 git 讀取交接文件, 確認待辦事項
 
 
 ## 收工 Checklist

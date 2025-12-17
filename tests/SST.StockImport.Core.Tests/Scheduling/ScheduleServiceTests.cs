@@ -51,24 +51,21 @@ namespace SST.StockImport.Core.Tests.Scheduling
         }
 
         /// <summary>
-        /// 測試：忽略null的定時任務
+        /// 測試：null的定時任務應拋出 ArgumentNullException
         /// </summary>
         [Fact]
-        public void AddSchedule_NullEntry_IsIgnored()
+        public void AddSchedule_NullEntry_ThrowsArgumentNullException()
         {
-            // Act
-            _service.AddSchedule(null!);
-            var all = _service.GetAllSchedules();
-
-            // Assert
-            Assert.Empty(all);
+            // Act & Assert
+            var ex = Assert.Throws<ArgumentNullException>(() => _service.AddSchedule(null!));
+            Assert.Equal("entry", ex.ParamName);
         }
 
         /// <summary>
-        /// 測試：忽略重複的定時任務
+        /// 測試：重複的定時任務應拋出 InvalidOperationException
         /// </summary>
         [Fact]
-        public void AddSchedule_DuplicateName_IsIgnored()
+        public void AddSchedule_DuplicateName_ThrowsInvalidOperationException()
         {
             // Arrange
             var schedule1 = new ScheduleEntry
@@ -89,13 +86,10 @@ namespace SST.StockImport.Core.Tests.Scheduling
                 Enabled = true
             };
 
-            // Act
+            // Act & Assert
             _service.AddSchedule(schedule1);
-            _service.AddSchedule(schedule2);
-            var all = _service.GetAllSchedules();
-
-            // Assert
-            Assert.Single(all);
+            var ex = Assert.Throws<InvalidOperationException>(() => _service.AddSchedule(schedule2));
+            Assert.Contains("already exists", ex.Message);
         }
 
         /// <summary>

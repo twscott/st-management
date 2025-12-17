@@ -8,29 +8,30 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Configure SignalR for long-running operations (All4 補充處理需要 2-3 分鐘)
-builder.Services.AddServerSideBlazor()
-    .AddCircuitOptions(options =>
-    {
-        options.DisconnectedCircuitMaxRetained = 100;
-        options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(10);
-    })
-    .AddHubOptions(options =>
-    {
-        options.ClientTimeoutInterval = TimeSpan.FromMinutes(5);  // 客戶端 5 分鐘無回應才超時
-        options.HandshakeTimeout = TimeSpan.FromMinutes(5);       // 握手 5 分鐘超時
-        options.KeepAliveInterval = TimeSpan.FromSeconds(30);     // 每 30 秒發送心跳
-    });
+// Configure SignalR for long-running operations
+builder.Services.AddSignalR(options =>
+{
+    options.ClientTimeoutInterval = TimeSpan.FromMinutes(5);
+    options.HandshakeTimeout = TimeSpan.FromMinutes(5);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+});
 
 // Add HttpClientFactory for test pages
 builder.Services.AddHttpClient();
 
 // Configure HttpClient for API calls
+var apiBaseUrl = builder.Configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5008";
+
 builder.Services.AddHttpClient<ImportApiService>(client =>
 {
-    var apiBaseUrl = builder.Configuration["ApiSettings:BaseUrl"] ?? "http://localhost:5008";
     client.BaseAddress = new Uri(apiBaseUrl);
     client.Timeout = TimeSpan.FromHours(2); // 2 hours timeout for long-running import operations
+});
+
+// Configure HttpClient with proper BaseAddress for API requests
+builder.Services.AddScoped(sp => new HttpClient
+{
+    BaseAddress = new Uri(apiBaseUrl)
 });
 
 // Register ImportApiService interface
