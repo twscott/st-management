@@ -30,11 +30,14 @@ namespace SST.StockImport.Core.Tests.Scheduling
             
             _mockTasks = new List<MockTimerTask>();
             
+            var mockLogService = new Mock<TimerExecutionLogService>();
+            
             _manager = new TimerManager(
                 _scheduleService,
                 _mockTasks,
                 _mockLogger.Object,
-                _mockHolidayChecker.Object
+                _mockHolidayChecker.Object,
+                mockLogService.Object
             );
         }
 

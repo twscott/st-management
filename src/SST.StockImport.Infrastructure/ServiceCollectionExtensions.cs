@@ -52,6 +52,12 @@ public static class ServiceCollectionExtensions
         // =============== OnTimer_timerSysTray 重寫 - 定時調度服務 ===============
         services.AddSchedulingServices();
 
+        // =============== 时光机分析服务 ===============
+        services.AddScoped<ITimeMachineAnalysisService, Services.TimeMachineAnalysisService>();
+
+        // =============== 智能推荐服务 ===============
+        services.AddScoped<ISmartRecommendationService, Services.SmartRecommendationService>();
+
         return services;
     }
 
