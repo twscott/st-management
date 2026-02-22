@@ -1,12 +1,4 @@
 #!/usr/bin/env pwsh
-<#
-.SYNOPSIS
-    啟動 SST 股票匯入 API
-.DESCRIPTION
-    自動停止舊的 API 程序，然後啟動新的 API 服務
-.EXAMPLE
-    .\start-api.ps1
-#>
 
 param(
     [switch]$NoBuild,
@@ -16,68 +8,126 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-Write-Host "`n🛑 停止舊的 API 程序 (Port 5008)..." -ForegroundColor Yellow
+Write-Host "[STOPPING] Old processes..." -ForegroundColor Yellow
 
-# 停止所有背景任務
 Get-Job | Stop-Job -ErrorAction SilentlyContinue
 Get-Job | Remove-Job -ErrorAction SilentlyContinue
 
-# 停止占用 5008 端口的所有進程
-for ($i = 1; $i -le 3; $i++) {
-    $connections = Get-NetTCPConnection -LocalPort 5008 -ErrorAction SilentlyContinue
-    if ($connections) {
-        Write-Host "  [嘗試 $i/3] 發現 Port 5008 被占用，正在清理..." -ForegroundColor Yellow
+function Force-KillPortProcess {
+    param([int]$Port)
+    
+    Write-Host "  Checking port $Port..." -ForegroundColor Gray
+    
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
             $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
             if ($proc) {
-                Write-Host "    -> Killing: $($proc.ProcessName) (PID $($proc.Id))" -ForegroundColor Gray
+                Write-Host "  [KILL] $($proc.ProcessName) (PID $($proc.Id))" -ForegroundColor Yellow
                 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             }
         }
-        Start-Sleep -Seconds 2
+    } catch {}
+
+    try {
+        $netstatOutput = netstat -ano 2>$null | Select-String ":$Port\s" -ErrorAction SilentlyContinue
+        if ($netstatOutput) {
+            foreach ($line in $netstatOutput) {
+                $parts = $line -split '\s+'
+                $pid = $parts[-1]
+                if ($pid -match '^\d+$') {
+                    taskkill /F /PID $pid 2>$null | Out-Null
+                }
+            }
+        }
+    } catch {}
+
+    Start-Sleep -Milliseconds 500
+}
+
+function Force-KillDotNet {
+    Write-Host "  Force killing all dotnet processes..." -ForegroundColor Yellow
+    
+    Get-Process -Name "dotnet" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "  [KILL] dotnet (PID $($_.Id))" -ForegroundColor Yellow
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+    
+    Get-Process -Name "SST.StockImport.API" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "  [KILL] SST.StockImport.API (PID $($_.Id))" -ForegroundColor Yellow
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+    
+    Get-Process -Name "SST.StockImport.Web" -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Host "  [KILL] SST.StockImport.Web (PID $($_.Id))" -ForegroundColor Yellow
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
+    
+    # Use ErrorAction to suppress taskkill errors (processes may already be terminated)
+    try {
+        taskkill /F /IM "dotnet.exe" 2>&1 | Out-Null
+    } catch {}
+    try {
+        taskkill /F /IM "SST.StockImport.API.exe" 2>&1 | Out-Null
+    } catch {}
+    try {
+        taskkill /F /IM "SST.StockImport.Web.exe" 2>&1 | Out-Null
+    } catch {}
+    
+    Start-Sleep -Seconds 2
+}
+
+Write-Host "[CLEANUP] Port 5008..." -ForegroundColor Cyan
+for ($i = 1; $i -le 5; $i++) {
+    $connections = Get-NetTCPConnection -LocalPort 5008 -ErrorAction SilentlyContinue
+    if ($connections) {
+        Write-Host "  [Attempt $i/5] Port 5008 in use, force cleaning..." -ForegroundColor Red
+        Force-KillPortProcess -Port 5008
+        Force-KillDotNet
+        Start-Sleep -Seconds 1
     } else {
-        Write-Host "  ✅ Port 5008 已釋放" -ForegroundColor Green
+        Write-Host "  [OK] Port 5008 released" -ForegroundColor Green
         break
     }
 }
 
-# 最後檢查
-$finalCheck = Get-NetTCPConnection -LocalPort 5008 -ErrorAction SilentlyContinue
-if ($finalCheck) {
-    Write-Host "  ⚠️  警告: Port 5008 仍被占用，強制繼續..." -ForegroundColor Red
+Write-Host "[CLEANUP] Port 5089..." -ForegroundColor Cyan
+for ($i = 1; $i -le 3; $i++) {
+    $connections = Get-NetTCPConnection -LocalPort 5089 -ErrorAction SilentlyContinue
+    if ($connections) {
+        Write-Host "  [Attempt $i/3] Port 5089 in use, force cleaning..." -ForegroundColor Red
+        Force-KillPortProcess -Port 5089
+        Force-KillDotNet
+        Start-Sleep -Seconds 1
+    } else {
+        Write-Host "  [OK] Port 5089 released" -ForegroundColor Green
+        break
+    }
 }
 
 Start-Sleep -Seconds 1
 
 if (-not $NoBuild) {
-    Write-Host "`n🔨 編譯專案..." -ForegroundColor Cyan
+    Write-Host "[BUILD] Compiling project..." -ForegroundColor Cyan
     dotnet build SST.StockImport.sln --configuration Debug
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "❌ 編譯失敗" -ForegroundColor Red
+        Write-Host "[ERROR] Build failed" -ForegroundColor Red
         exit 1
     }
 }
 
-Write-Host "`n🚀 啟動 API..." -ForegroundColor Green
+Write-Host "[STARTING] API..." -ForegroundColor Green
 
 if ($Background) {
-    # 背景執行
     $job = Start-Job -ScriptBlock {
         Set-Location $using:PSScriptRoot\src\SST.StockImport.API
         dotnet run
     }
-    
     Start-Sleep -Seconds 8
-    
-    Write-Host "`n✅ API 已在背景啟動！(Job ID: $($job.Id))" -ForegroundColor Green
+    Write-Host "[OK] API started in background! (Job ID: $($job.Id))" -ForegroundColor Green
 } else {
-    # 前景執行
     Set-Location src\SST.StockImport.API
     dotnet run
 }
 
-Write-Host "`n📱 手動操作頁面: http://localhost:5008" -ForegroundColor Cyan
-Write-Host "⏰ Hangfire 監控: http://localhost:5008/hangfire" -ForegroundColor Cyan
-Write-Host "📊 Swagger API: http://localhost:5008/swagger" -ForegroundColor Cyan
-Write-Host "💚 健康檢查: http://localhost:5008/api/health" -ForegroundColor Cyan
-Write-Host "`n💡 提示: 在首頁右上角有 '🛑 停止 API' 按鈕" -ForegroundColor Yellow
+Write-Host "[URL] API: http://localhost:5008" -ForegroundColor Cyan

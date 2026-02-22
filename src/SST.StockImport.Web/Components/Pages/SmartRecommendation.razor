@@ -1,4 +1,5 @@
 @page "/smart-recommendation"
+@rendermode InteractiveServer
 @using SST.StockImport.Core.DTOs.SmartRecommendation
 @inject HttpClient Http
 @inject ILogger<SmartRecommendation> Logger
@@ -191,6 +192,20 @@
                                     <strong>@stock.HotspotDate.ToString("MM-dd")</strong>
                                 </div>
                             </div>
+
+                            @if (stock.RecommendationFrequency >= 2)
+                            {
+                                <div class="alert alert-@(stock.IsConsecutiveRecommendation ? "success" : "info") p-2 mb-3">
+                                    <small>
+                                        <i class="bi bi-star-fill me-1"></i>
+                                        <strong>@(stock.IsConsecutiveRecommendation ? "连续" : "多次")推荐 (@(stock.RecommendationFrequency)次)</strong>
+                                        @if (stock.IsConsecutiveRecommendation)
+                                        {
+                                            <br/><span class="text-muted">历史数据：连续推荐平均涨幅24%+</span>
+                                        }
+                                    </small>
+                                </div>
+                            }
 
                             <!-- 价格信息 -->
                             @if (stock.SuggestedEntryPrice.HasValue)

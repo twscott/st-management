@@ -1,0 +1,98 @@
+﻿[
+    {
+        "Date":  "2025-11-03",
+        "StockCode":  "3163",
+        "MaxGain":  74.6,
+        "EntryPrice":  240.50,
+        "MA20":  224.28,
+        "PriceVsMA20":  7.23,
+        "MAAlignment":  "Bullish",
+        "KD_K":  81.48,
+        "KD_D":  83.78,
+        "KDStatus":  "Overbought"
+    },
+    {
+        "Date":  "2025-11-03",
+        "StockCode":  "3162",
+        "MaxGain":  31.1,
+        "EntryPrice":  55.30,
+        "MA20":  53.30,
+        "PriceVsMA20":  3.75,
+        "MAAlignment":  "Mixed",
+        "KD_K":  53.91,
+        "KD_D":  40.77,
+        "KDStatus":  "GoldenCross"
+    },
+    {
+        "Date":  "2025-11-04",
+        "StockCode":  "3163",
+        "MaxGain":  86.7,
+        "EntryPrice":  225.00,
+        "MA20":  224.60,
+        "PriceVsMA20":  0.18,
+        "MAAlignment":  "Bullish",
+        "KD_K":  54.32,
+        "KD_D":  73.96,
+        "KDStatus":  "DeathCross"
+    },
+    {
+        "Date":  "2025-11-05",
+        "StockCode":  "3163",
+        "MaxGain":  92.7,
+        "EntryPrice":  218.00,
+        "MA20":  224.93,
+        "PriceVsMA20":  -3.08,
+        "MAAlignment":  "Mixed",
+        "KD_K":  36.21,
+        "KD_D":  61.38,
+        "KDStatus":  "DeathCross"
+    },
+    {
+        "Date":  "2025-11-05",
+        "StockCode":  "3162",
+        "MaxGain":  20.8,
+        "EntryPrice":  60.00,
+        "MA20":  54.06,
+        "PriceVsMA20":  10.99,
+        "MAAlignment":  "Bullish",
+        "KD_K":  76.18,
+        "KD_D":  58.91,
+        "KDStatus":  "GoldenCross"
+    },
+    {
+        "Date":  "2025-11-21",
+        "StockCode":  "6220",
+        "MaxGain":  24.2,
+        "EntryPrice":  21.90,
+        "MA20":  21.90,
+        "PriceVsMA20":  0,
+        "MAAlignment":  "Bullish",
+        "KD_K":  49.41,
+        "KD_D":  69.76,
+        "KDStatus":  "DeathCross"
+    },
+    {
+        "Date":  "2025-11-21",
+        "StockCode":  "4745",
+        "MaxGain":  30.2,
+        "EntryPrice":  21.05,
+        "MA20":  17.32,
+        "PriceVsMA20":  21.54,
+        "MAAlignment":  "Bullish",
+        "KD_K":  82.08,
+        "KD_D":  74.21,
+        "KDStatus":  "GoldenCross"
+    },
+    {
+        "Date":  "2025-11-24",
+        "StockCode":  "4745",
+        "MaxGain":  26.9,
+        "EntryPrice":  21.60,
+        "MA20":  17.59,
+        "PriceVsMA20":  22.8,
+        "MAAlignment":  "Bullish",
+        "KD_K":  88.05,
+        "KD_D":  78.82,
+        "KDStatus":  "GoldenCross"
+    }
+]

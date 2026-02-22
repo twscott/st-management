@@ -250,6 +250,21 @@ public class RecommendedStock
     public decimal? PredictedSuccessRate { get; set; }
 
     /// <summary>
+    /// 推荐频率（近期被推荐的次数）
+    /// </summary>
+    public int RecommendationFrequency { get; set; } = 1;
+
+    /// <summary>
+    /// 是否为连续推荐
+    /// </summary>
+    public bool IsConsecutiveRecommendation { get; set; }
+
+    /// <summary>
+    /// 历史推荐日期列表（仅回测时）
+    /// </summary>
+    public List<DateTime>? HistoricalRecommendationDates { get; set; }
+
+    /// <summary>
     /// 实际表现（仅历史回测时有值）
     /// </summary>
     public ActualPerformance? ActualPerformance { get; set; }

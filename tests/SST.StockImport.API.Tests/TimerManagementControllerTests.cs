@@ -17,12 +17,12 @@ namespace SST.StockImport.API.Tests;
 /// - 執行日誌檢索
 /// - 手動觸發任務
 /// </summary>
-public class TimerManagementControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public class TimerManagementControllerTests : IClassFixture<CustomWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly CustomWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
-    public TimerManagementControllerTests(WebApplicationFactory<Program> factory)
+    public TimerManagementControllerTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();

@@ -11,9 +11,10 @@ builder.Services.AddRazorComponents()
 // Configure SignalR for long-running operations
 builder.Services.AddSignalR(options =>
 {
-    options.ClientTimeoutInterval = TimeSpan.FromMinutes(5);
-    options.HandshakeTimeout = TimeSpan.FromMinutes(5);
-    options.KeepAliveInterval = TimeSpan.FromSeconds(30);
+    options.ClientTimeoutInterval = TimeSpan.FromHours(2);
+    options.HandshakeTimeout = TimeSpan.FromMinutes(10);
+    options.KeepAliveInterval = TimeSpan.FromMinutes(5);
+    options.MaximumReceiveMessageSize = 1024 * 1024; // 1MB
 });
 
 // Add HttpClientFactory for test pages

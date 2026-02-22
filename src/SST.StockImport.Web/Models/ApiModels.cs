@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace SST.StockImport.Web.Models;
 
 // 基本模型
@@ -198,4 +200,56 @@ public record ScheduleStatusDto(
     int ScheduleId,
     bool IsEnabled,
     DateTime? LastRun
+);
+
+public record DatabaseListResult(
+    List<string> Databases,
+    int Count
+);
+
+public record DatabaseTablesResult(
+    string Database,
+    List<string> Tables,
+    int Count
+);
+
+public record DatabaseExportRequest(
+    string SourceDatabase,
+    string OutputPath
+);
+
+public record DatabaseExportResult(
+    bool Success,
+    string Message,
+    string SchemaPath,
+    string DataPath,
+    int TableCount,
+    List<string> ExportedTables
+);
+
+public record DatabaseImportRequest(
+    [property: JsonPropertyName("sourcePath")] string SourcePath,
+    [property: JsonPropertyName("targetDatabase")] string TargetDatabase,
+    [property: JsonPropertyName("importSchema")] bool ImportSchema,
+    [property: JsonPropertyName("importData")] bool ImportData
+);
+
+public record DatabaseImportResult(
+    bool Success,
+    string Message,
+    int TablesImported,
+    List<string> ImportedTables,
+    List<string> Errors
+);
+
+public record BackupFolderInfo(
+    string FullPath,
+    string FolderName,
+    DateTime CreatedTime,
+    string DatabaseName
+);
+
+public record BackupFoldersResult(
+    List<BackupFolderInfo> Folders,
+    int Count
 );

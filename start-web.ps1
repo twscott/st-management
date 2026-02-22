@@ -1,65 +1,87 @@
 # SST Stock Import Web Server Startup Script
 # Function: Start Blazor Web Server on Port 5089
-# Date: 2025-12-03
+
+param(
+    [switch]$NoBuild
+)
+
+$ErrorActionPreference = "Stop"
+Set-Location $PSScriptRoot
 
 Write-Host "=== SST Stock Import Web Server Start ===" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. Check and Clean Port 5089
+# Force kill ALL processes on port 5089
+function Force-KillPortProcess {
+    param([int]$Port)
+    
+    try {
+        $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+        foreach ($conn in $connections) {
+            $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+            if ($proc) {
+                Write-Host "  [KILL] $($proc.ProcessName) (PID $($proc.Id))" -ForegroundColor Yellow
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    try {
+        $netstatOutput = netstat -ano | Select-String ":$Port\s"
+        foreach ($line in $netstatOutput) {
+            $parts = $line -split '\s+'
+            $pid = $parts[-1]
+            if ($pid -match '^\d+$') {
+                Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
+
+    try {
+        $pids = (Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique
+        foreach ($pid in $pids) {
+            taskkill /F /PID $pid 2>$null
+        }
+    } catch {}
+}
+
 Write-Host "[1/3] Checking Port 5089 status..." -ForegroundColor Yellow
-
 $port = 5089
-$maxRetries = 3
 
-for ($i = 1; $i -le $maxRetries; $i++) {
+for ($i = 1; $i -le 5; $i++) {
     $connection = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
     
     if ($connection) {
-        Write-Host "  [嘗試 $i/$maxRetries] Port $port 被占用，正在清理..." -ForegroundColor Yellow
-        
-        # Get Process IDs
-        $processIds = $connection | Select-Object -ExpandProperty OwningProcess -Unique
-        
-        foreach ($processId in $processIds) {
-            $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
-            if ($process) {
-                Write-Host "    -> Killing: $($process.ProcessName) (PID $processId)" -ForegroundColor Gray
-                Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-            }
-        }
-        
-        Start-Sleep -Seconds 2
+        Write-Host "  [Attempt $i/5] Port $port in use, force cleaning..." -ForegroundColor Red
+        Force-KillPortProcess -Port $port
+        Start-Sleep -Seconds 1
     } else {
-        Write-Host "  ✅ Port $port 已釋放，可以啟動" -ForegroundColor Green
+        Write-Host "  [OK] Port $port released" -ForegroundColor Green
         break
     }
 }
 
-# Final check
 $finalCheck = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
 if ($finalCheck) {
-    Write-Host "  ⚠️  警告: Port $port 仍被占用" -ForegroundColor Red
-    Write-Host "  嘗試強制啟動，可能會失敗..." -ForegroundColor Yellow
+    Write-Host "  [WARN] Port $port still in use" -ForegroundColor Red
 }
 
 Write-Host ""
 
-# 2. Switch to project directory
-Write-Host "[2/3] Switching to project directory..." -ForegroundColor Yellow
-$projectPath = "D:\vibeCoding\sst\src\SST.StockImport.Web"
-Set-Location $projectPath
-Write-Host "Current directory: $projectPath" -ForegroundColor Green
+if (-not $NoBuild) {
+    Write-Host "[2/3] Building project..." -ForegroundColor Yellow
+    dotnet build src/SST.StockImport.Web/SST.StockImport.Web.csproj
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] Build failed" -ForegroundColor Red
+        exit 1
+    }
+}
 
 Write-Host ""
-
-# 3. Start Web Server
-Write-Host "[3/3] Starting SST.StockImport.Web Server (Port 5089)..." -ForegroundColor Yellow
-Write-Host "Web URL: http://localhost:5089" -ForegroundColor Green
-Write-Host "Import Page: http://localhost:5089/import" -ForegroundColor Green
-Write-Host "Press Ctrl+C to stop service" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "[3/3] Starting Web Server..." -ForegroundColor Yellow
+Write-Host "URL: http://localhost:5089" -ForegroundColor Green
+Write-Host "Database: http://localhost:5089/database" -ForegroundColor Green
 Write-Host ""
 
-# Start Server (blocking until service stops)
+Set-Location src/SST.StockImport.Web
 dotnet run --urls "http://localhost:5089"

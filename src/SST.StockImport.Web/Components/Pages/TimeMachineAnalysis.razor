@@ -1,0 +1,574 @@
+@page "/time-machine"
+@rendermode InteractiveServer
+@using SST.StockImport.Core.DTOs.MaturityAnalysis
+@inject HttpClient Http
+@inject ILogger<TimeMachineAnalysis> Logger
+@inject IJSRuntime JS
+
+<PageTitle>时光机分析 - 查看历史推荐结果</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">
+        <i class="bi bi-clock-history"></i> 时光机分析
+    </h1>
+    <p class="lead text-muted">选择历史某一天，查看系统当时会推荐什么股票，并对比后续实际表现</p>
+
+    <!-- 分析控制面板 -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-sliders"></i> 分析参数</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">分析日期</label>
+                    <input type="date" class="form-control" @bind="AnalysisDate" 
+                           min="@EarliestDate.ToString("yyyy-MM-dd")" 
+                           max="@LatestDate.ToString("yyyy-MM-dd")" />
+                    <small class="text-muted">可用: @EarliestDate.ToString("yyyy-MM-dd") ~ @LatestDate.ToString("yyyy-MM-dd")</small>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">最小成熟度</label>
+                    <input type="number" class="form-control" @bind="MinMaturityScore" min="0" max="100" />
+                    <small class="text-muted">0-100 分</small>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">量能倍数范围</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control" @bind="MinVolumeRatio" min="1" />
+                        <span class="input-group-text">~</span>
+                        <input type="number" class="form-control" @bind="MaxVolumeRatio" min="1" />
+                    </div>
+                    <small class="text-muted">倍数 (x)</small>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">冷却天数</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control" @bind="MinCoolingDays" min="1" />
+                        <span class="input-group-text">~</span>
+                        <input type="number" class="form-control" @bind="MaxCoolingDays" min="1" />
+                    </div>
+                    <small class="text-muted">天</small>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">追踪天数</label>
+                    <input type="number" class="form-control" @bind="TrackingDays" min="30" max="120" />
+                    <small class="text-muted">后续追踪</small>
+                </div>
+                <div class="col-md-1 d-flex align-items-end">
+                    <button class="btn btn-success w-100" @onclick="RunAnalysis" disabled="@IsLoading">
+                        @if (IsLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-search"></i>
+                        }
+                        分析
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (AnalysisResult != null)
+    {
+        <!-- 统计摘要 -->
+        <div class="card mb-4">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-graph-up"></i> 分析摘要 - @AnalysisResult.AnalysisDate.ToString("yyyy-MM-dd")
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-2">
+                        <div class="border rounded p-3 bg-light">
+                            <h4 class="text-primary">@AnalysisResult.Statistics.TotalRecommendations</h4>
+                            <small class="text-muted">总推荐</small>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="border rounded p-3 bg-success bg-opacity-10">
+                            <h4 class="text-success">@AnalysisResult.Statistics.SuccessRate_20.ToString("F2")%</h4>
+                            <small class="text-muted">20% 成功率</small>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="border rounded p-3 bg-success bg-opacity-25">
+                            <h4 class="text-success">@AnalysisResult.Statistics.SuccessRate_30.ToString("F2")%</h4>
+                            <small class="text-muted">30% 成功率</small>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="border rounded p-3 bg-light">
+                            <h4 class="@GetReturnColor(AnalysisResult.Statistics.AverageReturn)">
+                                @AnalysisResult.Statistics.AverageReturn.ToString("F2")%
+                            </h4>
+                            <small class="text-muted">平均报酬</small>
+                        </div>
+                    </div>
+                    <div class="col-md-1">
+                        <div class="border rounded p-3 bg-light">
+                            <h4 class="text-info">@(AnalysisResult.Statistics.AverageDaysToAchieve?.ToString("F0") ?? "-")</h4>
+                            <small class="text-muted">平均天数</small>
+                        </div>
+                    </div>
+                    <div class="col-md-1">
+                        <div class="border rounded p-3 bg-success bg-opacity-10">
+                            <h4 class="text-success">@AnalysisResult.Statistics.MaxGain.ToString("F2")%</h4>
+                            <small class="text-muted">最大收益</small>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="border rounded p-3 bg-danger bg-opacity-10">
+                            <h4 class="text-danger">@AnalysisResult.Statistics.MaxLoss.ToString("F2")%</h4>
+                            <small class="text-muted">最大亏损</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 成功案例特征分析 -->
+        @if (SuccessfulCandidates.Any())
+        {
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0">
+                        <i class="bi bi-trophy-fill"></i> 成功案例特征分析 
+                        <span class="badge bg-success ms-2">找到 @SuccessfulCandidates.Count 只涨超 30% 的股票！</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-success mb-4">
+                        <h6><i class="bi bi-lightbulb-fill"></i> 成功股票的共同特征（Sign）：</h6>
+                        <div class="row mt-3">
+                            <div class="col-md-3">
+                                <strong>平均成熟度：</strong>
+                                <span class="badge bg-info fs-6">@SuccessPatterns.AvgMaturityScore.ToString("F1") 分</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>最佳量能范围：</strong>
+                                <span class="badge bg-info fs-6">@SuccessPatterns.VolumeRatioRange</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>最佳冷却期：</strong>
+                                <span class="badge bg-info fs-6">@SuccessPatterns.CoolingDaysRange</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>平均达标天数：</strong>
+                                <span class="badge bg-info fs-6">@SuccessPatterns.AvgDaysToAchieve.ToString("F0") 天</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="mb-3"><i class="bi bi-star-fill text-warning"></i> 精选推荐（涨超 30%）：</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered table-success">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>排名</th>
+                                    <th>股票</th>
+                                    <th>成熟度</th>
+                                    <th>量能</th>
+                                    <th>冷却期</th>
+                                    <th>建议价</th>
+                                    <th>最高涨幅</th>
+                                    <th>达标天数</th>
+                                    <th>综合评分</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @{
+                                    int rank = 1;
+                                    foreach (var candidate in SuccessfulCandidates.OrderByDescending(c => c.MaturityScore).Take(10))
+                                    {
+                                        <tr>
+                                            <td><strong class="text-warning">@rank</strong></td>
+                                            <td><strong class="text-primary">@candidate.StockCode</strong></td>
+                                            <td><span class="badge bg-info">@candidate.MaturityScore.ToString("F0")</span></td>
+                                            <td>@candidate.PeakVolumeRatio.ToString("F1")x</td>
+                                            <td>@candidate.DaysSinceHotspotAtAnalysis 天</td>
+                                            <td>@candidate.SuggestedEntryPrice.ToString("F2")</td>
+                                            <td class="text-success fw-bold">+@candidate.MaxGainPercent.ToString("F2")%</td>
+                                            <td>@candidate.DaysToAchieve 天</td>
+                                            <td><span class="badge bg-warning text-dark">⭐ @CalculateQualityScore(candidate).ToString("F0")</span></td>
+                                        </tr>
+                                        rank++;
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="alert alert-info mt-3">
+                        <strong>💡 使用建议：</strong> 
+                        根据以上特征，未来选股可优先关注成熟度在 <strong>@SuccessPatterns.AvgMaturityScore.ToString("F0")</strong> 分附近、
+                        量能在 <strong>@SuccessPatterns.VolumeRatioRange</strong>、
+                        冷却期 <strong>@SuccessPatterns.CoolingDaysRange</strong> 的股票。
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- 推荐结果表格 -->
+        <div class="card">
+            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-list-check"></i> 推荐结果详情</h5>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="showOnlySuccess" @bind="ShowOnlySuccessful">
+                    <label class="form-check-label" for="showOnlySuccess">
+                        仅显示成功案例（涨超 20%）
+                    </label>
+                </div>
+            </div>
+            <div class="card-body">
+                @if (!AnalysisResult.Candidates.Any())
+                {
+                    <div class="alert alert-warning" role="alert">
+                        <i class="bi bi-exclamation-triangle"></i> 该日期没有找到符合条件的推荐候选，请尝试调整筛选条件。
+                    </div>
+                }
+                else
+                {
+                    var displayCandidates = ShowOnlySuccessful 
+                        ? AnalysisResult.Candidates.Where(c => c.Status == ResultStatus.Success && c.MaxGainPercent >= 20).ToList()
+                        : AnalysisResult.Candidates;
+
+                    if (!displayCandidates.Any())
+                    {
+                        <div class="alert alert-info" role="alert">
+                            <i class="bi bi-info-circle"></i> 没有符合筛选条件的股票，请关闭"仅显示成功案例"查看全部结果。
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>股票</th>
+                                        <th>成熟度</th>
+                                        <th>量能</th>
+                                        <th>建议价</th>
+                                        <th>目标价(20%)</th>
+                                        <th>实际结果</th>
+                                        <th>最高涨幅</th>
+                                        <th>最终报酬</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var candidate in displayCandidates.OrderByDescending(c => c.MaturityScore))
+                                    {
+                                    <tr class="@GetRowClass(candidate.Status)">
+                                        <td><strong class="text-primary">@candidate.StockCode</strong></td>
+                                        <td>
+                                            <span class="badge bg-info">@candidate.MaturityScore.ToString("F0") 分</span>
+                                        </td>
+                                        <td>@candidate.PeakVolumeRatio.ToString("F1")x</td>
+                                        <td>@candidate.SuggestedEntryPrice.ToString("F2")</td>
+                                        <td>@candidate.TargetPrice_20.ToString("F2")</td>
+                                        <td>@GetResultBadge(candidate)</td>
+                                        <td class="@GetReturnColor(candidate.MaxGainPercent)">
+                                            <strong>@candidate.MaxGainPercent.ToString("F2")%</strong>
+                                        </td>
+                                        <td class="@GetReturnColor(candidate.FinalReturnPercent ?? 0)">
+                                            @(candidate.FinalReturnPercent?.ToString("F2") ?? "-")%
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" 
+                                                    @onclick="() => ToggleChart(candidate.StockCode)">
+                                                <i class="bi bi-@(SelectedStockCode == candidate.StockCode ? "eye-slash" : "eye")"></i>
+                                                @(SelectedStockCode == candidate.StockCode ? "隐藏" : "查看")
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    @if (SelectedStockCode == candidate.StockCode)
+                                    {
+                                        <tr>
+                                            <td colspan="9" class="bg-light">
+                                                <div class="p-3">
+                                                    <h6 class="mb-3">
+                                                        <i class="bi bi-graph-up"></i> 
+                                                        @candidate.StockCode 价格走势 (后续 @TrackingDays 天)
+                                                    </h6>
+                                                    @if (candidate.PriceHistory.Any())
+                                                    {
+                                                        <div class="row">
+                                                            <div class="col-md-12">
+                                                                <div style="height: 300px; overflow-x: auto; font-family: monospace; font-size: 12px;">
+                                                                    <pre>@RenderPriceChart(candidate)</pre>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="row mt-3">
+                                                            <div class="col-md-12">
+                                                                <table class="table table-sm table-bordered">
+                                                                    <thead>
+                                                                        <tr>
+                                                                            <th>日期</th>
+                                                                            <th>价格</th>
+                                                                            <th>涨跌幅</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        @foreach (var point in candidate.PriceHistory.Take(10))
+                                                                        {
+                                                                            <tr>
+                                                                                <td>@point.Date.ToString("yyyy-MM-dd")</td>
+                                                                                <td>@point.Price.ToString("F2")</td>
+                                                                                <td class="@GetReturnColor(point.ChangePercent)">
+                                                                                    @point.ChangePercent.ToString("F2")%
+                                                                                </td>
+                                                                            </tr>
+                                                                        }
+                                                                    </tbody>
+                                                                </table>
+                                                                @if (candidate.PriceHistory.Count > 10)
+                                                                {
+                                                                    <small class="text-muted">仅显示前 10 天，共 @candidate.PriceHistory.Count 天数据</small>
+                                                                }
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="alert alert-info">
+                                                            <i class="bi bi-info-circle"></i> 没有价格历史数据
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+    else if (!IsLoading)
+    {
+        <div class="alert alert-info" role="alert">
+            <i class="bi bi-info-circle"></i> 选择日期和参数，然后点击"分析"按钮开始时光机分析
+        </div>
+    }
+</div>
+
+@code {
+    private DateTime AnalysisDate = DateTime.Now.AddDays(-30);
+    private int MinMaturityScore = 60;
+    private decimal MinVolumeRatio = 10;
+    private decimal MaxVolumeRatio = 50;
+    private int MinCoolingDays = 8;
+    private int MaxCoolingDays = 30;
+    private int TrackingDays = 60;
+
+    private DateTime EarliestDate = DateTime.Now.AddMonths(-6);
+    private DateTime LatestDate = DateTime.Now;
+
+    private TimeMachineAnalysisResponse? AnalysisResult;
+    private string? SelectedStockCode;
+    private bool IsLoading = false;
+    private bool ShowOnlySuccessful = false;
+
+    // 成功案例筛选（涨超 30%）
+    private List<HistoricalCandidate> SuccessfulCandidates => 
+        AnalysisResult?.Candidates
+            .Where(c => c.Status == ResultStatus.Success && c.MaxGainPercent >= 30)
+            .ToList() ?? new List<HistoricalCandidate>();
+
+    // 成功案例特征模式
+    private (
+        decimal AvgMaturityScore,
+        string VolumeRatioRange,
+        string CoolingDaysRange,
+        decimal AvgDaysToAchieve
+    ) SuccessPatterns
+    {
+        get
+        {
+            if (!SuccessfulCandidates.Any())
+                return (0, "-", "-", 0);
+
+            var avgMaturity = SuccessfulCandidates.Average(c => c.MaturityScore);
+            var minVolume = SuccessfulCandidates.Min(c => c.PeakVolumeRatio);
+            var maxVolume = SuccessfulCandidates.Max(c => c.PeakVolumeRatio);
+            var minCooling = SuccessfulCandidates.Min(c => c.DaysSinceHotspotAtAnalysis);
+            var maxCooling = SuccessfulCandidates.Max(c => c.DaysSinceHotspotAtAnalysis);
+            var avgDays = (decimal)SuccessfulCandidates.Where(c => c.DaysToAchieve.HasValue)
+                .Average(c => c.DaysToAchieve!.Value);
+
+            return (
+                avgMaturity,
+                $"{minVolume:F1} - {maxVolume:F1}x",
+                $"{minCooling} - {maxCooling} 天",
+                avgDays
+            );
+        }
+    }
+
+    // 计算综合质量分数（成熟度 + 涨幅 - 天数）
+    private decimal CalculateQualityScore(HistoricalCandidate c)
+    {
+        var maturityBonus = c.MaturityScore / 100 * 40; // 最高 40 分
+        var gainBonus = Math.Min(c.MaxGainPercent / 100 * 40, 40); // 最高 40 分
+        var speedBonus = c.DaysToAchieve.HasValue 
+            ? Math.Max(0, 20 - c.DaysToAchieve.Value / 3) // 越快越好，最高 20 分
+            : 0;
+        
+        return maturityBonus + gainBonus + speedBonus;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAvailableDateRange();
+    }
+
+    private async Task LoadAvailableDateRange()
+    {
+        try
+        {
+            var response = await Http.GetFromJsonAsync<DateRangeResponse>("/api/TimeMachineAnalysis/available-dates");
+            if (response != null)
+            {
+                EarliestDate = response.EarliestDate;
+                LatestDate = response.LatestDate;
+                
+                // 设置默认分析日期为最近一个月前
+                if (LatestDate > DateTime.Now.AddDays(-30))
+                    AnalysisDate = DateTime.Now.AddDays(-30);
+                else
+                    AnalysisDate = LatestDate;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "加载可用日期范围失败");
+        }
+    }
+
+    private async Task RunAnalysis()
+    {
+        IsLoading = true;
+        SelectedStockCode = null;
+        StateHasChanged();
+
+        try
+        {
+            var url = $"/api/TimeMachineAnalysis/analyze/{AnalysisDate:yyyy-MM-dd}" +
+                      $"?minMaturityScore={MinMaturityScore}" +
+                      $"&minCoolingDays={MinCoolingDays}" +
+                      $"&maxCoolingDays={MaxCoolingDays}" +
+                      $"&minVolumeRatio={MinVolumeRatio}" +
+                      $"&maxVolumeRatio={MaxVolumeRatio}" +
+                      $"&trackingDays={TrackingDays}";
+
+            Logger.LogInformation("开始时光机分析: {Url}", url);
+            AnalysisResult = await Http.GetFromJsonAsync<TimeMachineAnalysisResponse>(url);
+            Logger.LogInformation("时光机分析完成: 找到 {Count} 个候选", AnalysisResult?.Candidates.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "时光机分析失败");
+            await JS.InvokeVoidAsync("alert", $"分析失败: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private void ToggleChart(string stockCode)
+    {
+        SelectedStockCode = SelectedStockCode == stockCode ? null : stockCode;
+    }
+
+    private string GetRowClass(ResultStatus status) => status switch
+    {
+        ResultStatus.Success => "table-success",
+        ResultStatus.Failed => "table-danger",
+        ResultStatus.InsufficientData => "table-warning",
+        _ => ""
+    };
+
+    private MarkupString GetResultBadge(HistoricalCandidate candidate)
+    {
+        if (candidate.Status == ResultStatus.Success)
+        {
+            var badgeClass = candidate.AchievedTarget >= 30 ? "bg-success" : "bg-primary";
+            return new MarkupString($"<span class='badge {badgeClass}'>✅ {candidate.DaysToAchieve} 天达成 {candidate.AchievedTarget}%</span>");
+        }
+        else if (candidate.Status == ResultStatus.Failed)
+        {
+            return new MarkupString("<span class='badge bg-danger'>❌ 失败</span>");
+        }
+        else if (candidate.Status == ResultStatus.InsufficientData)
+        {
+            return new MarkupString("<span class='badge bg-warning'>⚠️ 数据不足</span>");
+        }
+        return new MarkupString("<span class='badge bg-secondary'>⏳ 进行中</span>");
+    }
+
+    private string GetReturnColor(decimal returnPercent)
+    {
+        if (returnPercent >= 20) return "text-success fw-bold";
+        if (returnPercent >= 10) return "text-success";
+        if (returnPercent > 0) return "text-primary";
+        if (returnPercent == 0) return "text-muted";
+        if (returnPercent > -10) return "text-warning";
+        return "text-danger fw-bold";
+    }
+
+    private string RenderPriceChart(HistoricalCandidate candidate)
+    {
+        if (!candidate.PriceHistory.Any()) return "无价格数据";
+
+        var maxChange = candidate.PriceHistory.Max(p => p.ChangePercent);
+        var minChange = candidate.PriceHistory.Min(p => p.ChangePercent);
+        var range = maxChange - minChange;
+        
+        var lines = new List<string>();
+        
+        // 绘制简单的 ASCII 图表
+        for (int i = 0; i <= 10; i++)
+        {
+            var value = maxChange - (range * i / 10);
+            var line = $"{value,6:F1}% │";
+            
+            foreach (var point in candidate.PriceHistory.Take(Math.Min(60, candidate.PriceHistory.Count)))
+            {
+                if (Math.Abs(point.ChangePercent - value) < range / 10)
+                {
+                    if (point.ChangePercent >= 20) line += "█";
+                    else if (point.ChangePercent >= 10) line += "▓";
+                    else if (point.ChangePercent >= 0) line += "░";
+                    else line += "▒";
+                }
+                else
+                {
+                    line += " ";
+                }
+            }
+            lines.Add(line);
+        }
+        
+        lines.Add($"       └{'─'.ToString().PadRight(Math.Min(60, candidate.PriceHistory.Count), '─')}");
+        lines.Add($"        建议进场 → 后续 {candidate.PriceHistory.Count} 天走势");
+        
+        return string.Join("\n", lines);
+    }
+
+    private class DateRangeResponse
+    {
+        public DateTime EarliestDate { get; set; }
+        public DateTime LatestDate { get; set; }
+        public int TotalDays { get; set; }
+    }
+}

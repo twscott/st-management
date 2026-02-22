@@ -11,12 +11,14 @@ namespace SST.StockImport.Services.Processors;
 
 /// <summary>
 /// 技術指標處理器 - 計算股價技術指標
-/// 包括價差、漲跌幅、成交量比例等技術分析指標
+/// 包括價差、漲跌幅、成交量比例、KD 指標、布林帶等技術分析指標
 /// </summary>
 public class TechnicalIndicatorsProcessor : IDataProcessor
 {
     private readonly StockImportDbContext _context;
     private readonly ILogger<TechnicalIndicatorsProcessor> _logger;
+    private readonly KDIndicatorProcessor _kdProcessor;
+    private readonly BollingerBandsProcessor _bollingerProcessor;
 
     public string ProcessorName => "技術指標補算";
     public TimeSpan EstimatedDuration => TimeSpan.FromMinutes(3);
@@ -27,6 +29,14 @@ public class TechnicalIndicatorsProcessor : IDataProcessor
     {
         _context = context;
         _logger = logger;
+        
+        // 创建 KDIndicatorProcessor 的 logger（使用 NullLogger 避免循环依赖）
+        var kdLogger = new LoggerFactory().CreateLogger<KDIndicatorProcessor>();
+        _kdProcessor = new KDIndicatorProcessor(context, kdLogger);
+        
+        // 创建 BollingerBandsProcessor 的 logger
+        var bollingerLogger = new LoggerFactory().CreateLogger<BollingerBandsProcessor>();
+        _bollingerProcessor = new BollingerBandsProcessor(context, bollingerLogger);
     }
 
     public async Task<ProcessorResultDto> ProcessAsync(DateTime targetDate)
@@ -62,12 +72,18 @@ public class TechnicalIndicatorsProcessor : IDataProcessor
             // Step 4: 計算 RSI 指標
             var rsiCount = await CalculateRSIIndicatorsAsync(targetDate);
 
+            // Step 5: 計算 KD 指標（自主計算）
+            var kdCount = await _kdProcessor.CalculateKDForDateAsync(targetDate);
+
+            // Step 6: 計算布林帶指標（自主計算）
+            var bollingerCount = await _bollingerProcessor.CalculateBollingerBandsForDateAsync(targetDate);
+
             result.Success = true;
-            result.ProcessedCount = alertlogCount + tradedataCount + movingAverageCount + rsiCount;
+            result.ProcessedCount = alertlogCount + tradedataCount + movingAverageCount + rsiCount + kdCount + bollingerCount;
             result.Duration = stopwatch.Elapsed;
 
-            _logger.LogInformation("技術指標補算完成，處理 {ProcessedCount} 筆記錄，耗時: {Duration}",
-                result.ProcessedCount, result.Duration);
+            _logger.LogInformation("技術指標補算完成，處理 {ProcessedCount} 筆記錄（KD {KDCount} 筆, 布林帶 {BollingerCount} 筆），耗時: {Duration}",
+                result.ProcessedCount, kdCount, bollingerCount, result.Duration);
         }
         catch (Exception ex)
         {

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -15,6 +15,44 @@
 <body>
     <Routes />
     <script src="_framework/blazor.web.js"></script>
+    <script>
+        window.showFolderBrowser = function() {
+            // Use input type='file' with webkitdirectory to select folders
+            return new Promise(function(resolve) {
+                var input = document.createElement('input');
+                input.type = 'file';
+                input.webkitdirectory = true;
+                input.multiple = false;
+                
+                input.onchange = function(e) {
+                    if (e.target.files && e.target.files.length > 0) {
+                        // Get the folder path from the first file
+                        var file = e.target.files[0];
+                        // The path is usually like C:\fakepath\foldername, we need just the folder name
+                        var path = file.webkitRelativePath || file.name;
+                        // Remove the file name from the path to get just the folder
+                        var lastSlash = path.lastIndexOf('/');
+                        if (lastSlash > 0) {
+                            path = path.substring(0, lastSlash);
+                        }
+                        // Try to get the full path from the file object
+                        // Since we can't get the full path in browser, we'll use a different approach
+                        // For now, just return the folder name
+                        resolve(file.name);
+                    } else {
+                        resolve('');
+                    }
+                };
+                
+                input.oncancel = function() {
+                    resolve('');
+                };
+                
+                // Trigger the file picker
+                input.click();
+            });
+        };
+    </script>
 </body>
 
 </html>

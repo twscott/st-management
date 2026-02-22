@@ -1,0 +1,155 @@
+﻿{
+    "date":  "2025-11-03",
+    "stocks":  [
+                   {
+                       "stockCode":  "8240",
+                       "endPrice":  33.40,
+                       "ma20":  35.00,
+                       "priceAboveMA20":  -4.571428571428572,
+                       "maAlignment":  "Bearish",
+                       "volume":  167,
+                       "mv20":  165,
+                       "volumeRatio":  1.0121212121212122,
+                       "kdK":  6.43,
+                       "kdD":  12.06,
+                       "kdStatus":  "Oversold"
+                   },
+                   {
+                       "stockCode":  "1623",
+                       "endPrice":  223.00,
+                       "ma20":  227.15,
+                       "priceAboveMA20":  -1.8269865727492847,
+                       "maAlignment":  "Bearish",
+                       "volume":  8,
+                       "mv20":  13,
+                       "volumeRatio":  0.6153846153846154,
+                       "kdK":  20.00,
+                       "kdD":  18.31,
+                       "kdStatus":  "GoldenCross"
+                   },
+                   {
+                       "stockCode":  "7715",
+                       "endPrice":  32.00,
+                       "ma20":  33.77,
+                       "priceAboveMA20":  -5.241338466094167,
+                       "maAlignment":  "Bearish",
+                       "volume":  34,
+                       "mv20":  95,
+                       "volumeRatio":  0.35789473684210527,
+                       "kdK":  17.07,
+                       "kdD":  9.37,
+                       "kdStatus":  "Oversold"
+                   },
+                   {
+                       "stockCode":  "5274",
+                       "endPrice":  5470.00,
+                       "ma20":  5359.50,
+                       "priceAboveMA20":  2.061759492489971,
+                       "maAlignment":  "Mixed",
+                       "volume":  404,
+                       "mv20":  325,
+                       "volumeRatio":  1.243076923076923,
+                       "kdK":  61.74,
+                       "kdD":  35.67,
+                       "kdStatus":  "GoldenCross"
+                   },
+                   {
+                       "stockCode":  "3585",
+                       "endPrice":  13.40,
+                       "ma20":  14.59,
+                       "priceAboveMA20":  -8.156271418779987,
+                       "maAlignment":  "Bearish",
+                       "volume":  584,
+                       "mv20":  1175,
+                       "volumeRatio":  0.4970212765957447,
+                       "kdK":  26.73,
+                       "kdD":  35.39,
+                       "kdStatus":  "DeathCross"
+                   },
+                   {
+                       "stockCode":  "4561",
+                       "endPrice":  36.10,
+                       "ma20":  37.05,
+                       "priceAboveMA20":  -2.564102564102564,
+                       "maAlignment":  "Bearish",
+                       "volume":  106,
+                       "mv20":  149,
+                       "volumeRatio":  0.7114093959731543,
+                       "kdK":  14.00,
+                       "kdD":  17.89,
+                       "kdStatus":  "Oversold"
+                   },
+                   {
+                       "stockCode":  "6548",
+                       "endPrice":  40.50,
+                       "ma20":  38.05,
+                       "priceAboveMA20":  6.438896189224704,
+                       "maAlignment":  "Bullish",
+                       "volume":  12814,
+                       "mv20":  7757,
+                       "volumeRatio":  1.6519272914786645,
+                       "kdK":  88.55,
+                       "kdD":  74.10,
+                       "kdStatus":  "GoldenCross"
+                   },
+                   {
+                       "stockCode":  "6624",
+                       "endPrice":  33.65,
+                       "ma20":  33.22,
+                       "priceAboveMA20":  1.2944009632751357,
+                       "maAlignment":  "Bullish",
+                       "volume":  25,
+                       "mv20":  12,
+                       "volumeRatio":  2.0833333333333335,
+                       "kdK":  69.00,
+                       "kdD":  54.06,
+                       "kdStatus":  "GoldenCross"
+                   },
+                   {
+                       "stockCode":  "3322",
+                       "endPrice":  12.90,
+                       "ma20":  13.62,
+                       "priceAboveMA20":  -5.286343612334802,
+                       "maAlignment":  "Bearish",
+                       "volume":  202,
+                       "mv20":  236,
+                       "volumeRatio":  0.8559322033898306,
+                       "kdK":  4.31,
+                       "kdD":  11.20,
+                       "kdStatus":  "Oversold"
+                   }
+               ],
+    "summary":  {
+                    "totalQueried":  9,
+                    "dataFound":  9,
+                    "avgPriceAboveMA20":  -1.9834905067221742,
+                    "maAlignmentDistribution":  [
+                                                    {
+                                                        "alignment":  "Bearish",
+                                                        "count":  6
+                                                    },
+                                                    {
+                                                        "alignment":  "Mixed",
+                                                        "count":  1
+                                                    },
+                                                    {
+                                                        "alignment":  "Bullish",
+                                                        "count":  2
+                                                    }
+                                                ],
+                    "kdStatusDistribution":  [
+                                                 {
+                                                     "status":  "Oversold",
+                                                     "count":  4
+                                                 },
+                                                 {
+                                                     "status":  "GoldenCross",
+                                                     "count":  4
+                                                 },
+                                                 {
+                                                     "status":  "DeathCross",
+                                                     "count":  1
+                                                 }
+                                             ]
+                }
+}

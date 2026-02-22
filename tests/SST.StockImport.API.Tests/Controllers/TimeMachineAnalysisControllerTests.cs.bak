@@ -1,0 +1,231 @@
+using Xunit;
+using System.Net;
+using System.Net.Http.Json;
+using System.Threading.Tasks;
+using SST.StockImport.Core.DTOs.MaturityAnalysis;
+
+namespace SST.StockImport.API.Tests.Controllers
+{
+    /// <summary>
+    /// L3: ?��??��???WebAPI 测�?
+    /// 测�??�围：HTTP Endpoints + Controller + Service + Database
+    /// 使用：CustomWebApplicationFactory 模�??��? HTTP ?��?
+    /// </summary>
+    public class TimeMachineAnalysisControllerTests : IClassFixture<CustomWebApplicationFactory>
+    {
+        private readonly HttpClient _client;
+
+        public TimeMachineAnalysisControllerTests(CustomWebApplicationFactory factory)
+        {
+            _client = factory.CreateClient();
+        }
+
+        [Fact]
+        public async Task GetAvailableDates_ReturnsOk_WithValidDateRange()
+        {
+            // Act
+            var response = await _client.GetAsync("/api/TimeMachineAnalysis/available-dates");
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            
+            var result = await response.Content.ReadFromJsonAsync<DateRangeResponse>();
+            Assert.NotNull(result);
+            Assert.True(result.EarliestDate < result.LatestDate);
+            Assert.True(result.TotalDays > 0);
+        }
+
+        [Fact]
+        public async Task AnalyzeDate_WithValidParameters_ReturnsOk()
+        {
+            // Arrange
+            var analysisDate = "2025-12-01";
+            var url = $"/api/TimeMachineAnalysis/analyze/{analysisDate}?" +
+                     "minMaturityScore=60&minCoolingDays=8&maxCoolingDays=30&" +
+                     "minPeakVolumeRatio=10&maxPeakVolumeRatio=50&trackingDays=60";
+
+            // Act
+            var response = await _client.GetAsync(url);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            
+            var result = await response.Content.ReadFromJsonAsync<TimeMachineAnalysisResponse>();
+            Assert.NotNull(result);
+            Assert.NotNull(result.Candidates);
+            Assert.NotNull(result.Statistics);
+        }
+
+        [Theory]
+        [InlineData("2025-12-01", 60, 8, 30, 10, 50, 60)]  // ?��??�数
+        [InlineData("2025-12-01", 50, 15, 30, 10, 30, 30)] // 低门�?
+        [InlineData("2025-12-01", 80, 8, 20, 10, 40, 90)]  // 高门�?
+        public async Task AnalyzeDate_WithDifferentParameters_ReturnsValidResponse(
+            string date, int minScore, int minCooling, int maxCooling, 
+            decimal minVolume, decimal maxVolume, int tracking)
+        {
+            // Arrange
+            var url = $"/api/TimeMachineAnalysis/analyze/{date}?" +
+                     $"minMaturityScore={minScore}&minCoolingDays={minCooling}&" +
+                     $"maxCoolingDays={maxCooling}&minPeakVolumeRatio={minVolume}&" +
+                     $"maxPeakVolumeRatio={maxVolume}&trackingDays={tracking}";
+
+            // Act
+            var response = await _client.GetAsync(url);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            
+            var result = await response.Content.ReadFromJsonAsync<TimeMachineAnalysisResponse>();
+            Assert.NotNull(result);
+            Assert.Equal(tracking, result.TrackingDays);
+        }
+
+        [Theory]
+        [InlineData("invalid-date")]           // ?��??��??��?
+        [InlineData("2025-13-01")]            // ?��??�份
+        [InlineData("2025-12-32")]            // ?��??��?
+        public async Task AnalyzeDate_WithInvalidDate_ReturnsBadRequest(string invalidDate)
+        {
+            // Arrange
+            var url = $"/api/TimeMachineAnalysis/analyze/{invalidDate}?" +
+                     "minMaturityScore=60&minCoolingDays=8&maxCoolingDays=30&" +
+                     "minPeakVolumeRatio=10&maxPeakVolumeRatio=50&trackingDays=60";
+
+            // Act
+            var response = await _client.GetAsync(url);
+
+            // Assert
+            Assert.True(response.StatusCode == HttpStatusCode.BadRequest || 
+                       response.StatusCode == HttpStatusCode.InternalServerError,
+                       $"Expected BadRequest or InternalServerError but got {response.StatusCode}");
+        }
+
+        [Fact]
+        public async Task AnalyzeDate_WithDefaultParameters_ReturnsOk()
+        {
+            // Arrange - 使用默认?�数（只传�??�?�日?��??��?
+            var url = "/api/TimeMachineAnalysis/analyze/2025-12-01";
+
+            // Act
+            var response = await _client.GetAsync(url);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            
+            var result = await response.Content.ReadFromJsonAsync<TimeMachineAnalysisResponse>();
+            Assert.NotNull(result);
+        }
+
+        [Fact]
+        public async Task AnalyzeDate_ResponseContainsExpectedStructure()
+        {
+            // Arrange
+            var url = "/api/TimeMachineAnalysis/analyze/2025-12-01?" +
+                     "minMaturityScore=60&minCoolingDays=8&maxCoolingDays=30&" +
+                     "minPeakVolumeRatio=10&maxPeakVolumeRatio=50&trackingDays=60";
+
+            // Act
+            var response = await _client.GetAsync(url);
+            var result = await response.Content.ReadFromJsonAsync<TimeMachineAnalysisResponse>();
+
+            // Assert
+            Assert.NotNull(result);
+            
+            // 验�??��?结�?
+            Assert.NotNull(result.AnalysisDate);
+            Assert.NotNull(result.Candidates);
+            Assert.NotNull(result.Statistics);
+            Assert.True(result.TrackingDays > 0);
+            
+            // 验�?统计?�据结�?
+            Assert.True(result.Statistics.TotalCandidates >= 0);
+            Assert.True(result.Statistics.SuccessRate >= 0 && result.Statistics.SuccessRate <= 100);
+            Assert.True(result.Statistics.AverageMaxGain >= 0);
+            
+            // 如�??�候选股票�?验�??��???
+            if (result.Candidates.Count > 0)
+            {
+                var candidate = result.Candidates[0];
+                Assert.NotNull(candidate.StockCode);
+                Assert.True(candidate.MaturityScore >= 0);
+                Assert.NotNull(candidate.HotspotDate);
+                Assert.NotNull(candidate.PriceHistory);
+            }
+        }
+
+        [Fact]
+        public async Task AnalyzeDate_VerifyCandidatesAreSortedByMaturityScore()
+        {
+            // Arrange
+            var url = "/api/TimeMachineAnalysis/analyze/2025-12-01?" +
+                     "minMaturityScore=60&minCoolingDays=8&maxCoolingDays=30&" +
+                     "minPeakVolumeRatio=10&maxPeakVolumeRatio=50&trackingDays=60";
+
+            // Act
+            var response = await _client.GetAsync(url);
+            var result = await response.Content.ReadFromJsonAsync<TimeMachineAnalysisResponse>();
+
+            // Assert
+            Assert.NotNull(result);
+            
+            if (result.Candidates.Count > 1)
+            {
+                // 验�??�选股票�??��?度�??��?序�???
+                for (int i = 0; i < result.Candidates.Count - 1; i++)
+                {
+                    Assert.True(result.Candidates[i].MaturityScore >= result.Candidates[i + 1].MaturityScore,
+                        $"?�选股票未?��??�度评�??��?: {result.Candidates[i].MaturityScore} < {result.Candidates[i + 1].MaturityScore}");
+                }
+            }
+        }
+
+        [Fact]
+        public async Task AnalyzeDate_VerifyStatisticsMatchCandidates()
+        {
+            // Arrange
+            var url = "/api/TimeMachineAnalysis/analyze/2025-12-01?" +
+                     "minMaturityScore=60&minCoolingDays=8&maxCoolingDays=30&" +
+                     "minPeakVolumeRatio=10&maxPeakVolumeRatio=50&trackingDays=60";
+
+            // Act
+            var response = await _client.GetAsync(url);
+            var result = await response.Content.ReadFromJsonAsync<TimeMachineAnalysisResponse>();
+
+            // Assert
+            Assert.NotNull(result);
+            
+            // 统计?�据应该与候选�?表匹??
+            Assert.Equal(result.Candidates.Count, result.Statistics.TotalCandidates);
+            
+            // 如�??�候选股票�?验�??��??�计�?
+            if (result.Candidates.Count > 0)
+            {
+                int successCount = result.Candidates.Count(c => c.MaxGain >= 20);
+                decimal expectedSuccessRate = (decimal)successCount / result.Candidates.Count * 100;
+                Assert.Equal(expectedSuccessRate, result.Statistics.SuccessRate, 0.1m);
+            }
+        }
+
+        [Fact]
+        public async Task AnalyzeDate_PerformanceTest_CompletesWithinTimeout()
+        {
+            // Arrange
+            var url = "/api/TimeMachineAnalysis/analyze/2025-12-01?" +
+                     "minMaturityScore=60&minCoolingDays=8&maxCoolingDays=30&" +
+                     "minPeakVolumeRatio=10&maxPeakVolumeRatio=50&trackingDays=60";
+            
+            var startTime = System.Diagnostics.Stopwatch.StartNew();
+
+            // Act
+            var response = await _client.GetAsync(url);
+            
+            startTime.Stop();
+
+            // Assert
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.True(startTime.ElapsedMilliseconds < 10000, 
+                $"API request time {startTime.ElapsedMilliseconds}ms, should be < 10 seconds");
+        }
+    }
+}

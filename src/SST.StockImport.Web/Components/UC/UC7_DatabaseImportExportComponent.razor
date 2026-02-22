@@ -1,0 +1,298 @@
+@using SST.StockImport.Web.Models
+@using SST.StockImport.Web.Services
+@inject IImportApiService ApiService
+@inject ILogger<UC7_DatabaseImportExportComponent> Logger
+@inject IJSRuntime JS
+
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">💾 資料庫備份/還原</h5>
+    </div>
+    <div class="card-body">
+        <ul class="nav nav-tabs mb-3">
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "backup" ? "active" : "")" 
+                        @onclick='() => activeTab = "backup"'>
+                    💾 備份資料庫
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link @(activeTab == "restore" ? "active" : "")" 
+                        @onclick='() => activeTab = "restore"'>
+                    📂 還原資料庫
+                </button>
+            </li>
+        </ul>
+
+        @if (activeTab == "backup")
+        {
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">選擇要備份的資料庫</label>
+                        <div class="input-group">
+                            <select class="form-select" @bind="backupDatabase">
+                                @foreach (var db in databases)
+                                {
+                                    <option value="@db">@db</option>
+                                }
+                            </select>
+                            <button class="btn btn-outline-secondary" @onclick="LoadDatabasesAsync" disabled="@isLoading">
+                                @if (isLoading)
+                                {
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                }
+                                重新載入
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">備份路徑 (自動產生)</label>
+                        <input type="text" class="form-control" value="@GetBackupPath()" readonly />
+                        <small class="text-muted">格式: D:\DBbackup\OWN\[日期]_[資料庫名]</small>
+                    </div>
+
+                    <button class="btn btn-success btn-lg" @onclick="BackupDatabaseAsync" 
+                            disabled="@(isBackingUp || string.IsNullOrEmpty(backupDatabase))">
+                        @if (isBackingUp)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        💾 開始備份
+                    </button>
+                </div>
+                
+                <div class="col-md-6">
+                    @if (backupResult != null)
+                    {
+                        <div class="alert @(backupResult.Success ? "alert-success" : "alert-danger")">
+                            <strong>@(backupResult.Success ? "✅ 備份成功" : "❌ 備份失敗")</strong>
+                            <p class="mb-1">@backupResult.Message</p>
+                            @if (backupResult.Success)
+                            {
+                                <hr />
+                                <p class="mb-1"><strong>Schema:</strong> @backupResult.SchemaPath</p>
+                                <p class="mb-1"><strong>Data:</strong> @backupResult.DataPath</p>
+                                <p class="mb-1"><strong>表格數量:</strong> @backupResult.TableCount</p>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else if (activeTab == "restore")
+        {
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">選擇備份資料夾路徑</label>
+                        <input type="text" class="form-control mb-2" @bind="restoreSourcePath" 
+                               placeholder="例如: D:\DBbackup\OWN\20260219_sst" />
+                        
+                        <label class="form-label fw-bold">或從列表選擇：</label>
+                        <select class="form-select" @bind="restoreSourcePath">
+                            <option value="">-- 請選擇備份 --</option>
+                            @foreach (var folder in backupFolders)
+                            {
+                                <option value="@folder.FullPath">@folder.FolderName (@folder.CreatedTime.ToString("yyyy-MM-dd HH:mm"))</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">還原到目標資料庫</label>
+                        <input type="text" class="form-control" @bind="restoreTargetDatabase" 
+                               placeholder="例如: sstv2" />
+                        <small class="text-muted">若資料庫已存在將會被覆蓋</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">還原選項</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="restoreOption" id="optSchemaData" checked 
+                                   @onchange="@(() => restoreOption = "both")" />
+                            <label class="form-check-label" for="optSchemaData">Schema + Data (完整還原)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="restoreOption" id="optSchema" 
+                                   @onchange="@(() => restoreOption = "schema")" />
+                            <label class="form-check-label" for="optSchema">僅 Schema (資料表結構)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="restoreOption" id="optData" 
+                                   @onchange="@(() => restoreOption = "data")" />
+                            <label class="form-check-label" for="optData">僅 Data (資料表內容)</label>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-warning btn-lg" @onclick="RestoreDatabaseAsync" 
+                            disabled="@(isRestoring || string.IsNullOrEmpty(restoreSourcePath) || string.IsNullOrEmpty(restoreTargetDatabase))">
+                        @if (isRestoring)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        📂 開始還原
+                    </button>
+                </div>
+                
+                <div class="col-md-6">
+                    @if (restoreResult != null)
+                    {
+                        <div class="alert @(restoreResult.Success ? "alert-success" : "alert-danger")">
+                            <strong>@(restoreResult.Success ? "✅ 還原成功" : "❌ 還原失敗")</strong>
+                            <p class="mb-1">@restoreResult.Message</p>
+                            @if (restoreResult.Success)
+                            {
+                                <hr />
+                                <p class="mb-1"><strong>還原表格數量:</strong> @restoreResult.TablesImported</p>
+                            }
+                            @if (restoreResult.Errors.Count > 0)
+                            {
+                                <details>
+                                    <summary class="text-danger">錯誤訊息</summary>
+                                    <ul class="list-unstyled mt-2">
+                                        @foreach (var error in restoreResult.Errors)
+                                        {
+                                            <li class="text-danger small">@error</li>
+                                        }
+                                    </ul>
+                                </details>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private string activeTab = "backup";
+    
+    private List<string> databases = new() { "sstv2", "sst" };
+    private bool isLoading = false;
+    
+    private string backupDatabase = "sstv2";
+    private bool isBackingUp = false;
+    private DatabaseExportResult? backupResult;
+    
+    private List<BackupFolderInfo> backupFolders = new();
+    private bool isLoadingFolders = false;
+    
+    private string restoreSourcePath = "";
+    private string restoreTargetDatabase = "sstv2";
+    private string restoreOption = "both";
+    private bool isRestoring = false;
+    private DatabaseImportResult? restoreResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadDatabasesAsync(), LoadBackupFoldersAsync());
+        
+        // Fallback: if no databases loaded, use defaults
+        if (databases.Count == 0)
+        {
+            databases = new List<string> { "sstv2", "sst" };
+        }
+    }
+
+    private string GetBackupPath()
+    {
+        return $"D:\\DBbackup\\OWN\\{DateTime.Now:yyyyMMdd}_{backupDatabase}";
+    }
+
+    private async Task LoadDatabasesAsync()
+    {
+        isLoading = true;
+        try
+        {
+            databases = await ApiService.GetDatabasesAsync();
+            if (databases.Count > 0 && !databases.Contains(backupDatabase))
+            {
+                backupDatabase = databases[0];
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入資料庫列表失敗");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadBackupFoldersAsync()
+    {
+        isLoadingFolders = true;
+        try
+        {
+            backupFolders = await ApiService.GetBackupFoldersAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入備份目錄失敗");
+        }
+        finally
+        {
+            isLoadingFolders = false;
+        }
+    }
+
+    private async Task BackupDatabaseAsync()
+    {
+        if (string.IsNullOrEmpty(backupDatabase))
+            return;
+
+        isBackingUp = true;
+        backupResult = null;
+        
+        try
+        {
+            var request = new DatabaseExportRequest(backupDatabase, "");
+            backupResult = await ApiService.ExportDatabaseAsync(request);
+            
+            if (backupResult?.Success == true)
+            {
+                await LoadBackupFoldersAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "備份失敗");
+            backupResult = new DatabaseExportResult(false, ex.Message, "", "", 0, new List<string>());
+        }
+        finally
+        {
+            isBackingUp = false;
+        }
+    }
+
+    private async Task RestoreDatabaseAsync()
+    {
+        if (string.IsNullOrEmpty(restoreSourcePath) || string.IsNullOrEmpty(restoreTargetDatabase))
+            return;
+
+        isRestoring = true;
+        restoreResult = null;
+        
+        try
+        {
+            var importSchema = restoreOption == "both" || restoreOption == "schema";
+            var importData = restoreOption == "both" || restoreOption == "data";
+            
+            var request = new DatabaseImportRequest(restoreSourcePath, restoreTargetDatabase, importSchema, importData);
+            restoreResult = await ApiService.ImportDatabaseAsync(request);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "還原失敗");
+            restoreResult = new DatabaseImportResult(false, ex.Message, 0, new List<string>(), new List<string> { ex.Message });
+        }
+        finally
+        {
+            isRestoring = false;
+        }
+    }
+}

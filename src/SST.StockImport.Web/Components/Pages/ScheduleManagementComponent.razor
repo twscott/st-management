@@ -4,6 +4,7 @@
 @inject HttpClient HttpClient
 @inject ILogger<ScheduleManagementComponent> Logger
 @rendermode InteractiveServer
+@implements IDisposable
 
 <h1>⏰ 日程管理 (UC-ScheduleManagement)</h1>
 <p class="text-muted">5個自動執行時段 + 手動重新執行 + 實時狀態追蹤</p>
@@ -164,13 +165,21 @@ else
         await AutoRefreshStatus();
         await LoadDatabaseLogs();
         
-        // 設置自動刷新 (每 30 秒)
+// 設置自動刷新 (每 30 秒)
         autoRefreshTimer = new System.Timers.Timer(30000);
         autoRefreshTimer.Elapsed += async (s, e) => {
-            await AutoRefreshStatus();
-            await LoadDatabaseLogs();
+            await InvokeAsync(async () => {
+                await AutoRefreshStatus();
+                await LoadDatabaseLogs();
+            });
         };
         autoRefreshTimer.Start();
+    }
+
+    public void Dispose()
+    {
+        autoRefreshTimer?.Stop();
+        autoRefreshTimer?.Dispose();
     }
 
     private async Task LoadDatabaseLogs()

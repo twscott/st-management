@@ -9,10 +9,14 @@ using SST.StockImport.Infrastructure.Data;
 using SST.StockImport.Services;
 
 // 配置 Serilog（早期初始化，捕捉啟動錯誤）
-Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console()
-    .WriteTo.File("logs/sst-bootstrap-.log", rollingInterval: RollingInterval.Day)
-    .CreateBootstrapLogger();
+// 測試環境中跳過 Serilog 初始化，由 WebApplicationFactory 管理
+if (!Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")?.Contains("Testing") ?? true)
+{
+    Log.Logger = new LoggerConfiguration()
+        .WriteTo.Console()
+        .WriteTo.File("logs/sst-bootstrap-.log", rollingInterval: RollingInterval.Day)
+        .CreateBootstrapLogger();
+}
 
 try
 {
@@ -37,17 +41,22 @@ try
     });
     
     // 使用 Serilog（從 appsettings.json 載入完整配置）
-    builder.Host.UseSerilog((context, services, configuration) => configuration
-        .ReadFrom.Configuration(context.Configuration)
-        .ReadFrom.Services(services)
-        .Enrich.FromLogContext()
-        .WriteTo.Console()
-        .WriteTo.File(
-            path: "logs/sst-import-.log",
-            rollingInterval: RollingInterval.Day,
-            retainedFileCountLimit: 30,
-            shared: true,
-            outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}{NewLine}{Message:lj}{NewLine}{Exception}{NewLine}"));
+    // 測試環境中使用簡化配置，避免 "logger already frozen" 錯誤
+    // 僅在非測試環境中才調用 UseSerilog，因為測試環境由 CustomWebApplicationFactory 管理
+    if (!builder.Environment.IsEnvironment("Testing"))
+    {
+        builder.Host.UseSerilog((context, services, configuration) => configuration
+            .ReadFrom.Configuration(context.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext()
+            .WriteTo.Console()
+            .WriteTo.File(
+                path: "logs/sst-import-.log",
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 30,
+                shared: true,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}{NewLine}{Message:lj}{NewLine}{Exception}{NewLine}"));
+    }
 
 // Add services to the container.
 // 註冊 Infrastructure 層（DbContext + Repositories）

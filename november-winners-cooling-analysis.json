@@ -1,0 +1,86 @@
+﻿[
+    {
+        "Date":  "2025-11-03",
+        "StockCode":  "3163",
+        "MaxGain":  74.6,
+        "CoolingDays":  28,
+        "MaturityScore":  90.0,
+        "PeakVolumeRatio":  17.00,
+        "MAAlignment":  "Bullish",
+        "PriceVsMA20":  7.23,
+        "KD_K":  81.48,
+        "KDStatus":  "Overbought"
+    },
+    {
+        "Date":  "2025-11-03",
+        "StockCode":  "3162",
+        "MaxGain":  31.1,
+        "CoolingDays":  28,
+        "MaturityScore":  90.0,
+        "PeakVolumeRatio":  19.00,
+        "MAAlignment":  "Mixed",
+        "PriceVsMA20":  3.75,
+        "KD_K":  53.91,
+        "KDStatus":  "GoldenCross"
+    },
+    {
+        "Date":  "2025-11-04",
+        "StockCode":  "3163",
+        "MaxGain":  86.7,
+        "CoolingDays":  29,
+        "MaturityScore":  90.0,
+        "PeakVolumeRatio":  17.00,
+        "MAAlignment":  "Bullish",
+        "PriceVsMA20":  0.18,
+        "KD_K":  54.32,
+        "KDStatus":  "DeathCross"
+    },
+    {
+        "Date":  "2025-11-05",
+        "StockCode":  "3163",
+        "MaxGain":  92.7,
+        "CoolingDays":  30,
+        "MaturityScore":  90.0,
+        "PeakVolumeRatio":  17.00,
+        "MAAlignment":  "Mixed",
+        "PriceVsMA20":  -3.08,
+        "KD_K":  36.21,
+        "KDStatus":  "DeathCross"
+    },
+    {
+        "Date":  "2025-11-05",
+        "StockCode":  "3162",
+        "MaxGain":  20.8,
+        "CoolingDays":  30,
+        "MaturityScore":  90.0,
+        "PeakVolumeRatio":  19.00,
+        "MAAlignment":  "Bullish",
+        "PriceVsMA20":  10.99,
+        "KD_K":  76.18,
+        "KDStatus":  "GoldenCross"
+    },
+    {
+        "Date":  "2025-11-21",
+        "StockCode":  "6220",
+        "MaxGain":  24.2,
+        "CoolingDays":  15,
+        "MaturityScore":  90.0,
+        "PeakVolumeRatio":  10.00,
+        "MAAlignment":  "Bullish",
+        "PriceVsMA20":  0,
+        "KD_K":  49.41,
+        "KDStatus":  "DeathCross"
+    },
+    {
+        "Date":  "2025-11-21",
+        "StockCode":  "4745",
+        "MaxGain":  30.2,
+        "CoolingDays":  15,
+        "MaturityScore":  90.0,
+        "PeakVolumeRatio":  14.00,
+        "MAAlignment":  "Bullish",
+        "PriceVsMA20":  21.54,
+        "KD_K":  82.08,
+        "KDStatus":  "GoldenCross"
+    }
+]

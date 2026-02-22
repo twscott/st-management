@@ -234,5 +234,96 @@ public class ImportApiService : IImportApiService
         }
     }
 
-    private record LatestDateResponse(DateTime LatestDate);
+private record LatestDateResponse(DateTime LatestDate);
+
+    public async Task<List<string>> GetDatabasesAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<DatabaseListResult>("/api/database/list");
+            return response?.Databases ?? new List<string>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取資料庫列表失敗");
+            return new List<string>();
+        }
+    }
+
+    public async Task<DatabaseTablesResult?> GetTablesAsync(string databaseName)
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<DatabaseTablesResult>($"/api/database/{databaseName}/tables");
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取資料表列表失敗");
+            return null;
+        }
+    }
+
+    public async Task<DatabaseExportResult?> ExportDatabaseAsync(DatabaseExportRequest request)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("/api/database/export", request);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<DatabaseExportResult>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "匯出資料庫失敗");
+            return new DatabaseExportResult(false, ex.Message, "", "", 0, new List<string>());
+        }
+    }
+
+    public async Task<DatabaseImportResult?> ImportDatabaseAsync(DatabaseImportRequest request)
+    {
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("/api/database/import", request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Import failed with {StatusCode}: {ErrorContent}", response.StatusCode, errorContent);
+                return new DatabaseImportResult(false, $"HTTP {response.StatusCode}: {errorContent}", 0, new List<string>(), new List<string> { errorContent });
+            }
+            return await response.Content.ReadFromJsonAsync<DatabaseImportResult>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "匯入資料庫失敗");
+            return new DatabaseImportResult(false, ex.Message, 0, new List<string>(), new List<string> { ex.Message });
+        }
+    }
+
+    public async Task<bool> TestDatabaseConnectionAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync("/api/database/test-connection");
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "測試資料庫連線失敗");
+            return false;
+        }
+    }
+
+    public async Task<List<BackupFolderInfo>> GetBackupFoldersAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<BackupFoldersResult>("/api/database/backups");
+            return response?.Folders ?? new List<BackupFolderInfo>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取備份目錄失敗");
+            return new List<BackupFolderInfo>();
+        }
+    }
 }

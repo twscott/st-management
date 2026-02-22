@@ -19,11 +19,11 @@ namespace SST.StockImport.API.Tests;
 /// - 狀態管理和執行日誌
 /// - 完整的數據流經過整個系統
 /// </summary>
-public class SSTProcessingSandboxTests : IClassFixture<WebApplicationFactory<Program>>
+public class SSTProcessingSandboxTests : IClassFixture<CustomWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly CustomWebApplicationFactory _factory;
 
-    public SSTProcessingSandboxTests(WebApplicationFactory<Program> factory)
+    public SSTProcessingSandboxTests(CustomWebApplicationFactory factory)
     {
         _factory = factory;
     }
