@@ -234,6 +234,20 @@ public class ImportApiService : IImportApiService
         }
     }
 
+    public async Task<DateTime?> GetDownloadTargetDateAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<LatestDateResponse>("/api/import/download-target-date");
+            return response?.LatestDate;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取下載目標日期失敗");
+            return null;
+        }
+    }
+
 private record LatestDateResponse(DateTime LatestDate);
 
     public async Task<List<string>> GetDatabasesAsync()
@@ -326,4 +340,39 @@ private record LatestDateResponse(DateTime LatestDate);
             return new List<BackupFolderInfo>();
         }
     }
-}
+    public async Task<CurrentConnectionResult?> GetCurrentConnectionAsync()
+    {
+        try
+        {
+            var response = await _httpClient.GetFromJsonAsync<CurrentConnectionResult>("/api/database/current-connection");
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取當前數據庫連接失敗");
+            return null;
+        }
+    }
+
+    public async Task<SwitchConnectionResult?> SwitchConnectionAsync(string databaseName)
+    {
+        try
+        {
+            var request = new { DatabaseName = databaseName };
+            var response = await _httpClient.PostAsJsonAsync("/api/database/switch-connection", request);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadFromJsonAsync<SwitchConnectionResult>();
+            }
+            
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("切換數據庫失敗: {Error}", errorContent);
+            return new SwitchConnectionResult(false, $"Failed: {response.StatusCode}", "", "");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "切換數據庫連接失敗");
+            return new SwitchConnectionResult(false, ex.Message, "", "");
+        }
+    }}

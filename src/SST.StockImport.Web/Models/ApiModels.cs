@@ -253,3 +253,16 @@ public record BackupFoldersResult(
     List<BackupFolderInfo> Folders,
     int Count
 );
+
+public record CurrentConnectionResult(
+    string DatabaseName,
+    bool IsProduction,
+    string? ConnectionString
+);
+
+public record SwitchConnectionResult(
+    bool Success,
+    string Message,
+    string PreviousDatabase,
+    string NewDatabase
+);

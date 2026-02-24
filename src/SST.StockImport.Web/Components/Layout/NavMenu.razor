@@ -1,6 +1,43 @@
+@using SST.StockImport.Web.Services
+@inject IImportApiService ApiService
+@inject ILogger<NavMenu> Logger
+@inject IJSRuntime JS
+
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="">📊 SST 股票匯入系統</a>
+    </div>
+</div>
+
+<!-- Database Status Banner -->
+<div class="database-status-banner @GetDatabaseBannerClass()">
+    <div class="d-flex justify-content-between align-items-center px-3 py-2">
+        <div class="database-info">
+            @if (isLoadingDatabase)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                <span>載入中...</span>
+            }
+            else if (!string.IsNullOrEmpty(currentDatabase))
+            {
+                <span class="database-icon">@GetDatabaseIcon()</span>
+                <strong>@GetDatabaseDisplayText()</strong>
+            }
+            else
+            {
+                <span>⚠️ 無法載入資料庫資訊</span>
+            }
+        </div>
+        
+        <div class="database-switcher">
+            <select class="form-select form-select-sm" 
+                    @bind="selectedDatabase" 
+                    @bind:after="OnDatabaseSelectionChanged"
+                    disabled="@(isLoadingDatabase || isSwitching)">
+                <option value="sstv2">sstv2 (開發測試)</option>
+                <option value="sst">sst (正式環境 ⚠️)</option>
+            </select>
+        </div>
     </div>
 </div>
 
@@ -58,3 +95,127 @@
     </nav>
 </div>
 
+@code {
+    private string currentDatabase = "";
+    private string selectedDatabase = "sstv2";
+    private bool isLoadingDatabase = true;
+    private bool isSwitching = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentDatabaseAsync();
+    }
+
+    private async Task LoadCurrentDatabaseAsync()
+    {
+        isLoadingDatabase = true;
+        try
+        {
+            var result = await ApiService.GetCurrentConnectionAsync();
+            if (result != null)
+            {
+                currentDatabase = result.DatabaseName;
+                selectedDatabase = result.DatabaseName;
+            }
+            else
+            {
+                currentDatabase = "unknown";
+                Logger.LogWarning("Failed to load current database connection");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading current database");
+            currentDatabase = "error";
+        }
+        finally
+        {
+            isLoadingDatabase = false;
+        }
+    }
+
+    private async Task OnDatabaseSelectionChanged()
+    {
+        if (selectedDatabase == currentDatabase)
+            return;
+
+        var isProduction = selectedDatabase.Equals("sst", StringComparison.OrdinalIgnoreCase);
+        
+        var confirmMessage = isProduction
+            ? $"⚠️ 警告！\n\n您即將切換到正式環境資料庫 (sst)！\n\n這將影響生產數據，請確認您了解此操作的風險。\n\n確定要繼續嗎？"
+            : $"您即將切換到開發測試資料庫 (sstv2)。\n\n應用將會重新啟動。\n\n確定要繼續嗎？";
+
+        var confirmed = await JS.InvokeAsync<bool>("confirm", confirmMessage);
+        
+        if (!confirmed)
+        {
+            // 恢復選擇
+            selectedDatabase = currentDatabase;
+            return;
+        }
+
+        isSwitching = true;
+        try
+        {
+            var result = await ApiService.SwitchConnectionAsync(selectedDatabase);
+            
+            if (result?.Success == true)
+            {
+                await JS.InvokeVoidAsync("alert", 
+                    $"✅ 資料庫已切換到 {selectedDatabase}\n\n" +
+                    $"應用將在 1 秒後重新啟動...\n\n" +
+                    $"請稍候，頁面會自動重新載入。");
+                
+                // 等待應用重啟並重新載入頁面
+                await Task.Delay(2000);
+                await JS.InvokeVoidAsync("location.reload");
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("alert", 
+                    $"❌ 切換失敗\n\n{result?.Message ?? "Unknown error"}");
+                selectedDatabase = currentDatabase;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error switching database");
+            await JS.InvokeVoidAsync("alert", 
+                $"❌ 切換失敗\n\n{ex.Message}\n\n應用可能已經重新啟動，請手動重新整理頁面。");
+            
+            // 2秒後嘗試重新載入
+            await Task.Delay(2000);
+            await JS.InvokeVoidAsync("location.reload");
+        }
+        finally
+        {
+            isSwitching = false;
+        }
+    }
+
+    private string GetDatabaseBannerClass()
+    {
+        if (string.IsNullOrEmpty(currentDatabase) || currentDatabase == "unknown" || currentDatabase == "error")
+            return "database-banner-unknown";
+
+        return currentDatabase.Equals("sst", StringComparison.OrdinalIgnoreCase)
+            ? "database-banner-production"
+            : "database-banner-development";
+    }
+
+    private string GetDatabaseIcon()
+    {
+        return currentDatabase.Equals("sst", StringComparison.OrdinalIgnoreCase)
+            ? "⚠️" : "✅";
+    }
+
+    private string GetDatabaseDisplayText()
+    {
+        if (string.IsNullOrEmpty(currentDatabase))
+            return "載入中...";
+
+        return currentDatabase.Equals("sst", StringComparison.OrdinalIgnoreCase)
+            ? $"正式環境 (sst) - 請小心操作！"
+            : $"開發測試環境 (sstv2)";
+    }
+}

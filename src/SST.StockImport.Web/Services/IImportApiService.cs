@@ -61,6 +61,13 @@ public interface IImportApiService
     /// </summary>
     Task<DateTime?> GetLatestTradingDateAsync();
 
+    /// <summary>
+    /// 獲取下載目標日期（智能決定邏輯）
+    /// 默認：昨天
+    /// 特殊情況：當 investbase.RecDate == 今天 且 時間 < 15:00 → investbase.LastDate
+    /// </summary>
+    Task<DateTime?> GetDownloadTargetDateAsync();
+
     Task<List<string>> GetDatabasesAsync();
     
     Task<DatabaseTablesResult?> GetTablesAsync(string databaseName);
@@ -72,4 +79,14 @@ public interface IImportApiService
     Task<bool> TestDatabaseConnectionAsync();
     
     Task<List<BackupFolderInfo>> GetBackupFoldersAsync();
+
+    /// <summary>
+    /// 获取当前连接的数据库
+    /// </summary>
+    Task<CurrentConnectionResult?> GetCurrentConnectionAsync();
+
+    /// <summary>
+    /// 切换数据库连接
+    /// </summary>
+    Task<SwitchConnectionResult?> SwitchConnectionAsync(string databaseName);
 }
