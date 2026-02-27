@@ -71,7 +71,7 @@ public class WeekAll4Processor : IDataProcessor
 
     /// <summary>
     /// 從 weekall 更新交易資料到 tradedata
-    /// 更新欄位：lastDate, StockPrice, Vol, avgVol5D, MA5, MA10, MA20, MAseason 等
+    /// 更新欄位：lastDate, EndPrice, Vol 等基本欄位
     /// </summary>
     private async Task<int> UpdateFromWeekAllAsync(DateTime targetDate)
     {
@@ -84,11 +84,6 @@ public class WeekAll4Processor : IDataProcessor
                 a.lastDate = b.lastDate,
                 a.StockPrice = b.EndPrice,
                 a.Vol = b.Vol,
-                a.avgVol5D = b.MV5,
-                a.MA5 = b.MA5,
-                a.MA10 = b.MA10,
-                a.MA20 = b.MA20,
-                a.MAseason = b.MA60,
                 a.OpenPriec = b.OpenPriec,
                 a.HPrice = b.HPrice,
                 a.LPrice = b.LPrice
