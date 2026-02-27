@@ -201,8 +201,16 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                     SELECT 
                         t.StockID,
                         t.EndPrice as currentPrice,
-                        MAX(t.EndPrice) OVER (PARTITION BY t.StockID) as maxPrice,
-                        MIN(t.EndPrice) OVER (PARTITION BY t.StockID) as minPrice,
+                        MAX(t.EndPrice) OVER (
+                            PARTITION BY t.StockID 
+                            ORDER BY t.LastDate 
+                            ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
+                        ) as maxPrice9,
+                        MIN(t.EndPrice) OVER (
+                            PARTITION BY t.StockID 
+                            ORDER BY t.LastDate 
+                            ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
+                        ) as minPrice9,
                         LAG(t.KD_K) OVER (PARTITION BY t.StockID ORDER BY t.LastDate) as prev_K,
                         LAG(t.KD_D) OVER (PARTITION BY t.StockID ORDER BY t.LastDate) as prev_D
                     FROM stock60days t
@@ -212,34 +220,35 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                       AND t.EndPrice > 0
                 ) calc ON s.StockID = calc.StockID
                 SET s.KD_RSV = CASE 
-                    WHEN calc.maxPrice = calc.minPrice THEN 0 
-                    ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                    WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
+                    ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
                 END,
                     s.KD_K = CASE 
                         WHEN calc.prev_K IS NULL OR calc.prev_K = 0 THEN CASE 
-                            WHEN calc.maxPrice = calc.minPrice THEN 0 
-                            ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                            WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
+                            ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
                         END
                         ELSE ROUND((2.0/3.0) * calc.prev_K + (1.0/3.0) * CASE 
-                            WHEN calc.maxPrice = calc.minPrice THEN 0 
-                            ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                            WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
+                            ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
                         END, 4)
                     END,
                     s.KD_D = CASE
                         WHEN calc.prev_D IS NULL OR calc.prev_D = 0 THEN CASE
-                            WHEN calc.maxPrice = calc.minPrice THEN 0 
-                            ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                            WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
+                            ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
                         END
-                        ELSE ROUND((2.0/3.0) * calc.prev_D + (1.0/3.0) * CASE
-                            WHEN calc.prev_K IS NULL OR calc.prev_K = 0 THEN CASE 
-                                WHEN calc.maxPrice = calc.minPrice THEN 0 
-                                ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
-                            END
-                            ELSE ROUND((2.0/3.0) * calc.prev_K + (1.0/3.0) * CASE 
-                                WHEN calc.maxPrice = calc.minPrice THEN 0 
-                                ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                        ELSE ROUND((2.0/3.0) * calc.prev_D + (1.0/3.0) * 
+                            CASE 
+                                WHEN calc.prev_K IS NULL OR calc.prev_K = 0 THEN CASE 
+                                    WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
+                                    ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
+                                END
+                                ELSE ROUND((2.0/3.0) * calc.prev_K + (1.0/3.0) * CASE 
+                                    WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
+                                    ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
+                                END, 4)
                             END, 4)
-                        END, 4)
                     END
                 WHERE s.LastDate = '{targetDateStr}'";
 
@@ -263,19 +272,25 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 INNER JOIN (
                     SELECT 
                         StockID,
-                        AVG(EndPrice) as ma,
-                        STDDEV_POP(EndPrice) as stddev
+                        AVG(EndPrice) OVER (
+                            PARTITION BY StockID 
+                            ORDER BY LastDate 
+                            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                        ) as ma20,
+                        STDDEV_POP(EndPrice) OVER (
+                            PARTITION BY StockID 
+                            ORDER BY LastDate 
+                            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
+                        ) as stddev20
                     FROM stock60days 
                     WHERE LastDate IS NOT NULL 
                       AND LastDate <= '{targetDateStr}'
                       AND EndPrice IS NOT NULL
                       AND EndPrice > 0
-                    GROUP BY StockID
-                    HAVING COUNT(*) >= 20
                 ) calc ON s.StockID = calc.StockID
-                SET s.BoolMid = ROUND(calc.ma, 4),
-                    s.BoolUp = ROUND(calc.ma + 2 * calc.stddev, 4),
-                    s.BoolDown = GREATEST(ROUND(calc.ma - 2 * calc.stddev, 4), 0)
+                SET s.BoolMid = ROUND(calc.ma20, 4),
+                    s.BoolUp = ROUND(calc.ma20 + 2 * calc.stddev20, 4),
+                    s.BoolDown = GREATEST(ROUND(calc.ma20 - 2 * calc.stddev20, 4), 0)
                 WHERE s.LastDate = '{targetDateStr}'";
 
             var rows = await context.Database.ExecuteSqlRawAsync(sql);
