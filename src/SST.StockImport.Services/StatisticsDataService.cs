@@ -4,9 +4,12 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using SST.StockImport.Core.DTOs;
 using SST.StockImport.Core.Interfaces;
 using SST.StockImport.Services.Processors;
+using SST.StockImport.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace SST.StockImport.Services;
 
@@ -26,6 +29,9 @@ public class StatisticsDataService : IStatisticsDataService
     // Stock60 重算服務
     private readonly IStock60DaysRecalcService _stock60RecalcService;
 
+    // DbContext for finding LastDate from InvestBase
+    private readonly IServiceScopeFactory _scopeFactory;
+
     private readonly ILogger<StatisticsDataService> _logger;
 
     public StatisticsDataService(
@@ -37,6 +43,7 @@ public class StatisticsDataService : IStatisticsDataService
         InvestBaseDataProcessor investBaseDataProcessor,
         // Stock60 重算
         IStock60DaysRecalcService stock60RecalcService,
+        IServiceScopeFactory scopeFactory,
         ILogger<StatisticsDataService> logger)
     {
         _weekAll4Processor = weekAll4Processor;
@@ -45,7 +52,25 @@ public class StatisticsDataService : IStatisticsDataService
         _alertStatisticsProcessor = alertStatisticsProcessor;
         _investBaseDataProcessor = investBaseDataProcessor;
         _stock60RecalcService = stock60RecalcService;
+        _scopeFactory = scopeFactory;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// 從 InvestBase 找到對應的 LastDate
+    /// </summary>
+    private async Task<DateTime?> GetLastDateFromRecDateAsync(DateTime recDate)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
+        
+        var lastDate = await context.InvestBase
+            .Where(i => i.RecDate == recDate)
+            .Select(i => i.LastDate)
+            .FirstOrDefaultAsync();
+        
+        _logger.LogInformation("從 RecDate={RecDate} 找到 LastDate={LastDate}", recDate, lastDate);
+        return lastDate;
     }
 
     /// <summary>
@@ -93,20 +118,38 @@ public class StatisticsDataService : IStatisticsDataService
                 result.ProcessorResults.Add(investBaseResult);
 
                 // ========== Stock60 重算 (1天 - 当天资料) ==========
-                _logger.LogInformation("開始 Stock60 重算 for {Date}", currentDate);
-                var stock60Result = await _stock60RecalcService.RecalculateAsync(currentDate, 1);
+                // 從 InvestBase 找到對應的 LastDate (交易日期)
+                var lastDate = await GetLastDateFromRecDateAsync(currentDate);
                 
-                _logger.LogInformation("Stock60 重算結果: Success={Success}, ProcessedDays={Days}, Error={Error}", 
-                    stock60Result.Success, stock60Result.ProcessedDays, stock60Result.ErrorMessage);
-                
-                result.ProcessorResults.Add(new ProcessorResultDto
+                if (lastDate.HasValue)
                 {
-                    ProcessorName = "Stock60重算(當天)",
-                    Success = stock60Result.Success,
-                    ProcessedCount = stock60Result.ProcessedDays,
-                    ErrorMessage = stock60Result.ErrorMessage,
-                    Duration = stock60Result.Duration
-                });
+                    _logger.LogInformation("開始 Stock60 重算 for lastDate={LastDate}", lastDate.Value);
+                    var stock60Result = await _stock60RecalcService.RecalculateAsync(lastDate.Value, 1);
+                    
+                    _logger.LogInformation("Stock60 重算結果: Success={Success}, ProcessedDays={Days}, Error={Error}", 
+                        stock60Result.Success, stock60Result.ProcessedDays, stock60Result.ErrorMessage);
+                    
+                    result.ProcessorResults.Add(new ProcessorResultDto
+                    {
+                        ProcessorName = "Stock60重算(當天)",
+                        Success = stock60Result.Success,
+                        ProcessedCount = stock60Result.ProcessedDays,
+                        ErrorMessage = stock60Result.ErrorMessage,
+                        Duration = stock60Result.Duration
+                    });
+                }
+                else
+                {
+                    _logger.LogWarning("找不到 recDate={RecDate} 對應的 LastDate，跳過 Stock60 重算", currentDate);
+                    result.ProcessorResults.Add(new ProcessorResultDto
+                    {
+                        ProcessorName = "Stock60重算(當天)",
+                        Success = true,
+                        ProcessedCount = 0,
+                        ErrorMessage = null,
+                        Duration = TimeSpan.Zero
+                    });
+                }
 
                 _logger.LogInformation("---------- {Date} 處理完成 ----------", currentDate);
             }
