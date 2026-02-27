@@ -1,0 +1,109 @@
+@using SST.StockImport.Web.Services
+@inject OperationExecutorService OperationService
+@inject ErrorHandlingService ErrorService
+@inject ILogger<UC3_StatisticsComponent> Logger
+
+<!-- 合併 UC3 + UC5: All4 + 統計資料處理 -->
+<div class="col-md-6 col-lg-3">
+    <div class="card h-100 border-warning">
+        <div class="card-header bg-light">
+            <h6 class="mb-0">🔄 All4 + 統計資料</h6>
+        </div>
+        <div class="card-body text-center">
+            <div class="mb-3">
+                <label class="form-label small text-muted">交易日 (RecDate)</label>
+                <input type="date" class="form-control form-control-sm" 
+                       @bind="targetDate" 
+                       disabled="@isExecuting" />
+            </div>
+            
+            <button class="btn btn-warning btn-lg w-100 mb-2" 
+                    @onclick="ExecuteAll" 
+                    disabled="@isExecuting">
+                @if (isExecuting)
+                {
+                    <span class="spinner-border spinner-border-sm me-2"></span>
+                    <text>執行中...</text>
+                }
+                else
+                {
+                    <text>執行 All4 + 統計</text>
+                }
+            </button>
+            
+            @if (!string.IsNullOrEmpty(resultMessage))
+            {
+                <div class="alert alert-@GetAlertClass() p-2 small">
+                    @((MarkupString)resultMessage.Replace("\n", "<br>"))
+                </div>
+            }
+            
+            @if (isExecuting)
+            {
+                <div class="mt-2">
+                    <small class="text-warning">
+                        ⏰ 預計處理時間較長
+                    </small>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private DateTime targetDate = DateTime.Today.AddDays(-1);
+    private bool isExecuting = false;
+    private string resultMessage = "";
+    private bool showAll4Status = false;
+    private bool showStatsStatus = false;
+
+    private async Task ExecuteAll()
+    {
+        if (isExecuting) return;
+
+        isExecuting = true;
+        resultMessage = "";
+        showAll4Status = false;
+        showStatsStatus = false;
+        StateHasChanged();
+
+        try
+        {
+            // 先執行 All4
+            var all4Result = await OperationService.ExecuteAll4SupplementsAsync(targetDate);
+            
+            // 再執行 Statistics
+            var statsResult = await OperationService.ExecuteStatisticsProcessingAsync(targetDate, 1);
+            
+            if (all4Result.IsSuccess && statsResult.IsSuccess)
+            {
+                resultMessage = "✅ All4 + 統計資料處理完成";
+                showAll4Status = true;
+                showStatsStatus = true;
+            }
+            else
+            {
+                resultMessage = $"⚠️ 部分處理失敗:\n";
+                if (!all4Result.IsSuccess)
+                    resultMessage += $"- All4: {all4Result.Message}\n";
+                if (!statsResult.IsSuccess)
+                    resultMessage += $"- 統計: {statsResult.Message}";
+            }
+        }
+        catch (Exception ex)
+        {
+            resultMessage = ErrorService.HandleException(ex, "All4 + 統計資料處理");
+        }
+        finally
+        {
+            isExecuting = false;
+            StateHasChanged();
+        }
+    }
+
+    private string GetAlertClass()
+    {
+        if (string.IsNullOrEmpty(resultMessage)) return "info";
+        return resultMessage.StartsWith("✅") ? "success" : "warning";
+    }
+}

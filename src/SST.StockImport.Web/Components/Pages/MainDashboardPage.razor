@@ -24,7 +24,7 @@
         </div>
     </div>
 
-    <!-- UC2-UC5: 主要功能按鈕區 -->
+    <!-- UC2-UC3: 主要功能按鈕區 -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
@@ -36,14 +36,11 @@
                         <!-- UC2: 交易資料下載 -->
                         <UC2_TradeDataComponent />
                         
-                        <!-- UC3: All4 補充處理 -->
-                        <UC3_SupplementProcessComponent />
+                        <!-- 合併 UC3+UC5: All4 + 統計資料 -->
+                        <UC3_StatisticsComponent />
                         
-                        <!-- UC4: GoodInfo 下載 -->
-                        <UC4_GoodInfoComponent />
-                        
-                        <!-- UC5: 統計資料處理 -->
-                        <UC5_StatisticsComponent />
+                        <!-- UC4: GoodInfo 下載 (已隱藏 - 無法使用) -->
+                        @* <UC4_GoodInfoComponent /> *@
                     </div>
                 </div>
             </div>
