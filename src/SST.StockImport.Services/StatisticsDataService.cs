@@ -57,20 +57,21 @@ public class StatisticsDataService : IStatisticsDataService
     }
 
     /// <summary>
-    /// 從 InvestBase 找到對應的 LastDate
+    /// 從 InvestBase 找到對應的 RecDate (交易日期/LastDay)
     /// </summary>
-    private async Task<DateTime?> GetLastDateFromRecDateAsync(DateTime recDate)
+    private async Task<DateTime?> GetRecDateAsync(DateTime targetDate)
     {
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
         
-        var lastDate = await context.InvestBase
-            .Where(i => i.RecDate == recDate)
-            .Select(i => i.LastDate)
+        // 直接取得 RecDate (交易日期)
+        var recDate = await context.InvestBase
+            .Where(i => i.RecDate == targetDate)
+            .Select(i => i.RecDate)
             .FirstOrDefaultAsync();
         
-        _logger.LogInformation("從 RecDate={RecDate} 找到 LastDate={LastDate}", recDate, lastDate);
-        return lastDate;
+        _logger.LogInformation("找到 RecDate={RecDate} for targetDate={TargetDate}", recDate, targetDate);
+        return recDate;
     }
 
     /// <summary>
@@ -118,13 +119,13 @@ public class StatisticsDataService : IStatisticsDataService
                 result.ProcessorResults.Add(investBaseResult);
 
                 // ========== Stock60 重算 (1天 - 当天资料) ==========
-                // 從 InvestBase 找到對應的 LastDate (交易日期)
-                var lastDate = await GetLastDateFromRecDateAsync(currentDate);
+                // 直接使用 RecDate (交易日期/LastDay)
+                var recDate = await GetRecDateAsync(currentDate);
                 
-                if (lastDate.HasValue)
+                if (recDate.HasValue)
                 {
-                    _logger.LogInformation("開始 Stock60 重算 for lastDate={LastDate}", lastDate.Value);
-                    var stock60Result = await _stock60RecalcService.RecalculateAsync(lastDate.Value, 1);
+                    _logger.LogInformation("開始 Stock60 重算 for RecDate={RecDate}", recDate.Value);
+                    var stock60Result = await _stock60RecalcService.RecalculateAsync(recDate.Value, 1);
                     
                     _logger.LogInformation("Stock60 重算結果: Success={Success}, ProcessedDays={Days}, Error={Error}", 
                         stock60Result.Success, stock60Result.ProcessedDays, stock60Result.ErrorMessage);
