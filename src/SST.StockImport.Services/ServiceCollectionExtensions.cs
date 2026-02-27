@@ -129,8 +129,8 @@ public static class ServiceCollectionExtensions
         // 日期資料查詢服務
         services.AddScoped<IDateDataService, DateDataService>();
 
-        // Stock60Days 批量重算服務
-        services.AddScoped<IStock60DaysRecalcService, Stock60DaysRecalcService>();
+        // Stock60Days 批量重算服務 (Singleton - 使用 IServiceScopeFactory 建立 scoped context)
+        services.AddSingleton<IStock60DaysRecalcService, Stock60DaysRecalcService>();
 
         return services;
     }

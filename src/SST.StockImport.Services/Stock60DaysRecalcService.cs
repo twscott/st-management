@@ -5,22 +5,23 @@ using SST.StockImport.Core.DTOs;
 using SST.StockImport.Core.Entities;
 using SST.StockImport.Core.Interfaces;
 using SST.StockImport.Infrastructure.Data;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace SST.StockImport.Services;
 
 public class Stock60DaysRecalcService : IStock60DaysRecalcService
 {
-    private readonly StockImportDbContext _context;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<Stock60DaysRecalcService> _logger;
     private CancellationTokenSource? _cancellationTokenSource;
     private Stock60DaysRecalcProgress _progress = new();
     private bool _isRunning = false;
 
     public Stock60DaysRecalcService(
-        StockImportDbContext context,
+        IServiceScopeFactory scopeFactory,
         ILogger<Stock60DaysRecalcService> logger)
     {
-        _context = context;
+        _scopeFactory = scopeFactory;
         _logger = logger;
     }
 
@@ -32,6 +33,12 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
     public void Cancel()
     {
         _cancellationTokenSource?.Cancel();
+    }
+
+    private StockImportDbContext CreateScopedContext()
+    {
+        var scope = _scopeFactory.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
     }
 
     public async Task<Stock60DaysRecalcResult> RecalculateAsync(DateTime startLastDate, int days, CancellationToken cancellationToken = default)
@@ -49,8 +56,11 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = _cancellationTokenSource.Token;
 
+        using var scope = _scopeFactory.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
+
         var stopwatch = Stopwatch.StartNew();
-        var endLastDate = await GetEndLastDateAsync(startLastDate, days);
+        var endLastDate = await GetEndLastDateAsync(context, startLastDate, days);
         var result = new Stock60DaysRecalcResult
         {
             StartLastDate = startLastDate,
@@ -70,7 +80,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             _logger.LogInformation("開始 Stock60Days 批量重算，範圍: {StartLastDate} ~ {EndLastDate} ({Days} 天)", 
                 startLastDate, endLastDate, days);
 
-            var tradingDates = await GetTradingDatesAsync(startLastDate, days);
+            var tradingDates = await GetTradingDatesAsync(context, startLastDate, days);
             
             _logger.LogInformation("找到 {Count} 個交易日", tradingDates.Count);
 
@@ -90,9 +100,9 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 _logger.LogInformation("========== 處理日期: {LastDate} ({DayIndex}/{Days}) ==========", 
                     currentLastDate, i + 1, tradingDates.Count);
 
-                await CalculateMAAsync(currentLastDate);
-                await CalculateKDAsync(currentLastDate);
-                await CalculateBollingerBandsAsync(currentLastDate);
+                await CalculateMAAsync(context, currentLastDate);
+                await CalculateKDAsync(context, currentLastDate);
+                await CalculateBollingerBandsAsync(context, currentLastDate);
 
                 result.ProcessedDays = i + 1;
                 _progress.LastProcessedLastDate = currentLastDate;
@@ -125,15 +135,15 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
         return result;
     }
 
-    private async Task<DateTime> GetEndLastDateAsync(DateTime startLastDate, int days)
+    private async Task<DateTime> GetEndLastDateAsync(StockImportDbContext context, DateTime startLastDate, int days)
     {
-        var dates = await GetTradingDatesAsync(startLastDate, days);
+        var dates = await GetTradingDatesAsync(context, startLastDate, days);
         return dates.LastOrDefault();
     }
 
-    private async Task<List<DateTime>> GetTradingDatesAsync(DateTime startLastDate, int days)
+    private async Task<List<DateTime>> GetTradingDatesAsync(StockImportDbContext context, DateTime startLastDate, int days)
     {
-        var tradingDates = await _context.Stock60Days
+        var tradingDates = await context.Stock60Days
             .Where(s => s.LastDate != null && s.LastDate >= startLastDate)
             .Select(s => s.LastDate!.Value)
             .Distinct()
@@ -144,9 +154,9 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
         return tradingDates;
     }
 
-    private async Task CalculateMAAsync(DateTime targetLastDate)
+    private async Task CalculateMAAsync(StockImportDbContext context, DateTime targetLastDate)
     {
-        var stocksOnDate = await _context.Stock60Days
+        var stocksOnDate = await context.Stock60Days
             .Where(s => s.LastDate == targetLastDate)
             .Select(s => s.StockID)
             .Distinct()
@@ -156,7 +166,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
 
         foreach (var stockId in stocksOnDate)
         {
-            var historicalData = await _context.Stock60Days
+            var historicalData = await context.Stock60Days
                 .Where(s => s.StockID == stockId && s.LastDate <= targetLastDate && s.EndPrice != null)
                 .OrderByDescending(s => s.LastDate)
                 .ToListAsync();
@@ -184,7 +194,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 }
             }
 
-            var entity = await _context.Stock60Days
+            var entity = await context.Stock60Days
                 .FirstOrDefaultAsync(s => s.StockID == stockId && s.LastDate == targetLastDate);
             
             if (entity != null)
@@ -195,14 +205,14 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 entity.MA20 = result.MA20; entity.MV20 = result.MV20;
                 entity.MA35 = result.MA35; entity.MV35 = result.MV35;
                 entity.MA60 = result.MA60; entity.MV60 = result.MV60;
-                await _context.SaveChangesAsync();
+                await context.SaveChangesAsync();
             }
         }
     }
 
-    private async Task CalculateKDAsync(DateTime targetLastDate)
+    private async Task CalculateKDAsync(StockImportDbContext context, DateTime targetLastDate)
     {
-        var stocksOnDate = await _context.Stock60Days
+        var stocksOnDate = await context.Stock60Days
             .Where(s => s.LastDate == targetLastDate)
             .Select(s => new { s.StockID, s.EndPrice })
             .ToListAsync();
@@ -211,7 +221,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
         {
             if (stock.EndPrice == null || stock.EndPrice <= 0) continue;
 
-            var historicalData = await _context.Stock60Days
+            var historicalData = await context.Stock60Days
                 .Where(s => s.StockID == stock.StockID && s.LastDate <= targetLastDate && s.EndPrice != null && s.EndPrice > 0)
                 .OrderByDescending(s => s.LastDate)
                 .Take(9)
@@ -229,7 +239,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 rsv = ((stock.EndPrice.Value - low) / (high - low)) * 100;
             }
 
-            var previousDate = await _context.Stock60Days
+            var previousDate = await context.Stock60Days
                 .Where(s => s.StockID == stock.StockID && s.LastDate < targetLastDate)
                 .OrderByDescending(s => s.LastDate)
                 .Select(s => new { s.KD_K, s.KD_D })
@@ -251,7 +261,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 currentD = (2.0m / 3.0m) * prevD + (1.0m / 3.0m) * currentK;
             }
 
-            var entity = await _context.Stock60Days
+            var entity = await context.Stock60Days
                 .FirstOrDefaultAsync(s => s.StockID == stock.StockID && s.LastDate == targetLastDate);
 
             if (entity != null)
@@ -259,14 +269,14 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 entity.KD_RSV = Math.Round(rsv, 4);
                 entity.KD_K = Math.Round(currentK, 4);
                 entity.KD_D = Math.Round(currentD, 4);
-                await _context.SaveChangesAsync();
+                await context.SaveChangesAsync();
             }
         }
     }
 
-    private async Task CalculateBollingerBandsAsync(DateTime targetLastDate)
+    private async Task CalculateBollingerBandsAsync(StockImportDbContext context, DateTime targetLastDate)
     {
-        var stocksOnDate = await _context.Stock60Days
+        var stocksOnDate = await context.Stock60Days
             .Where(s => s.LastDate == targetLastDate)
             .Select(s => s.StockID)
             .Distinct()
@@ -274,7 +284,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
 
         foreach (var stockId in stocksOnDate)
         {
-            var historicalData = await _context.Stock60Days
+            var historicalData = await context.Stock60Days
                 .Where(s => s.StockID == stockId && s.LastDate <= targetLastDate && s.EndPrice != null && s.EndPrice > 0)
                 .OrderByDescending(s => s.LastDate)
                 .Take(20)
@@ -290,7 +300,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             var boolUp = mid + 2 * stdDev;
             var boolDown = mid - 2 * stdDev;
 
-            var entity = await _context.Stock60Days
+            var entity = await context.Stock60Days
                 .FirstOrDefaultAsync(s => s.StockID == stockId && s.LastDate == targetLastDate);
 
             if (entity != null)
@@ -298,7 +308,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 entity.BoolMid = Math.Round(boolMid, 4);
                 entity.BoolUp = Math.Round(boolUp, 4);
                 entity.BoolDown = Math.Round(boolDown, 4);
-                await _context.SaveChangesAsync();
+                await context.SaveChangesAsync();
             }
         }
     }
