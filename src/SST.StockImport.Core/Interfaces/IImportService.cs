@@ -80,4 +80,9 @@ public interface IImportService
     /// </summary>
     /// <returns>下載目標日期</returns>
     Task<DateTime> GetDownloadTargetDateAsync();
+
+    /// <summary>
+    /// 刪除指定日期的交易資料
+    /// </summary>
+    Task<int> DeleteTradingDataAsync(DateTime date);
 }

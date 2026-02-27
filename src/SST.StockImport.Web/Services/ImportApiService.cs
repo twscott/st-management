@@ -175,12 +175,12 @@ public class ImportApiService : IImportApiService
         }
     }
 
-    public async Task<StatisticsProcessResult> ProcessAllStatisticsAsync(DateTime targetDate)
+    public async Task<StatisticsProcessResult> ProcessAllStatisticsAsync(DateTime startDate, int days)
     {
         try
         {
-            // 保持使用舊的 Statistics API（已有完整邏輯）
-            var response = await _httpClient.PostAsJsonAsync("/api/statistics/process-all", new { targetDate });
+            var request = new { startDate, days };
+            var response = await _httpClient.PostAsJsonAsync("/api/statistics/process-all", request);
             response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<StatisticsProcessResult>();
             return result ?? new StatisticsProcessResult();

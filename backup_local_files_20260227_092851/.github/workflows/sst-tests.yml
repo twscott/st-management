@@ -1,0 +1,212 @@
+name: SST Stock Import - Automated Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/sst-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  DOTNET_VERSION: '8.0'
+  BUILD_CONFIGURATION: 'Release'
+  ARTIFACT_NAME: 'sst-test-results'
+
+jobs:
+  test-matrix:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest ]
+      fail-fast: false
+
+    steps:
+    # Step 1: Checkout code
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better analysis
+
+    # Step 2: Setup .NET environment
+    - name: Setup .NET ${{ env.DOTNET_VERSION }}
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    # Step 3: Restore dependencies
+    - name: Restore dependencies
+      run: dotnet restore
+      working-directory: d:/vibeCoding/sst
+
+    # Step 4: Build project
+    - name: Build project
+      run: dotnet build --configuration ${{ env.BUILD_CONFIGURATION }} --no-restore
+      working-directory: d:/vibeCoding/sst
+
+    # Step 5: Layer 1 - Unit Tests (L1)
+    - name: 'L1: Run Unit Tests (SSTProcessingTask)'
+      run: |
+        dotnet test tests/SST.StockImport.Core.Tests/SST.StockImport.Core.Tests.csproj `
+          --configuration ${{ env.BUILD_CONFIGURATION }} `
+          --logger "trx;LogFileName=${{ runner.temp }}/test-l1.trx" `
+          --logger "console;verbosity=detailed" `
+          --collect:"XPlat Code Coverage" `
+          --filter "SSTProcessingTaskTests" `
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      continue-on-error: false
+      working-directory: d:/vibeCoding/sst
+
+    # Step 6: Layer 2 - Serverless Integration Tests (L2)
+    - name: 'L2: Run Serverless Integration Tests'
+      run: |
+        dotnet test tests/SST.StockImport.Core.Tests/SST.StockImport.Core.Tests.csproj `
+          --configuration ${{ env.BUILD_CONFIGURATION }} `
+          --logger "trx;LogFileName=${{ runner.temp }}/test-l2.trx" `
+          --logger "console;verbosity=detailed" `
+          --collect:"XPlat Code Coverage" `
+          --filter "SSTProcessingTaskIntegrationTests" `
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      continue-on-error: false
+      working-directory: d:/vibeCoding/sst
+
+    # Step 7: Layer 3 - WebAPI Integration Tests (L3)
+    - name: 'L3: Run WebAPI Integration Tests'
+      run: |
+        dotnet test tests/SST.StockImport.API.Tests/SST.StockImport.API.Tests.csproj `
+          --configuration ${{ env.BUILD_CONFIGURATION }} `
+          --logger "trx;LogFileName=${{ runner.temp }}/test-l3.trx" `
+          --logger "console;verbosity=detailed" `
+          --collect:"XPlat Code Coverage" `
+          --filter "TimerManagementControllerTests" `
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      continue-on-error: false
+      working-directory: d:/vibeCoding/sst
+
+    # Step 8: Layer 4 - End-to-End Tests (L4)
+    - name: 'L4: Run End-to-End Tests'
+      run: |
+        dotnet test tests/SST.StockImport.API.Tests/SST.StockImport.API.Tests.csproj `
+          --configuration ${{ env.BUILD_CONFIGURATION }} `
+          --logger "trx;LogFileName=${{ runner.temp }}/test-l4.trx" `
+          --logger "console;verbosity=detailed" `
+          --collect:"XPlat Code Coverage" `
+          --filter "SSTProcessingSandboxTests" `
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      continue-on-error: false
+      working-directory: d:/vibeCoding/sst
+
+    # Step 9: Upload test results
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}
+        path: ${{ runner.temp }}/test-*.trx
+        retention-days: 30
+
+    # Step 10: Publish test report
+    - name: Publish test report
+      if: always()
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      with:
+        files: ${{ runner.temp }}/test-*.trx
+        check_name: Test Results (${{ matrix.os }})
+
+    # Step 11: Generate coverage report
+    - name: Generate coverage report
+      if: always()
+      run: |
+        dotnet tool install -g dotnet-reportgenerator-globaltool
+        reportgenerator -reports:"${{ runner.temp }}/**/coverage.cobertura.xml" -targetdir:"${{ runner.temp }}/coverage" -reporttypes:"Html;Badges;JsonSummary"
+      continue-on-error: true
+
+    # Step 12: Upload coverage report
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-${{ matrix.os }}
+        path: ${{ runner.temp }}/coverage
+        retention-days: 30
+
+  # Quality Gate Check
+  quality-gate:
+    name: Quality Gate Check
+    runs-on: ubuntu-latest
+    needs: test-matrix
+    if: always()
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ${{ runner.temp }}/artifacts
+
+    - name: Check test results
+      run: |
+        echo "=== Test Results Summary ==="
+        find ${{ runner.temp }}/artifacts -name "*.trx" -type f | wc -l
+        
+        # Extract pass/fail counts from artifacts
+        for trx_file in ${{ runner.temp }}/artifacts/*/*.trx; do
+          if [ -f "$trx_file" ]; then
+            echo "Processing: $trx_file"
+            # Parse the TRX file for total/pass/fail counts
+            grep -o 'total="[0-9]*"' "$trx_file" || true
+            grep -o 'passed="[0-9]*"' "$trx_file" || true
+            grep -o 'failed="[0-9]*"' "$trx_file" || true
+          fi
+        done
+
+    - name: Check code coverage
+      run: |
+        echo "=== Code Coverage Summary ==="
+        if [ -f "${{ runner.temp }}/artifacts/coverage-report-ubuntu-latest/summary.json" ]; then
+          cat "${{ runner.temp }}/artifacts/coverage-report-ubuntu-latest/summary.json"
+        fi
+      continue-on-error: true
+
+    - name: Verify minimum coverage
+      run: |
+        MIN_COVERAGE=70
+        ACTUAL_COVERAGE=$(cat ${{ runner.temp }}/artifacts/coverage-report-ubuntu-latest/summary.json | grep -o '"linecoverage":"[0-9.]*"' | head -1 | cut -d':' -f2 | tr -d '\"')
+        
+        if (( $(echo "$ACTUAL_COVERAGE < $MIN_COVERAGE" | bc -l) )); then
+          echo "❌ Code coverage $ACTUAL_COVERAGE% is below minimum $MIN_COVERAGE%"
+          exit 1
+        else
+          echo "✅ Code coverage $ACTUAL_COVERAGE% meets minimum requirement"
+        fi
+      continue-on-error: true
+
+  # Notification
+  notify:
+    name: Send Notification
+    runs-on: ubuntu-latest
+    needs: [ test-matrix, quality-gate ]
+    if: always()
+
+    steps:
+    - name: Determine status
+      id: status
+      run: |
+        if [ "${{ needs.test-matrix.result }}" = "failure" ] || [ "${{ needs.quality-gate.result }}" = "failure" ]; then
+          echo "status=failure" >> $GITHUB_OUTPUT
+          echo "emoji=❌" >> $GITHUB_OUTPUT
+        else
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "emoji=✅" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create notification
+      run: |
+        echo "${{ steps.status.outputs.emoji }} SST Testing Pipeline"
+        echo "Status: ${{ steps.status.outputs.status }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref }}"
+        echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

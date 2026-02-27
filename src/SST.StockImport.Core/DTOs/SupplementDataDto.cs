@@ -32,6 +32,13 @@ public class ProcessorResultDto
 /// </summary>
 public class SupplementRequestDto
 {
-    public DateTime TargetDate { get; set; }
-    public List<string>? ProcessorNames { get; set; } // null = 執行所有
+    public DateTime StartDate { get; set; }
+    public int Days { get; set; } = 1;
+    public List<string>? ProcessorNames { get; set; }
+    
+    public DateTime TargetDate 
+    { 
+        get => StartDate; 
+        set => StartDate = value; 
+    }
 }

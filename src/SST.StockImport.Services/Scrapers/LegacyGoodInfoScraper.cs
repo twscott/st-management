@@ -14,10 +14,20 @@ namespace SST.StockImport.Services.Scrapers
     public class LegacyGoodInfoScraper
     {
         private readonly ILogger<LegacyGoodInfoScraper> _logger;
+        private readonly GoodInfoImportService _importService;
+        private readonly string _backupPath;
 
-        public LegacyGoodInfoScraper(ILogger<LegacyGoodInfoScraper> logger)
+        public LegacyGoodInfoScraper(
+            ILogger<LegacyGoodInfoScraper> logger,
+            GoodInfoImportService importService)
         {
             _logger = logger;
+            _importService = importService;
+            _backupPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "GoodInfoBackups");
+            if (!Directory.Exists(_backupPath))
+            {
+                Directory.CreateDirectory(_backupPath);
+            }
         }
 
         /// <summary>
@@ -83,10 +93,10 @@ namespace SST.StockImport.Services.Scrapers
         {
             var options = new ChromeOptions();
             
-            // 恢復 headless 模式以避免干擾用戶工作
+            // 使用與測試相同的方式：headless + start-minimized
             options.AddArgument("--headless");
             options.AddArgument("--window-size=1920,1080");
-            options.AddArgument("--start-maximized");
+            options.AddArgument("--start-minimized");
             options.AddArgument("--user-data-dir=D:\\ChromeUserData");
             
             // 增加反廣告參數
@@ -95,14 +105,21 @@ namespace SST.StockImport.Services.Scrapers
             options.AddArgument("--disable-extensions");
             options.AddArgument("--no-sandbox");
             options.AddArgument("--disable-dev-shm-usage");
-
-            // 明確指定下載路徑（使用當前使用者的 Downloads 資料夾）
+            options.AddArgument("--disable-blink-features=AutomationControlled");
+            
+            // 使用與測試相同的下載目錄
             var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var downloadPath = Path.Combine(userProfile, "Downloads");
+            
+            // 设置下载路径
             options.AddUserProfilePreference("download.default_directory", downloadPath);
             options.AddUserProfilePreference("download.prompt_for_download", false);
             options.AddUserProfilePreference("disable-popup-blocking", "true");
-
+            options.AddUserProfilePreference("download.directory_upgrade", true);
+            options.AddUserProfilePreference("download.extensions_to_open", "");
+            
+            _logger.LogInformation("🔧 Chrome 下载配置: {Path}", downloadPath);
+            
             return options;
         }
 
@@ -116,13 +133,23 @@ namespace SST.StockImport.Services.Scrapers
             
             try
             {
-                // 刪除舊的 CSV 檔案（避免使用到舊資料）
+                // 使用與測試相同的下載目錄
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                var csvPath = Path.Combine(userProfile, "Downloads", "StockList.csv");
-                if (File.Exists(csvPath))
+                var downloadPath = Path.Combine(userProfile, "Downloads");
+                
+                // 確保下載目錄存在
+                if (!Directory.Exists(downloadPath))
                 {
-                    File.Delete(csvPath);
-                    _logger.LogInformation($"已刪除舊的 CSV: {csvPath}");
+                    Directory.CreateDirectory(downloadPath);
+                    _logger.LogInformation("✅ 創建下載目錄: {Path}", downloadPath);
+                }
+                
+                // 刪除舊的 CSV 檔案（避免使用到舊資料）
+                var oldCsvPath = Path.Combine(downloadPath, "StockList.csv");
+                if (File.Exists(oldCsvPath))
+                {
+                    File.Delete(oldCsvPath);
+                    _logger.LogInformation("✅ 已刪除舊的 CSV: {Path}", oldCsvPath);
                 }
                 
                 // 建立 WebDriver (舊系統方式)
@@ -157,8 +184,22 @@ namespace SST.StockImport.Services.Scrapers
                     
                     downloadButton.Click();
                     
-                    // 等待 3 秒 (對應舊系統的 CommonClass.wait(3))
-                    await Task.Delay(3000);
+                    // 等待下載完成 - 增加等待時間
+                    _logger.LogInformation("⏳ 等待下載完成...");
+                    await Task.Delay(8000);  // 等待 8 秒確保下載完成
+                    
+                    // 驗證下載是否成功
+                    var downloadedFile = Path.Combine(downloadPath, "StockList.csv");
+                    if (File.Exists(downloadedFile))
+                    {
+                        var fileInfo = new FileInfo(downloadedFile);
+                        _logger.LogInformation("✅ 下載成功! 文件: {File} ({Size} bytes)", 
+                            downloadedFile, fileInfo.Length);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("⚠️ 下載完成但文件不存在: {Path}", downloadedFile);
+                    }
                     
                     _logger.LogInformation("舊系統下載方法執行成功");
                     return true;
@@ -573,7 +614,22 @@ namespace SST.StockImport.Services.Scrapers
                     
                     if (downloadResult)
                     {
-                        _logger.LogInformation($"✅ {request.Name} 下載成功");
+                        _logger.LogInformation($"✅ {request.Name} 下載成功，準備導入數據庫...");
+                        
+                        var (saved, imported, filePath) = SaveAndImportCsv(request.Name);
+                        
+                        if (saved && imported)
+                        {
+                            _logger.LogInformation($"✅ {request.Name} 導入數據庫成功");
+                        }
+                        else if (saved && !imported)
+                        {
+                            _logger.LogWarning($"⚠️ {request.Name} 保存成功但導入失敗");
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"⚠️ {request.Name} 保存或導入失敗");
+                        }
                     }
                     else
                     {
@@ -642,6 +698,130 @@ namespace SST.StockImport.Services.Scrapers
             
             _logger.LogInformation($"執行今日待完成的 {pendingRequests.Count} 項 GoodInfo 下載");
             return await ExecuteBatchDownloadAsync();
+        }
+
+        /// <summary>
+        /// 保存下載的 CSV 到備份資料夾，並導入數據庫
+        /// </summary>
+        private (bool saved, bool imported, string filePath) SaveAndImportCsv(string linkName)
+        {
+            _logger.LogInformation("🔍 開始搜索 CSV 文件...");
+            
+            // 首先檢查用戶下載目錄
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var downloadPath = Path.Combine(userProfile, "Downloads");
+            _logger.LogInformation("🔍 搜索目錄: {Path}", downloadPath);
+            
+            // 查找最新的 CSV 文件
+            var sourceCsvPath = FindLatestCsvFile(downloadPath, linkName);
+            
+            if (sourceCsvPath == null)
+            {
+                // 嘗試其他可能的下載位置
+                var alternativePaths = new[]
+                {
+                    @"D:\vibeCoding\sst\GoodInfoDownloads",
+                    @"D:\ChromeUserData\Default\Downloads",
+                    Path.GetTempPath(),
+                    @"C:\Users\PC\AppData\Local\Temp",
+                    @"D:\Users\PC\AppData\Local\Temp"
+                };
+                
+                foreach (var altPath in alternativePaths)
+                {
+                    _logger.LogInformation("🔍 搜索備用目錄: {Path}", altPath);
+                    if (Directory.Exists(altPath))
+                    {
+                        sourceCsvPath = FindLatestCsvFile(altPath, linkName);
+                        if (sourceCsvPath != null)
+                        {
+                            _logger.LogInformation("✅ 在備用目錄找到 CSV: {Path}", sourceCsvPath);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (sourceCsvPath == null || !File.Exists(sourceCsvPath))
+            {
+                _logger.LogWarning("⚠️ CSV 文件不存在: {Path}, {DownloadPath}", sourceCsvPath ?? "null", downloadPath);
+                return (false, false, "");
+            }
+
+            try
+            {
+                // 複製文件到備份目錄
+                var dateStr = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+                var safeLinkName = linkName.Replace(" ", "_").Replace("/", "_");
+                var fileName = $"{safeLinkName}_{dateStr}.csv";
+                var backupFilePath = Path.Combine(_backupPath, fileName);
+
+                File.Copy(sourceCsvPath, backupFilePath, true);
+                _logger.LogInformation("💾 已保存 CSV: {Path}", backupFilePath);
+
+                // 導入數據庫
+                var importResult = _importService.ImportCsv(backupFilePath, linkName);
+
+                return (true, importResult.IsSuccess, backupFilePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "❌ 保存或導入 CSV 失敗: {LinkName}", linkName);
+                return (false, false, "");
+            }
+        }
+        
+        private string? FindLatestCsvFile(string directory, string? linkName = null)
+        {
+            if (!Directory.Exists(directory)) 
+            {
+                _logger.LogWarning("⚠️ 目錄不存在: {Dir}", directory);
+                return null;
+            }
+            
+            try
+            {
+                // 搜索最近 10 分鐘內修改的 CSV 文件
+                var cutoffTime = DateTime.Now.AddMinutes(-10);
+                var csvFiles = Directory.GetFiles(directory, "*.csv")
+                    .Select(f => new FileInfo(f))
+                    .Where(f => f.LastWriteTime > cutoffTime)
+                    .OrderByDescending(f => f.LastWriteTime)
+                    .ToList();
+                    
+                if (csvFiles.Any())
+                {
+                    _logger.LogInformation("📂 在 {Dir} 中找到 {Count} 个最近的 CSV 文件 (最近修改: {Time})", 
+                        directory, csvFiles.Count, csvFiles.First().LastWriteTime.ToString("HH:mm:ss"));
+                    foreach (var f in csvFiles.Take(3))
+                    {
+                        _logger.LogInformation("   - {File} ({Size} bytes, {Time})", 
+                            f.Name, f.Length, f.LastWriteTime.ToString("HH:mm:ss"));
+                    }
+                    return csvFiles.First().FullName;
+                }
+                else
+                {
+                    // 如果沒有最近的文件，則返回目錄中最後一個文件
+                    var allCsvFiles = Directory.GetFiles(directory, "*.csv")
+                        .Select(f => new FileInfo(f))
+                        .OrderByDescending(f => f.LastWriteTime)
+                        .ToList();
+                    
+                    if (allCsvFiles.Any())
+                    {
+                        _logger.LogWarning("⚠️ 目錄中沒有最近 10 分鐘內的 CSV 文件，最後一個是: {File} ({Time})", 
+                            allCsvFiles.First().Name, allCsvFiles.First().LastWriteTime.ToString("HH:mm:ss"));
+                        return allCsvFiles.First().FullName;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "搜索 CSV 文件失敗: {Dir}", directory);
+            }
+            
+            return null;
         }
     }
     

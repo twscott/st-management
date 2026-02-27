@@ -37,9 +37,9 @@ public class SupplementController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("收到補充數據處理請求，目標日期: {TargetDate}", request.TargetDate);
+            _logger.LogInformation("收到補充數據處理請求，範圍: {StartDate}, {Days} 天", request.StartDate, request.Days);
 
-            var result = await _supplementService.ProcessAllAsync(request.TargetDate);
+            var result = await _supplementService.ProcessAllAsync(request.StartDate, request.Days);
             
             if (result.Success)
             {
@@ -155,9 +155,9 @@ public class SupplementController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("執行 All4 補充資料處理，目標日期: {TargetDate}", request.TargetDate);
+            _logger.LogInformation("執行 All4 補充資料處理，範圍: {StartDate}, {Days} 天", request.StartDate, request.Days);
 
-            var result = await _supplementService.ProcessAllAsync(request.TargetDate);
+            var result = await _supplementService.ProcessAllAsync(request.StartDate, request.Days);
             
             return Ok(new 
             {

@@ -57,9 +57,10 @@ public class SupplementDataServiceTests : IDisposable
     {
         // Arrange
         var targetDate = new DateTime(2025, 12, 2);
+        var days = 1;
 
         // Act
-        var result = await _service.ProcessAllAsync(targetDate);
+        var result = await _service.ProcessAllAsync(targetDate, days);
 
         // Assert
         Assert.NotNull(result);
@@ -162,9 +163,10 @@ public class SupplementDataServiceTests : IDisposable
     {
         // Arrange
         var targetDate = new DateTime(2025, 12, 2);
+        var days = 1;
 
         // Act
-        var result = await _service.ProcessAllAsync(targetDate);
+        var result = await _service.ProcessAllAsync(targetDate, days);
 
         // Assert
         Assert.NotNull(result);

@@ -107,46 +107,30 @@
                             </div>
                         </div>
 
-                        <!-- 下載 GoodInfo -->
-                        <div class="col-md-6 col-lg-3">
-                            <div class="card h-100 border-info">
-                                <div class="card-header bg-light">
-                                    <h6 class="mb-0">🌐 下載 GoodInfo</h6>
-                                </div>
-                                <div class="card-body text-center">
-                                    <button class="btn btn-info btn-lg w-100 mb-2" 
-                                            @onclick="DownloadGoodInfo" 
-                                            disabled="@isDownloadingGoodInfo">
-                                        @if (isDownloadingGoodInfo)
-                                        {
-                                            <span class="spinner-border spinner-border-sm me-2"></span>
-                                        }
-                                        下載 GoodInfo
-                                    </button>
-                                    @if (!string.IsNullOrEmpty(goodInfoMessage))
-                                    {
-                                        <div class="alert alert-info p-2">@goodInfoMessage</div>
-                                    }
-                                </div>
-                            </div>
-                        </div>
-
                         <!-- 全部統計資料 -->
-                        <div class="col-md-6 col-lg-3">
+                        <div class="col-md-6 col-lg-6">
                             <div class="card h-100 border-success">
                                 <div class="card-header bg-light">
                                     <h6 class="mb-0">📊 全部統計資料</h6>
                                 </div>
                                 <div class="card-body text-center">
-                                    <button class="btn btn-success btn-lg w-100 mb-2" 
-                                            @onclick="ProcessAllStatistics" 
-                                            disabled="@isProcessingStatistics">
-                                        @if (isProcessingStatistics)
-                                        {
-                                            <span class="spinner-border spinner-border-sm me-2"></span>
-                                        }
-                                        處理統計資料
-                                    </button>
+                                    <div class="row mb-2">
+                                        <div class="col-md-6">
+                                            <label class="form-label small">計算天數 (N)</label>
+                                            <input type="number" class="form-control" @bind="statisticsDays" min="1" max="30" />
+                                        </div>
+                                        <div class="col-md-6 d-flex align-items-end">
+                                            <button class="btn btn-success btn-lg w-100" 
+                                                    @onclick="ProcessAllStatistics" 
+                                                    disabled="@isProcessingStatistics">
+                                                @if (isProcessingStatistics)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                                }
+                                                處理統計資料
+                                            </button>
+                                        </div>
+                                    </div>
                                     @if (!string.IsNullOrEmpty(statisticsMessage))
                                     {
                                         <div class="alert alert-success p-2">@statisticsMessage</div>
@@ -206,6 +190,7 @@
     private string all4Message = "";
     private string goodInfoMessage = "";
     private string statisticsMessage = "";
+    private int statisticsDays = 1;
 
     // 執行日誌
     private List<KeyValuePair<DateTime, string>> executionLogs = new();
@@ -226,8 +211,10 @@
         {
             AddLog("⏰ 預計處理時間：15-30 分鐘 (2100+ 筆股票)");
             
-            // 使用智能日期決定邏輯（基於 investbase + 時間判斷）
-            var targetDate = await ApiService.GetDownloadTargetDateAsync() ?? DateTime.Today.AddDays(-1);
+            // 從 InvestBase 取得 RecDate，這就是要下載的交易日期
+            var targetDateResult = await ApiService.GetDownloadTargetDateAsync();
+            var targetDate = targetDateResult ?? DateTime.Today.AddDays(-1);
+            
             AddLog($"📅 下載目標日期：{targetDate:yyyy-MM-dd}");
             
             // 調用真實 API
@@ -316,11 +303,11 @@
         {
             AddLog("⏰ 預計處理時間：5-10 分鐘 (19 個網頁爬取，每個間隔 10 秒)");
             
-            // 調用新的 19 Links 測試 API
+            // 調用批量下載 API（含導入數據庫功能）
             using var httpClient = new HttpClient();
             httpClient.Timeout = TimeSpan.FromMinutes(30);
             
-            var response = await httpClient.PostAsync("http://localhost:5008/api/goodinfo/test/all-links", null);
+            var response = await httpClient.PostAsync("http://localhost:5008/api/GoodInfo/download", null);
             var result = await response.Content.ReadFromJsonAsync<GoodInfoTestAllResult>();
             
             if (result != null)
@@ -371,14 +358,20 @@
     {
         isProcessingStatistics = true;
         currentStatus = "處理統計資料";
-        AddLog("開始處理統計資料...");
+        AddLog($"開始處理統計資料 (N = {statisticsDays} 天)...");
 
         try
         {
-            AddLog("⏰ 預計處理時間：20-40 分鐘 (複雜的數據分析計算)");
+            AddLog($"⏰ 預計處理時間：約 5 分鐘 ({statisticsDays} 天数据)");
             
-            // 調用真實 API
-            var result = await ApiService.ProcessAllStatisticsAsync(DateTime.Today.AddDays(-1));
+            // 计算目标日期范围：Today - (N - 1) 到 Today
+            var endDate = DateTime.Today;
+            var startDate = endDate.AddDays(-(statisticsDays - 1));
+            
+            AddLog($"📅 計算範圍：{startDate:yyyy-MM-dd} ~ {endDate:yyyy-MM-dd} ({statisticsDays} 天)");
+            
+            // 調用真實 API (从 startDate 开始计算 N 天)
+            var result = await ApiService.ProcessAllStatisticsAsync(startDate, statisticsDays);
             
             // 顯示詳細的處理器信息
             if (result.TotalProcessors > 0)

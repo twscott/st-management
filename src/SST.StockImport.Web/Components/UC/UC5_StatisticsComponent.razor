@@ -70,6 +70,7 @@
 
 @code {
     private DateTime targetDate = DateTime.Today.AddDays(-1);
+    private int statisticsDays = 1;
     private bool isExecuting = false;
     private string resultMessage = "";
     private OperationResult? lastResult;
@@ -86,7 +87,7 @@
 
         try
         {
-            lastResult = await OperationService.ExecuteStatisticsProcessingAsync(targetDate);
+            lastResult = await OperationService.ExecuteStatisticsProcessingAsync(targetDate, statisticsDays);
             resultMessage = lastResult.Message;
 
             // 解析例外數量

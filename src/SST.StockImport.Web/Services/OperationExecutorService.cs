@@ -171,17 +171,17 @@ public class OperationExecutorService
     /// <summary>
     /// 執行統計資料處理操作
     /// </summary>
-    public async Task<OperationResult> ExecuteStatisticsProcessingAsync(DateTime targetDate)
+    public async Task<OperationResult> ExecuteStatisticsProcessingAsync(DateTime startDate, int days)
     {
         const string operationName = "統計資料處理";
         _statusService.UpdateCurrentOperation($"{operationName}中");
-        _logService.AddLog($"開始 {operationName}...");
+        _logService.AddLog($"開始 {operationName} ({days} 天)...");
 
         try
         {
-            _logService.AddLog("⏰ 預計處理時間：20-40 分鐘 (複雜的數據分析計算)");
+            _logService.AddLog($"⏰ 預計處理時間：約 {days * 5} 分鐘 ({days} 天数据)");
             
-            var result = await _apiService.ProcessAllStatisticsAsync(targetDate);
+            var result = await _apiService.ProcessAllStatisticsAsync(startDate, days);
             
             if (result != null)
             {

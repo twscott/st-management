@@ -12,9 +12,10 @@ public interface ISupplementDataService
     /// <summary>
     /// 執行所有補充處理功能
     /// </summary>
-    /// <param name="targetDate">目標日期</param>
+    /// <param name="startDate">開始日期</param>
+    /// <param name="days">天數</param>
     /// <returns>處理結果</returns>
-    Task<SupplementResultDto> ProcessAllAsync(DateTime targetDate);
+    Task<SupplementResultDto> ProcessAllAsync(DateTime startDate, int days);
 
     /// <summary>
     /// 執行警示統計更新

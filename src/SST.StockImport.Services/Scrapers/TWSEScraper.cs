@@ -32,7 +32,7 @@ public class TWSEScraper : IStockDataScraper
     {
         _logger = logger;
         _httpClient = httpClient;
-        _httpClient.Timeout = TimeSpan.FromHours(2); // 修改為 2小時支援長時間處理
+        _logger.LogWarning("🔧 TWSEScraper 構造函數被調用");
     }
 
     public Task<StockDataDto?> ScrapeStockDataAsync(
@@ -47,12 +47,18 @@ public class TWSEScraper : IStockDataScraper
     /// <summary>
     /// 批次取得股票交易資料（支援 TSE/OTC/EMERGING）
     /// </summary>
+    /// <summary>
+    /// 批次爬取股票資料（從三個交易所）
+    /// </summary>
     public async Task<List<StockDataDto>> ScrapeBatchAsync(
         IEnumerable<string> stockCodes,
         DateTime tradeDate,
         int maxDegreeOfParallelism = 5,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogWarning("🔽🔽🔽 TWSEScraper.ScrapeBatchAsync 開始執行 🔽🔽🔽");
+        _logger.LogWarning("📅 請求的交易日期: {Date}", tradeDate);
+        
         try
         {
             // 根據股票代碼的市場類型分組（通過查詢或假設前綴）
@@ -62,63 +68,121 @@ public class TWSEScraper : IStockDataScraper
             var result = new List<StockDataDto>();
 
             // 下載 TSE（上市）資料
+            int tseCount = 0;
+            string? tseError = null;
             try
             {
                 var tseStartTime = DateTime.Now;
-                _logger.LogInformation("📥 [TSE] 开始下载 CSV 文件...");
-                _logger.LogInformation("   URL: {Url}", TseStockDataUrl);
+                _logger.LogWarning("📥 [TSE] 开始下载 CSV 文件...");
+                _logger.LogWarning("   URL: {Url}", TseStockDataUrl);
                 
                 var response = await _httpClient.GetAsync(TseStockDataUrl, cancellationToken);
-                response.EnsureSuccessStatusCode();
                 
-                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-                var downloadElapsed = (DateTime.Now - tseStartTime).TotalMilliseconds;
-                
-                _logger.LogInformation("✅ [TSE] CSV 下载完成: {Size:N0} bytes, 耗时 {Ms:F0} ms", 
-                    bytes.Length, downloadElapsed);
-                
-                var csvContent = System.Text.Encoding.UTF8.GetString(bytes);
-                
-                // ✅ 保存原始 CSV 文件到备份目录
-                await SaveRawDataToBackupAsync(csvContent, tradeDate, "TSE.csv");
-                
-                var parseStartTime = DateTime.Now;
-                var tseStocks = ParseTseCsv(csvContent, tradeDate);
-                var parseElapsed = (DateTime.Now - parseStartTime).TotalMilliseconds;
-                
-                result.AddRange(tseStocks);
-                _logger.LogInformation("📊 [TSE] 解析完成: {Count} 笔股票数据, 耗时 {Ms:F0} ms", 
-                    tseStocks.Count, parseElapsed);
+                if (!response.IsSuccessStatusCode)
+                {
+                    tseError = $"HTTP {response.StatusCode}: {response.ReasonPhrase}";
+                    _logger.LogError("❌ [TSE] 下载失败: {Error}", tseError);
+                }
+                else
+                {
+                    var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                    var downloadElapsed = (DateTime.Now - tseStartTime).TotalMilliseconds;
+                    
+                    _logger.LogWarning("✅ [TSE] CSV 下载完成: {Size:N0} bytes, 耗时 {Ms:F0} ms", 
+                        bytes.Length, downloadElapsed);
+                    
+                    var csvContent = System.Text.Encoding.UTF8.GetString(bytes);
+                    
+                    // ✅ 保存原始 CSV 文件到备份目录
+                    var savedPath = await SaveRawDataToBackupAsync(csvContent, tradeDate, "TSE.csv");
+                    if (savedPath != null)
+                    {
+                        _logger.LogWarning("💾 [TSE] 文件已保存: {Path}, 大小: {Size:N0}", savedPath, bytes.Length);
+                    }
+                    
+                    var parseStartTime = DateTime.Now;
+                    var tseStocks = ParseTseCsv(csvContent, tradeDate);
+                    var parseElapsed = (DateTime.Now - parseStartTime).TotalMilliseconds;
+                    
+                    tseCount = tseStocks.Count;
+                    result.AddRange(tseStocks);
+                    _logger.LogWarning("📊 [TSE] 解析完成: {Count} 笔股票数据, 耗时 {Ms:F0} ms", 
+                        tseCount, parseElapsed);
+                }
+            }
+            catch (HttpRequestException ex)
+            {
+                tseError = $"Network error: {ex.Message}";
+                _logger.LogError(ex, "❌ [TSE] 网络请求失败: {Url}", TseStockDataUrl);
+            }
+            catch (TaskCanceledException ex)
+            {
+                tseError = $"Request timeout: {ex.Message}";
+                _logger.LogError(ex, "❌ [TSE] 请求超时: {Url}", TseStockDataUrl);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to download TSE stock data");
+                tseError = $"Unexpected error: {ex.Message}";
+                _logger.LogError(ex, "❌ [TSE] 下载失败: {Url}", TseStockDataUrl);
+            }
+
+            if (tseError != null)
+            {
+                _logger.LogError("❌ [TSE] 下载失败 - Error: {Error}", tseError);
             }
 
             // 下載 OTC（上櫃）資料
+            int otcCount = 0;
+            string? otcError = null;
             try
             {
-                _logger.LogInformation("Downloading OTC stock data...");
+                _logger.LogWarning("📥 [OTC] 开始下载...");
                 var otcStocks = await DownloadOtcStocksAsync(tradeDate, cancellationToken);
+                otcCount = otcStocks.Count;
                 result.AddRange(otcStocks);
-                _logger.LogInformation("Parsed {Count} OTC stocks", otcStocks.Count);
+                _logger.LogWarning("📊 [OTC] 解析完成: {Count} 笔", otcCount);
+            }
+            catch (HttpRequestException ex)
+            {
+                otcError = $"Network error: {ex.Message}";
+                _logger.LogError(ex, "❌ [OTC] 网络请求失败");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to download OTC stock data");
+                otcError = $"Unexpected error: {ex.Message}";
+                _logger.LogError(ex, "❌ [OTC] 下载失败");
+            }
+
+            if (otcError != null)
+            {
+                _logger.LogError("❌ [OTC] 下载失败 - Error: {Error}", otcError);
             }
 
             // 下載 EMERGING（興櫃）資料
+            int emergingCount = 0;
+            string? emergingError = null;
             try
             {
-                _logger.LogInformation("Downloading EMERGING stock data...");
+                _logger.LogWarning("📥 [EMERGING] 开始下载...");
                 var emergingStocks = await DownloadEmergingStocksAsync(tradeDate, cancellationToken);
+                emergingCount = emergingStocks.Count;
                 result.AddRange(emergingStocks);
-                _logger.LogInformation("Parsed {Count} EMERGING stocks", emergingStocks.Count);
+                _logger.LogWarning("📊 [EMERGING] 解析完成: {Count} 笔", emergingCount);
+            }
+            catch (HttpRequestException ex)
+            {
+                emergingError = $"Network error: {ex.Message}";
+                _logger.LogError(ex, "❌ [EMERGING] 网络请求失败");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to download EMERGING stock data");
+                emergingError = $"Unexpected error: {ex.Message}";
+                _logger.LogError(ex, "❌ [EMERGING] 下载失败");
+            }
+
+            if (emergingError != null)
+            {
+                _logger.LogError("❌ [EMERGING] 下载失败 - Error: {Error}", emergingError);
             }
 
             // 如果有指定股票代碼，只回傳這些股票
@@ -128,8 +192,22 @@ public class TWSEScraper : IStockDataScraper
                 result = result.Where(s => codeSet.Contains(s.StockCode)).ToList();
             }
 
-            _logger.LogInformation("Total parsed {Count} stocks (filtered: {Filtered})", 
+            _logger.LogWarning("📊 === 下载结果汇总 ===");
+            _logger.LogWarning("📊 总共解析: {Count} 筆 (过滤后: {Filtered})", 
                 result.Count, stockCodes?.Count() ?? 0);
+            _logger.LogWarning("📊 [TSE] 记录数: {Count}", tseCount);
+            _logger.LogWarning("📊 [OTC] 记录数: {Count}", otcCount);
+            _logger.LogWarning("📊 [EMERGING] 记录数: {Count}", emergingCount);
+            
+            if (result.Count == 0)
+            {
+                _logger.LogError("❌ 警告：没有下载到任何数据！");
+                _logger.LogError("   TSE 错误: {Error}", tseError ?? "无");
+                _logger.LogError("   OTC 错误: {Error}", otcError ?? "无");
+                _logger.LogError("   EMERGING 错误: {Error}", emergingError ?? "无");
+            }
+            
+            _logger.LogWarning("🔼🔼🔽 TWSEScraper.ScrapeBatchAsync 完成，回傳 {Count} 筆 🔽🔽🔽", result.Count);
             return result;
         }
         catch (Exception ex)
@@ -164,7 +242,11 @@ public class TWSEScraper : IStockDataScraper
                 response.Length, downloadElapsed);
             
             // ✅ 保存原始 JSON 文件到备份目录
-            await SaveRawDataToBackupAsync(response, tradeDate, "OTC.json");
+            var savedPath = await SaveRawDataToBackupAsync(response, tradeDate, "OTC.json");
+            if (savedPath != null)
+            {
+                _logger.LogWarning("💾 [OTC] 文件已保存: {Path}", savedPath);
+            }
             
             var jsonDoc = JsonDocument.Parse(response);
 
@@ -345,7 +427,11 @@ public class TWSEScraper : IStockDataScraper
                 response.Length, downloadElapsed);
             
             // ✅ 保存原始 JSON 文件到备份目录
-            await SaveRawDataToBackupAsync(response, tradeDate, "EMERGING.json");
+            var savedPath = await SaveRawDataToBackupAsync(response, tradeDate, "EMERGING.json");
+            if (savedPath != null)
+            {
+                _logger.LogWarning("💾 [EMERGING] 文件已保存: {Path}", savedPath);
+            }
             
             var jsonDoc = JsonDocument.Parse(response);
 
@@ -901,11 +987,11 @@ public class TWSEScraper : IStockDataScraper
     /// 目录格式: D:\vibeCoding\sst\srcBackup\yyyyMMdd\
     /// 日期使用资料的交易日期（tradeDate），而不是下载日期
     /// </summary>
-    /// <param name="content">文件内容（CSV 或 JSON）</param>
-    /// <param name="tradeDate">交易日期（资料日期）</param>
-    /// <param name="fileName">文件名（例如：TSE.csv, OTC.json）</param>
-    private async Task SaveRawDataToBackupAsync(string content, DateTime tradeDate, string fileName)
+    /// <returns>保存的文件完整路径，失败返回 null</returns>
+    private async Task<string?> SaveRawDataToBackupAsync(string content, DateTime tradeDate, string fileName)
     {
+        _logger.LogWarning("💾 準備保存備份檔案: {FileName}, 日期: {Date}", fileName, tradeDate.ToString("yyyy-MM-dd"));
+        
         try
         {
             // 使用交易日期（资料日期）作为目录名
@@ -916,7 +1002,7 @@ public class TWSEScraper : IStockDataScraper
             if (!Directory.Exists(backupDir))
             {
                 Directory.CreateDirectory(backupDir);
-                _logger.LogInformation("📁 创建备份目录: {Path}", backupDir);
+                _logger.LogWarning("📁 創建備份目錄: {Path}", backupDir);
             }
             
             var filePath = Path.Combine(backupDir, fileName);
@@ -925,14 +1011,17 @@ public class TWSEScraper : IStockDataScraper
             await File.WriteAllTextAsync(filePath, content, Encoding.UTF8);
             
             var fileInfo = new FileInfo(filePath);
-            _logger.LogInformation(
-                "💾 保存原始数据: {FileName} ({Size:N0} bytes) -> {Path}", 
+            _logger.LogWarning(
+                "💾 已保存: {FileName} ({Size:N0} bytes) -> {Path}", 
                 fileName, fileInfo.Length, filePath);
+            
+            return filePath;
         }
         catch (Exception ex)
         {
             // 备份失败不应该影响主流程，只记录错误
-            _logger.LogError(ex, "❌ 保存备份文件失败: {FileName}", fileName);
+            _logger.LogError(ex, "❌ 保存備份文件失敗: {FileName}, 錯誤: {Error}", fileName, ex.Message);
+            return null;
         }
     }
 }

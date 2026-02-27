@@ -1,12 +1,25 @@
 using SST.StockImport.Web.Components;
 using SST.StockImport.Web.Services;
 using SST.StockImport.Services.Scrapers;
+using SST.StockImport.Services;
+using SST.StockImport.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// Register DbContext
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddDbContext<StockImportDbContext>(options =>
+{
+    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));
+});
+
+// Register GoodInfoImportService
+builder.Services.AddScoped<GoodInfoImportService>();
 
 // Configure SignalR for long-running operations
 builder.Services.AddSignalR(options =>

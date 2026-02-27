@@ -1,8 +1,7 @@
 # AGENTS.md - SST Stock Import System
 
 **Project**: Stock Import Timing Task Framework (SST)  
-**Stack**: .NET 8.0, C#, xUnit, Entity Framework Core, MySQL  
-**Version**: 1.0 (Feb 2026)
+**Stack**: .NET 8.0, C#, xUnit, Entity Framework Core, MySQL
 
 ---
 
@@ -11,27 +10,21 @@
 ### Build
 ```powershell
 dotnet build SST.StockImport.sln
-dotnet build src/SST.StockImport.API/SST.StockImport.API.csproj
+dotnet build /p:TreatWarningsAsErrors=true  # Strict build
 ```
 
 ### Test Execution
 ```powershell
-# All tests (~5 seconds, 92 tests total)
+# All tests (92 total, ~5 seconds)
 .\run-sst-tests.ps1 -TestLevel all
 
-# Unit tests only (L1 - 29 tests)
-.\run-sst-tests.ps1 -TestLevel unit
+# By level
+.\run-sst-tests.ps1 -TestLevel unit         # L1 (29 tests)
+.\run-sst-tests.ps1 -TestLevel integration  # L1+L2 (40 tests)
 
-# Integration tests (L1+L2 - 40 tests)
-.\run-sst-tests.ps1 -TestLevel integration
-
-# Single test class
+# Single test class/method
 dotnet test tests/SST.StockImport.Core.Tests --filter "SSTProcessingTaskTests"
-
-# Single test method
-dotnet test tests/SST.StockImport.Core.Tests --filter "FullyQualifiedName~NameOfTestMethod"
-
-# Verbose output
+dotnet test tests/SST.StockImport.Core.Tests --filter "FullyQualifiedName~MethodName"
 dotnet test tests/SST.StockImport.Core.Tests -v detailed
 ```
 
@@ -42,28 +35,37 @@ dotnet run --project src/SST.StockImport.API --urls "http://localhost:5000"
 
 ---
 
+## Project Structure
+```
+src/
+  SST.StockImport.API/         # REST API + SignalR (port 5000/8080)
+  SST.StockImport.Core/        # Business logic, scheduling
+  SST.StockImport.Services/   # External integrations
+  SST.StockImport.Infrastructure/  # EF Core, MySQL
+  SST.StockImport.Web/        # Blazor UI
+tests/
+  SST.StockImport.Core.Tests/  # L1 Unit + L2 Integration
+  SST.StockImport.API.Tests/   # L3 WebAPI + L4 E2E
+```
+
+---
+
 ## Code Style
 
 ### General
-- **Language**: C# with .NET 8.0, Implicit Usings: Enabled, Nullable: Enabled
+- C# .NET 8.0, Implicit Usings: Enabled, Nullable: Enabled
+- **No comments** unless explicitly requested
 
-### Project Structure
-```
-src/
-  SST.StockImport.API/         # REST API + SignalR
-  SST.StockImport.Core/      # Business logic, scheduling
-  SST.StockImport.Services/  # External integrations
-  SST.StockImport.Infrastructure/  # Data access, EF Core
-  SST.StockImport.Web/       # Blazor UI
-tests/
-  SST.StockImport.Core.Tests/     # L1-L2 tests
-  SST.StockImport.API.Tests/      # L3 tests
-  SST.StockImport.E2ETests/       # L4 end-to-end
-```
+### Naming
+| Element | Convention | Example |
+|---------|------------|---------|
+| Classes/Interfaces | PascalCase | `SSTProcessingTask` |
+| Methods/Properties | PascalCase | `ExecuteAsync` |
+| Private fields | _camelCase | `_mockLogger` |
+| Parameters | camelCase | `executionTime` |
+| Test methods | Method_Scenario_Expected | `ExecuteAsync_NormalTradingHours_Executes` |
 
-### Naming: Classes/Interfaces PascalCase, Methods/Properties PascalCase, Private fields _camelCase, Parameters camelCase
-
-### Imports: System → Third-party → Project
+### Import Order: System → Third-party → Project (SST.*)
 
 ### Error Handling
 ```csharp
@@ -77,7 +79,7 @@ catch (Exception ex) { _logger.LogError($"Failed: {ex}"); throw; }
 [ApiController][Route("api/[controller]")]
 public class TimerController : ControllerBase {
     private readonly IService _service;
-    public Controller(IService service) => _service = service;
+    public TimerController(IService service) => _service = service;
     [HttpGet("logs")]
     public ActionResult<object> GetLogs([FromQuery] int pageSize = 50)
         => Ok(new { data = _service.GetData(pageSize) });
@@ -88,7 +90,7 @@ public class TimerController : ControllerBase {
 
 ## Testing
 
-### Layers: L1 Unit (Core.Tests), L2 Integration (Core.Tests), L3 WebAPI (API.Tests), L4 E2E
+### Test Layers: L1 Unit → L2 Integration → L3 WebAPI → L4 E2E
 
 ### L1 Test Pattern
 ```csharp
@@ -101,13 +103,19 @@ public class SSTProcessingTaskTests {
     }
     [Fact]
     public async Task ExecuteAsync_NormalTradingHours_Executes() {
-        var context = new TimerExecutionContext { ExecutionTime = new DateTime(2025, 12, 18, 10, 30, 0) };
+        var context = new ExecutionContext { 
+            executionTime = new DateTime(2025, 12, 18, 10, 30, 0) 
+        };
         await _task.ExecuteAsync(context);
+        Assert.True(context.ExecutedModules.Contains("do_sst"));
     }
 }
 ```
 
-### Test Rules: MUST call production code, use [Fact]/[Theory], name: Method_Scenario_ExpectedBehavior
+### Rules
+- MUST call production code, never duplicate business logic
+- Use `[Fact]` or `[Theory]`
+- For time tests: use `ExecutionContext(executionTime)` with specific DateTime
 
 ---
 
@@ -121,20 +129,15 @@ public class SSTProcessingTaskTests {
 | Line Notify | 09:00-09:30, 13:00-13:35 | Open/close notifications |
 | Morning Adjustment | 09:06-09:12 | All modules execute |
 
----
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `src/SST.StockImport.Core/Scheduling/Tasks/SSTProcessingTask.cs` | Core timing logic |
-| `src/SST.StockImport.API/Program.cs` | Service registration, Serilog |
-| `tests/SST.StockImport.Core.Tests/Scheduling/` | L1/L2 tests |
-| `tests/SST.StockImport.API.Tests/CustomWebApplicationFactory.cs` | Test environment |
+```csharp
+var hour = executionTime.Hour;
+if (hour < 9 || hour >= 14) return;
+if (executionTime.Minute <= 10) return;
+```
 
 ---
 
-## Pitfalls
+## Common Pitfalls
 
 | Issue | Fix |
 |-------|-----|
@@ -150,4 +153,7 @@ public class SSTProcessingTaskTests {
 dotnet build /p:TreatWarningsAsErrors=true
 ```
 
-## Session Handoff: 1) Check HANDOFF_CHECKLIST.md, 2) Run tests, 3) Review Docs/Todo/
+## Session Handoff
+1. Check `HANDOFF_CHECKLIST.md`
+2. Run `.\run-sst-tests.ps1 -TestLevel all` (all 92 tests must pass)
+3. Review `Docs/Todo/` for priorities

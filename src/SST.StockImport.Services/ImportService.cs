@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using MySqlConnector;
 using SST.StockImport.Core.DTOs;
 using SST.StockImport.Core.Entities;
 using SST.StockImport.Core.Interfaces;
@@ -79,14 +80,27 @@ public class ImportService : IImportService
 
             // 步驟 1: 批次爬取資料（下載所有 TSE/OTC/EMERGING 的 CSV 數據）
             // TWSEScraper.ParseTseCsv 內部已過濾只保留 4 位數股票代碼
-            _logger.LogInformation("🌐 開始從交易所 API 下載數據...");
+            _logger.LogWarning("====================================================");
+            _logger.LogWarning("🌐 開始從交易所 API 下載數據...");
+            _logger.LogWarning("🔧 _twseScraper 類型: {Type}", _twseScraper.GetType().FullName);
+            _logger.LogWarning("====================================================");
+            
             var scrapedData = await _twseScraper.ScrapeBatchAsync(
                 Enumerable.Empty<string>(),  // 傳空列表，下載所有交易所完整資料
                 tradeDate, 
                 maxDegreeOfParallelism: 5,
                 cancellationToken);
 
-            _logger.LogInformation("📊 從交易所下載 {Count} 筆股票記錄", scrapedData.Count);
+            _logger.LogWarning("📊 === 下载结果汇总 ===");
+            _logger.LogWarning("📊 總共下載 {Count} 筆股票記錄", scrapedData.Count);
+
+            // 按市場分類統計
+            var tseCount = scrapedData.Count(s => s.Market == "TSE");
+            var otcCount = scrapedData.Count(s => s.Market == "OTC");
+            var emergingCount = scrapedData.Count(s => s.Market == "EMERGING");
+            _logger.LogWarning("📊 [TSE] 上市: {Count} 筆", tseCount);
+            _logger.LogWarning("📊 [OTC] 上櫃: {Count} 筆", otcCount);
+            _logger.LogWarning("📊 [EMERGING] 興櫃: {Count} 筆", emergingCount);
 
             // ⚠️ 檢查下載結果的合理性
             if (!scrapedData.Any())
@@ -104,6 +118,10 @@ public class ImportService : IImportService
                 _logger.LogWarning(
                     "⚠️ 下載數量異常：僅 {Count} 筆（正常應 2000+ 筆），可能部分 API 失敗",
                     scrapedData.Count);
+                
+                if (tseCount == 0) _logger.LogWarning("⚠️ TSE 數據為空！");
+                if (otcCount == 0) _logger.LogWarning("⚠️ OTC 數據為空！");
+                if (emergingCount == 0) _logger.LogWarning("⚠️ EMERGING 數據為空！");
             }
 
             result.TotalCount = scrapedData.Count;
@@ -143,6 +161,9 @@ public class ImportService : IImportService
 
                     // 提交事務（确保所有操作都在事务内）
                     await transaction.CommitAsync(cancellationToken);
+
+                    // 步驟 4: 更新 weekall.lastDate 和 tradedata.lastDate 參考 investbase.lastDate
+                    await UpdateLastDateFromInvestBaseAsync(tradeDate, cancellationToken);
 
                     // 統計結果
                     result.SuccessCount = Math.Min(weekallInserted, tradedataInserted);
@@ -648,43 +669,92 @@ public class ImportService : IImportService
     /// 2. 時間 < 15:00 → 下載 investbase.LastDate（上一個交易日數據）
     /// 3. 若 investbase 無資料 → 使用昨天（fallback）
     /// 
-    /// 說明：investbase 是從券商每分鐘更新的交易資料
+    /// 說明：從 InvestBase 取得 RecDate，這就是要下載的交易日期
+    /// 流程：
+    /// 1. 到 InvestBase 找 RECDATE - 這就是需要下載的交易日期
+    /// 2. 到交易所網站下載這個日期的資料 CSV
+    /// 3. Parse CSV 檔，Insert/Update 到 weekall 和 tradedata
     /// </summary>
     public async Task<DateTime> GetDownloadTargetDateAsync()
     {
-        // Fallback：若無 investbase 數據則下載昨天
+        // Fallback：若無資料則使用昨天
         DateTime fallbackDate = DateTime.Today.AddDays(-1);
         
-        // 查詢 investbase（券商每分鐘更新的交易資料）
+        // 查詢 investbase 的 RecDate
         var latestInvestBase = await _tradeDataRepository.GetLatestInvestBaseAsync();
         
-        if (latestInvestBase == null)
+        if (latestInvestBase?.RecDate != null)
         {
-            _logger.LogInformation("📅 investbase 無資料，使用 fallback：昨天 {Date}", fallbackDate);
-            return fallbackDate;
+            _logger.LogWarning("📅 使用 investbase.RecDate = {Date}", latestInvestBase.RecDate);
+            return latestInvestBase.RecDate.Value;
         }
+        
+        _logger.LogWarning("📅 investbase 無 RecDate，使用 fallback：昨天 {Date}", fallbackDate);
+        return fallbackDate;
+    }
 
-        // 根據時間決定下載目標
-        DateTime targetDate;
-        int currentHour = DateTime.Now.Hour;
-        
-        if (currentHour >= 15)
+    /// <summary>
+    /// 更新 weekall.lastDate 和 tradedata.lastDate 參考 investbase.lastDate
+    /// 這樣可以追蹤每筆資料的前一個交易日
+    /// </summary>
+    private async Task UpdateLastDateFromInvestBaseAsync(DateTime tradeDate, CancellationToken cancellationToken)
+    {
+        try
         {
-            // 15:00 之後 → 下載 investbase.RecDate（當天收盤數據）
-            targetDate = latestInvestBase.RecDate ?? fallbackDate;
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
+
+            // 從 investbase 更新 weekall.lastDate
+            var weekallSql = @"
+                UPDATE weekall w
+                INNER JOIN investbase i ON w.StockID = i.StockID
+                SET w.lastDate = i.lastDate
+                WHERE w.StockDate = @tradeDate AND i.lastDate IS NOT NULL";
+
+            var weekallAffected = await dbContext.Database.ExecuteSqlRawAsync(
+                weekallSql,
+                new MySqlParameter("@tradeDate", tradeDate),
+                cancellationToken);
+
+            // 從 investbase 更新 tradedata.lastDate
+            var tradedataSql = @"
+                UPDATE tradedata t
+                INNER JOIN investbase i ON t.StockID = i.StockID
+                SET t.lastDate = i.lastDate
+                WHERE t.TransDate = @tradeDate AND i.lastDate IS NOT NULL";
+
+            var tradedataAffected = await dbContext.Database.ExecuteSqlRawAsync(
+                tradedataSql,
+                new MySqlParameter("@tradeDate", tradeDate),
+                cancellationToken);
+
             _logger.LogInformation(
-                "📅 15:00 之後：下載 investbase.RecDate={RecDate}（當前時間：{Now}）",
-                targetDate, DateTime.Now.ToString("HH:mm"));
+                "📅 已更新 lastDate - weekall: {WeekallCount} 筆, tradedata: {TradedataCount} 筆",
+                weekallAffected, tradedataAffected);
         }
-        else
+        catch (Exception ex)
         {
-            // 15:00 之前 → 下載 investbase.LastDate（上次交易日）
-            targetDate = latestInvestBase.LastDate ?? fallbackDate;
-            _logger.LogInformation(
-                "📅 15:00 之前：下載 investbase.LastDate={LastDate}（當前時間：{Now}）",
-                targetDate, DateTime.Now.ToString("HH:mm"));
+            _logger.LogWarning(ex, "⚠️ 更新 lastDate 失敗，不影響主要功能");
         }
-        
-        return targetDate;
+    }
+
+    /// <summary>
+    /// 刪除指定日期的交易資料
+    /// </summary>
+    public async Task<int> DeleteTradingDataAsync(DateTime date)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
+
+        var weekallDeleted = await dbContext.Database.ExecuteSqlRawAsync(
+            "DELETE FROM weekall WHERE StockDate = {0}", date);
+
+        var tradedataDeleted = await dbContext.Database.ExecuteSqlRawAsync(
+            "DELETE FROM tradedata WHERE TransDate = {0}", date);
+
+        _logger.LogWarning("🗑️ 刪除 {Date} 資料 - weekall: {WeekallCount} 筆, tradedata: {TradedataCount} 筆",
+            date.ToString("yyyy-MM-dd"), weekallDeleted, tradedataDeleted);
+
+        return weekallDeleted + tradedataDeleted;
     }
 }

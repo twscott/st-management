@@ -7,7 +7,7 @@ namespace SST.StockImport.API.Controllers;
 /// <summary>
 /// 統計資料處理請求
 /// </summary>
-public record StatisticsRequest(DateTime TargetDate);
+public record StatisticsRequest(DateTime StartDate, int Days);
 
 /// <summary>
 /// 統計資料處理結果
@@ -62,9 +62,9 @@ public class StatisticsController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("開始處理全部統計資料 (11個 Processors): {TargetDate}", request.TargetDate);
+            _logger.LogInformation("開始處理全部統計資料: {StartDate}, {Days} 天", request.StartDate, request.Days);
 
-            var result = await _statisticsService.ProcessAllAsync(request.TargetDate);
+            var result = await _statisticsService.ProcessAllAsync(request.StartDate, request.Days);
 
             var exceptionLogs = new List<string>();
             var processorDetails = new List<ProcessorExecutionInfo>();

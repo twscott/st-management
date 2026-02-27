@@ -1,0 +1,237 @@
+@page "/stock60days-recalc"
+@using SST.StockImport.Web.Services
+@inject ILogger<Stock60DaysRecalcPage> Logger
+@inject HttpClient Http
+@rendermode InteractiveServer
+
+<PageTitle>Stock60 重算</PageTitle>
+
+<div class="container-fluid">
+    <h1 class="mb-4">📈 Stock60 Days 批量重算</h1>
+
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">⚙️ 計算參數</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label class="form-label">開始 LastDate (Start LastDate)</label>
+                            <input type="date" class="form-control" @bind="startLastDate" disabled="@isRunning" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">天數 (Days)</label>
+                            <input type="number" class="form-control" @bind="days" min="1" max="365" disabled="@isRunning" />
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <div class="btn-group w-100">
+                                @if (!isRunning)
+                                {
+                                    <button class="btn btn-success btn-lg" @onclick="StartRecalculation">
+                                        ▶️ 開始計算
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-danger btn-lg" @onclick="CancelRecalculation">
+                                        ⏹️ 中斷
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-md-12">
+                            <div class="btn-group" role="group">
+                                <input type="radio" class="btn-check" name="preset" id="preset7" 
+                                       checked="@(days == 7)" @onclick="() => days = 7" disabled="@isRunning" />
+                                <label class="btn btn-outline-primary" for="preset7">往前一個禮拜 (7天)</label>
+                                
+                                <input type="radio" class="btn-check" name="preset" id="preset14" 
+                                       checked="@(days == 14)" @onclick="() => days = 14" disabled="@isRunning" />
+                                <label class="btn btn-outline-primary" for="preset14">14 天</label>
+                                
+                                <input type="radio" class="btn-check" name="preset" id="preset30" 
+                                       checked="@(days == 30)" @onclick="() => days = 30" disabled="@isRunning" />
+                                <label class="btn btn-outline-primary" for="preset30">30 天</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (progress != null)
+    {
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">📊 計算進度</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <strong>狀態:</strong>
+                                <span class="badge bg-@(progress.IsRunning ? "warning" : "success")">
+                                    @(progress.IsRunning ? "計算中" : "完成")
+                                </span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>目前處理 LastDate:</strong>
+                                <span class="text-primary">@(progress.CurrentLastDate?.ToString("yyyy-MM-dd") ?? "-")</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>進度:</strong>
+                                <span>@progress.ProcessedDays / @progress.TotalDays 天</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>已處理股票:</strong>
+                                <span>@progress.ProcessedStocks / @progress.TotalStocks 檔</span>
+                            </div>
+                        </div>
+                        
+                        @if (progress.LastProcessedLastDate.HasValue)
+                        {
+                            <div class="row mt-2">
+                                <div class="col-md-12">
+                                    <div class="alert alert-info">
+                                        📍 <strong>中斷位置:</strong> 最後計算到 @progress.LastProcessedLastDate.Value.ToString("yyyy-MM-dd")
+                                        <br/>
+                                        <small>若要繼續計算，請將開始日期設為 @progress.LastProcessedLastDate.Value.AddDays(1).ToString("yyyy-MM-dd")</small>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(resultMessage))
+    {
+        <div class="row">
+            <div class="col-md-12">
+                <div class="alert alert-@(resultSuccess ? "success" : "danger")">
+                    @resultMessage
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private DateTime startLastDate = DateTime.Today;
+    private int days = 7;
+    private bool isRunning = false;
+    private Stock60DaysRecalcProgress? progress;
+    private string resultMessage = "";
+    private bool resultSuccess = false;
+    private System.Threading.Timer? _progressTimer;
+
+    protected override void OnInitialized()
+    {
+        startLastDate = DateTime.Today.AddDays(-6);
+    }
+
+    private async Task StartRecalculation()
+    {
+        isRunning = true;
+        resultMessage = "";
+        progress = new Stock60DaysRecalcProgress { IsRunning = true, TotalDays = days };
+
+        _progressTimer = new System.Threading.Timer(async _ => await RefreshProgress(), null, 0, 2000);
+
+        try
+        {
+            var request = new { StartLastDate = startLastDate, Days = days };
+            var response = await Http.PostAsJsonAsync("/api/stock60days/recalc", request);
+            var result = await response.Content.ReadFromJsonAsync<Stock60DaysRecalcResult>();
+
+            if (result != null)
+            {
+                resultSuccess = result.Success;
+                if (result.Success)
+                {
+                    resultMessage = $"✅ 計算完成！處理了 {result.ProcessedDays} 天，耗時 {result.Duration.TotalMinutes:F2} 分鐘";
+                }
+                else
+                {
+                    resultMessage = $"❌ 計算失敗: {result.ErrorMessage}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            resultSuccess = false;
+            resultMessage = $"❌ 發生錯誤: {ex.Message}";
+            Logger.LogError(ex, "Stock60 重算失敗");
+        }
+        finally
+        {
+            isRunning = false;
+            _progressTimer?.Dispose();
+            await RefreshProgress();
+        }
+    }
+
+    private async Task CancelRecalculation()
+    {
+        try
+        {
+            await Http.PostAsJsonAsync("/api/stock60days/cancel", new { });
+            resultMessage = "⏹️ 已發送中斷請求...";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "取消失敗");
+        }
+    }
+
+    private async Task RefreshProgress()
+    {
+        try
+        {
+            var p = await Http.GetFromJsonAsync<Stock60DaysRecalcProgress>("/api/stock60days/progress");
+            if (p != null)
+            {
+                progress = p;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch
+        {
+            // Ignore progress fetch errors
+        }
+    }
+
+    public class Stock60DaysRecalcProgress
+    {
+        public bool IsRunning { get; set; }
+        public DateTime? CurrentLastDate { get; set; }
+        public int ProcessedDays { get; set; }
+        public int TotalDays { get; set; }
+        public int ProcessedStocks { get; set; }
+        public int TotalStocks { get; set; }
+        public DateTime? LastProcessedLastDate { get; set; }
+    }
+
+    public class Stock60DaysRecalcResult
+    {
+        public bool Success { get; set; }
+        public DateTime StartLastDate { get; set; }
+        public DateTime EndLastDate { get; set; }
+        public int TotalDays { get; set; }
+        public int ProcessedDays { get; set; }
+        public int TotalStocks { get; set; }
+        public int ProcessedStocks { get; set; }
+        public DateTime? LastProcessedLastDate { get; set; }
+        public string? ErrorMessage { get; set; }
+        public TimeSpan Duration { get; set; }
+    }
+}

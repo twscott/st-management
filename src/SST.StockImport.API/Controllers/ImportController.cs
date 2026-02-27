@@ -140,7 +140,11 @@ public class ImportController : ControllerBase
                 SuccessfulStocks = result.SuccessCount,
                 FailedStocks = result.FailedCount,
                 FailedStockCodes = result.FailedStocks,
-                FailureReasons = result.FailureReasons
+                FailureReasons = result.FailureReasons,
+                TargetDate = request.TargetDate,
+                Note = result.TotalCount > 0 
+                    ? $"數據已保存至 D:\\vibeCoding\\sst\\srcBackup\\{request.TargetDate:yyyyMMdd}\\"
+                    : "警告：沒有下載到任何數據，請檢查日誌"
             });
         }
         catch (Exception ex)
@@ -203,6 +207,24 @@ public class ImportController : ControllerBase
                 Phase1 = (object?)null,
                 Phase3 = (object?)null
             });
+        }
+    }
+
+    /// <summary>
+    /// 刪除指定日期的交易資料（測試用）
+    /// </summary>
+    [HttpDelete("data/{date:datetime}")]
+    public async Task<IActionResult> DeleteTradingData(DateTime date)
+    {
+        try
+        {
+            var deleted = await _importService.DeleteTradingDataAsync(date);
+            return Ok(new { Success = true, Date = date, DeletedCount = deleted });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "刪除失敗");
+            return BadRequest(new { Success = false, Message = ex.Message });
         }
     }
 }

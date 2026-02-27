@@ -10,5 +10,5 @@ public interface IStatisticsDataService
     /// <summary>
     /// 執行所有統計資料處理 (11個 Processors)
     /// </summary>
-    Task<SupplementResultDto> ProcessAllAsync(DateTime targetDate);
+    Task<SupplementResultDto> ProcessAllAsync(DateTime startDate, int days);
 }

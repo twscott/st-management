@@ -148,6 +148,13 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadImportStatus();
+        
+        var targetDate = await ApiService.GetDownloadTargetDateAsync();
+        if (targetDate.HasValue)
+        {
+            selectedDate = targetDate.Value;
+            selectedTradingDate = targetDate.Value;
+        }
     }
 
     private async Task LoadImportStatus()

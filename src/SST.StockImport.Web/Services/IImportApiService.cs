@@ -43,9 +43,9 @@ public interface IImportApiService
     Task<GoodInfoDownloadResult> DownloadGoodInfoDataAsync();
 
     /// <summary>
-    /// 處理所有統計資料
-    /// </summary>
-    Task<StatisticsProcessResult> ProcessAllStatisticsAsync(DateTime targetDate);
+    /// 
+    /// 處理所有統計資料</summary>
+    Task<StatisticsProcessResult> ProcessAllStatisticsAsync(DateTime startDate, int days);
 
     /// <summary>
     /// 獲取排程狀態

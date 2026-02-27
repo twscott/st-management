@@ -34,36 +34,43 @@ public class SupplementDataService : ISupplementDataService
         _logger = logger;
     }
 
-    public async Task<SupplementResultDto> ProcessAllAsync(DateTime targetDate)
+    public async Task<SupplementResultDto> ProcessAllAsync(DateTime startDate, int days)
     {
         var stopwatch = Stopwatch.StartNew();
         var result = new SupplementResultDto
         {
-            TargetDate = targetDate,
+            TargetDate = startDate,
             ProcessorResults = new List<ProcessorResultDto>()
         };
 
         try
         {
-            _logger.LogInformation("開始執行所有補充數據處理，目標日期: {TargetDate}", targetDate);
+            var endDate = startDate.AddDays(days - 1);
+            _logger.LogInformation("開始執行所有補充數據處理，範圍: {StartDate} ~ {EndDate} ({Days} 天)", 
+                startDate, endDate, days);
 
-            // Step 1: 警示統計更新 (最重要，優先執行)
-            var alertResult = await ProcessAlertStatisticsAsync(targetDate);
-            result.ProcessorResults.Add(alertResult);
+            for (int i = 0; i < days; i++)
+            {
+                var currentDate = startDate.AddDays(i);
+                _logger.LogInformation("處理日期: {Date} ({DayIndex}/{Days})", currentDate, i + 1, days);
 
-            // Step 2: 技術指標補算
-            var technicalResult = await ProcessTechnicalIndicatorsAsync(targetDate);
-            result.ProcessorResults.Add(technicalResult);
+                // Step 1: 警示統計更新
+                var alertResult = await ProcessAlertStatisticsAsync(currentDate);
+                result.ProcessorResults.Add(alertResult);
 
-            // Step 3: 高低點分析
-            var priceAnalysisResult = await ProcessPriceAnalysisAsync(targetDate);
-            result.ProcessorResults.Add(priceAnalysisResult);
+                // Step 2: 技術指標補算
+                var technicalResult = await ProcessTechnicalIndicatorsAsync(currentDate);
+                result.ProcessorResults.Add(technicalResult);
 
-            // Step 4: 成交量統計分析
-            var volumeResult = await ProcessVolumeStatisticsAsync(targetDate);
-            result.ProcessorResults.Add(volumeResult);
+                // Step 3: 高低點分析
+                var priceAnalysisResult = await ProcessPriceAnalysisAsync(currentDate);
+                result.ProcessorResults.Add(priceAnalysisResult);
 
-            // 檢查整體結果
+                // Step 4: 成交量統計分析
+                var volumeResult = await ProcessVolumeStatisticsAsync(currentDate);
+                result.ProcessorResults.Add(volumeResult);
+            }
+
             result.Success = result.ProcessorResults.TrueForAll(r => r.Success);
             result.TotalDuration = stopwatch.Elapsed;
 
@@ -83,7 +90,7 @@ public class SupplementDataService : ISupplementDataService
             result.ErrorMessage = ex.Message;
             result.TotalDuration = stopwatch.Elapsed;
             
-            _logger.LogError(ex, "補充數據處理發生嚴重錯誤，目標日期: {TargetDate}", targetDate);
+            _logger.LogError(ex, "補充數據處理發生嚴重錯誤，目標日期: {TargetDate}", startDate);
         }
 
         return result;

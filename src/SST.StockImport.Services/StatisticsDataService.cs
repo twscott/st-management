@@ -75,73 +75,66 @@ public class StatisticsDataService : IStatisticsDataService
     /// <summary>
     /// 執行所有統計資料處理
     /// </summary>
-    public async Task<SupplementResultDto> ProcessAllAsync(DateTime targetDate)
+    public async Task<SupplementResultDto> ProcessAllAsync(DateTime startDate, int days)
     {
         var stopwatch = Stopwatch.StartNew();
         var result = new SupplementResultDto
         {
-            TargetDate = targetDate,
+            TargetDate = startDate,
             ProcessorResults = new List<ProcessorResultDto>()
         };
 
         try
         {
-            _logger.LogInformation("開始執行統計資料處理，目標日期: {TargetDate}", targetDate);
+            var endDate = startDate.AddDays(days - 1);
+            _logger.LogInformation("開始執行統計資料處理，範圍: {StartDate} ~ {EndDate} ({Days} 天)", 
+                startDate, endDate, days);
 
-            // ========== Phase 1: 核心按鈕操作 (4個 Processors，預計 95秒) ==========
-            _logger.LogInformation("Phase 1: 執行核心按鈕操作 (4個處理器)...");
-            
-            var weekAll4Result = await _weekAll4Processor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(weekAll4Result);
-            _logger.LogInformation("✓ WeekAll4: {Duration}ms", weekAll4Result.Duration.TotalMilliseconds);
+            for (int i = 0; i < days; i++)
+            {
+                var currentDate = startDate.AddDays(i);
+                _logger.LogInformation("========== 處理日期: {Date} ({DayIndex}/{Days}) ==========", 
+                    currentDate, i + 1, days);
 
-            var afterHourResult = await _afterHourTradeProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(afterHourResult);
-            _logger.LogInformation("✓ AfterHourTrade: {Duration}ms", afterHourResult.Duration.TotalMilliseconds);
+                // ========== Phase 1: 核心按鈕操作 (4個 Processors) ==========
+                var weekAll4Result = await _weekAll4Processor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(weekAll4Result);
 
-            var threeMainResult = await _threeMainTablesProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(threeMainResult);
-            _logger.LogInformation("✓ ThreeMainTables: {Duration}ms", threeMainResult.Duration.TotalMilliseconds);
+                var afterHourResult = await _afterHourTradeProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(afterHourResult);
 
-            var alertInstanceResult = await _alertInstanceProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(alertInstanceResult);
-            _logger.LogInformation("✓ AlertInstance: {Duration}ms", alertInstanceResult.Duration.TotalMilliseconds);
+                var threeMainResult = await _threeMainTablesProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(threeMainResult);
 
-            // ========== Phase 2: 警報統計處理 (1個 Processor) ==========
-            _logger.LogInformation("Phase 2: 執行警報統計處理...");
-            
-            var alertStatsResult = await _alertStatisticsProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(alertStatsResult);
-            _logger.LogInformation("✓ AlertStatistics: {Duration}ms", alertStatsResult.Duration.TotalMilliseconds);
+                var alertInstanceResult = await _alertInstanceProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(alertInstanceResult);
 
-            // ========== Phase 3: 資料庫更新與清理 (6個 Processors) ==========
-            _logger.LogInformation("Phase 3: 執行資料庫更新與清理 (6個處理器)...");
-            
-            var investBaseResult = await _investBaseDataProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(investBaseResult);
-            _logger.LogInformation("✓ InvestBaseData: {Duration}ms", investBaseResult.Duration.TotalMilliseconds);
+                // ========== Phase 2: 警報統計處理 (1個 Processor) ==========
+                var alertStatsResult = await _alertStatisticsProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(alertStatsResult);
 
-            var maResult = await _movingAverageProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(maResult);
-            _logger.LogInformation("✓ MovingAverage: {Duration}ms", maResult.Duration.TotalMilliseconds);
+                // ========== Phase 3: 資料庫更新與清理 (6個 Processors) ==========
+                var investBaseResult = await _investBaseDataProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(investBaseResult);
 
-            var kTypeResult = await _kTypeProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(kTypeResult);
-            _logger.LogInformation("✓ KType: {Duration}ms", kTypeResult.Duration.TotalMilliseconds);
+                var maResult = await _movingAverageProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(maResult);
 
-            var jumpKongResult = await _jumpKongProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(jumpKongResult);
-            _logger.LogInformation("✓ JumpKong: {Duration}ms", jumpKongResult.Duration.TotalMilliseconds);
+                var kTypeResult = await _kTypeProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(kTypeResult);
 
-            var notifyLogResult = await _notifyLogProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(notifyLogResult);
-            _logger.LogInformation("✓ NotifyLog: {Duration}ms", notifyLogResult.Duration.TotalMilliseconds);
+                var jumpKongResult = await _jumpKongProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(jumpKongResult);
 
-            var lowShadowResult = await _lowShadowProcessor.ProcessAsync(targetDate);
-            result.ProcessorResults.Add(lowShadowResult);
-            _logger.LogInformation("✓ LowShadow: {Duration}ms", lowShadowResult.Duration.TotalMilliseconds);
+                var notifyLogResult = await _notifyLogProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(notifyLogResult);
 
-            // 檢查整體結果
+                var lowShadowResult = await _lowShadowProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(lowShadowResult);
+
+                _logger.LogInformation("---------- {Date} 處理完成 ----------", currentDate);
+            }
+
             result.Success = result.ProcessorResults.TrueForAll(r => r.Success);
             result.TotalDuration = stopwatch.Elapsed;
 
@@ -150,9 +143,8 @@ public class StatisticsDataService : IStatisticsDataService
             if (result.Success)
             {
                 _logger.LogInformation(
-                    "所有統計資料處理完成 ({ProcessorCount} 個處理器)，總耗時: {TotalDuration:mm\\:ss}",
-                    processorCount,
-                    result.TotalDuration);
+                    "所有統計資料處理完成 ({Days} 天, {ProcessorCount} 個處理器)，總耗時: {TotalDuration:mm\\:ss}",
+                    days, processorCount, result.TotalDuration);
             }
             else
             {
@@ -160,9 +152,7 @@ public class StatisticsDataService : IStatisticsDataService
                 result.ErrorMessage = $"有 {failedProcessors.Count} 個處理器執行失敗";
                 _logger.LogWarning(
                     "統計資料處理完成但有失敗項目 (失敗: {FailedCount}/{TotalCount})，總耗時: {TotalDuration:mm\\:ss}",
-                    failedProcessors.Count,
-                    processorCount,
-                    result.TotalDuration);
+                    failedProcessors.Count, processorCount, result.TotalDuration);
             }
         }
         catch (Exception ex)

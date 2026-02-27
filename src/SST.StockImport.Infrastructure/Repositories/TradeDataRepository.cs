@@ -210,11 +210,49 @@ public class TradeDataRepository : ITradeDataRepository
 
     /// <summary>
     /// 獲取最新的 InvestBase 記錄（依 RecDate 降序排列取第一筆）
+    /// 使用原始 SQL 避免 EF Core 查詢時缺少欄位的問題
     /// </summary>
     public async Task<InvestBase?> GetLatestInvestBaseAsync()
     {
-        return await _context.InvestBase
-            .OrderByDescending(i => i.RecDate)
-            .FirstOrDefaultAsync();
+        try
+        {
+            var connection = _context.Database.GetDbConnection();
+            await connection.OpenAsync();
+            
+            using var command = connection.CreateCommand();
+            command.CommandText = @"
+                SELECT StockID, stockName, StockType, recDate, lastDate 
+                FROM investbase 
+                ORDER BY recDate DESC 
+                LIMIT 1";
+            
+            using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return new InvestBase
+                {
+                    StockID = reader.GetString(0),
+                    StockName = reader.IsDBNull(1) ? null : reader.GetString(1),
+                    StockType = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    RecDate = reader.IsDBNull(3) ? null : reader.GetDateTime(3),
+                    LastDate = reader.IsDBNull(4) ? null : reader.GetDateTime(4)
+                };
+            }
+            return null;
+        }
+        catch
+        {
+            return await _context.InvestBase
+                .OrderByDescending(i => i.RecDate)
+                .Select(i => new InvestBase 
+                { 
+                    StockID = i.StockID,
+                    StockName = i.StockName,
+                    StockType = i.StockType,
+                    RecDate = i.RecDate,
+                    LastDate = i.LastDate
+                })
+                .FirstOrDefaultAsync();
+        }
     }
 }

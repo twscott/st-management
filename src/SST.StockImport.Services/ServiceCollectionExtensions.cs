@@ -1,11 +1,34 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SST.StockImport.Core.Interfaces;
+using SST.StockImport.Infrastructure.Data;
 using SST.StockImport.Services.Scrapers;
 
 namespace SST.StockImport.Services;
 
 public static class ServiceCollectionExtensions
 {
+    private static string? _connectionString;
+    
+    public static string GetConnectionString()
+    {
+        if (_connectionString == null)
+        {
+            var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "sst.config.json");
+            if (File.Exists(configPath))
+            {
+                var json = File.ReadAllText(configPath);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                _connectionString = doc.RootElement.GetProperty("ConnectionStrings").GetProperty("DefaultConnection").GetString();
+            }
+            else
+            {
+                throw new FileNotFoundException("找不到配置文件: " + configPath);
+            }
+        }
+        return _connectionString;
+    }
+    
     public static IServiceCollection AddStockImportServices(this IServiceCollection services)
     {
         services.AddHttpClient("GoodInfo", client =>
@@ -32,6 +55,7 @@ public static class ServiceCollectionExtensions
         
         services.AddScoped<GoodInfoScraper>();
         services.AddScoped<LegacyGoodInfoScraper>();
+        services.AddScoped<GoodInfoImportService>();
         services.AddSingleton(new GoodInfoScraperConfig
         {
             PageLoadDelayMs = 3000,
@@ -101,6 +125,12 @@ public static class ServiceCollectionExtensions
             //     smtpConfig["FromEmail"]
             // );
         });
+
+        // 日期資料查詢服務
+        services.AddScoped<IDateDataService, DateDataService>();
+
+        // Stock60Days 批量重算服務
+        services.AddScoped<IStock60DaysRecalcService, Stock60DaysRecalcService>();
 
         return services;
     }
