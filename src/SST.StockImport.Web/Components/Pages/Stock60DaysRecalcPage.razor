@@ -180,11 +180,19 @@
                 progress = p;
                 await InvokeAsync(StateHasChanged);
                 
-                if (!p.IsRunning && p.ProcessedDays > 0)
+                if (!p.IsRunning && p.ProcessedDays >= 0)
                 {
                     isRunning = false;
                     _progressTimer?.Dispose();
-                    resultMessage = $"✅ 計算完成！處理了 {p.ProcessedDays} 天";
+                    
+                    if (p.ProcessedDays > 0)
+                    {
+                        resultMessage = $"✅ 計算完成！處理了 {p.ProcessedDays} 天";
+                    }
+                    else if (p.LastProcessedLastDate.HasValue)
+                    {
+                        resultMessage = $"⚠️ 計算已中斷，最後處理到 {p.LastProcessedLastDate.Value.ToString("yyyy-MM-dd")}";
+                    }
                 }
             }
         }
