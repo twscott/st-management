@@ -43,8 +43,12 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
 
     public async Task<Stock60DaysRecalcResult> RecalculateAsync(DateTime startLastDate, int days, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("Stock60DaysRecalcService.RecalculateAsync 被調用: startLastDate={StartLastDate}, days={Days}", 
+            startLastDate, days);
+
         if (_isRunning)
         {
+            _logger.LogWarning("Stock60 重算被跳過: 已有計算正在執行中");
             return new Stock60DaysRecalcResult
             {
                 Success = false,
@@ -83,6 +87,17 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             var tradingDates = await GetTradingDatesAsync(context, startLastDate, days);
             
             _logger.LogInformation("找到 {Count} 個交易日", tradingDates.Count);
+
+            if (tradingDates.Count == 0)
+            {
+                _logger.LogWarning("沒有找到交易日，可能日期 {StartLastDate} 沒有對應的 LastDate", startLastDate);
+                result.Success = true;
+                result.ProcessedDays = 0;
+                result.Duration = stopwatch.Elapsed;
+                _isRunning = false;
+                _progress.IsRunning = false;
+                return result;
+            }
 
             for (int i = 0; i < tradingDates.Count; i++)
             {
@@ -150,6 +165,9 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             .OrderBy(d => d)
             .Take(days)
             .ToListAsync();
+        
+        _logger.LogInformation("GetTradingDatesAsync: startLastDate={Start}, days={Days}, found={Count}", 
+            startLastDate, days, tradingDates.Count);
         
         return tradingDates;
     }

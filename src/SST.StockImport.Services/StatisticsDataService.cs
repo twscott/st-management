@@ -93,7 +93,12 @@ public class StatisticsDataService : IStatisticsDataService
                 result.ProcessorResults.Add(investBaseResult);
 
                 // ========== Stock60 重算 (1天 - 当天资料) ==========
+                _logger.LogInformation("開始 Stock60 重算 for {Date}", currentDate);
                 var stock60Result = await _stock60RecalcService.RecalculateAsync(currentDate, 1);
+                
+                _logger.LogInformation("Stock60 重算結果: Success={Success}, ProcessedDays={Days}, Error={Error}", 
+                    stock60Result.Success, stock60Result.ProcessedDays, stock60Result.ErrorMessage);
+                
                 result.ProcessorResults.Add(new ProcessorResultDto
                 {
                     ProcessorName = "Stock60重算(當天)",
