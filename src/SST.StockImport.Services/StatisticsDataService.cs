@@ -12,63 +12,39 @@ namespace SST.StockImport.Services;
 
 /// <summary>
 /// 統計資料處理服務 (處理統計資料按鈕)
-/// 包含 11 個 Processors: Phase 1 按鈕操作 (4個) + Phase 2 警報統計 (1個) + Phase 3 資料庫更新 (6個)
+/// 包含 6 個 Processors: WeekAll4 + AfterHourTrade + AlertInstance + AlertStatistics + InvestBaseData + Stock60
 /// </summary>
 public class StatisticsDataService : IStatisticsDataService
 {
-    // Phase 1: 核心按鈕操作 Processors (4個)
+    // 保留的 Processors (5個)
     private readonly WeekAll4Processor _weekAll4Processor;
     private readonly AfterHourTradeProcessor _afterHourTradeProcessor;
-    private readonly ThreeMainTablesProcessor _threeMainTablesProcessor;
     private readonly AlertInstanceProcessor _alertInstanceProcessor;
-
-    // Phase 2: 警報統計 Processor (1個)
     private readonly AlertStatisticsProcessor _alertStatisticsProcessor;
-
-    // Phase 3: 資料庫更新 Processors (6個)
     private readonly InvestBaseDataProcessor _investBaseDataProcessor;
-    private readonly MovingAverageProcessor _movingAverageProcessor;
-    private readonly KTypeProcessor _kTypeProcessor;
-    private readonly JumpKongProcessor _jumpKongProcessor;
-    private readonly NotifyLogProcessor _notifyLogProcessor;
-    private readonly LowShadowProcessor _lowShadowProcessor;
+
+    // Stock60 重算服務
+    private readonly IStock60DaysRecalcService _stock60RecalcService;
 
     private readonly ILogger<StatisticsDataService> _logger;
 
     public StatisticsDataService(
-        // Phase 1 dependencies
+        // 保留的 processors
         WeekAll4Processor weekAll4Processor,
         AfterHourTradeProcessor afterHourTradeProcessor,
-        ThreeMainTablesProcessor threeMainTablesProcessor,
         AlertInstanceProcessor alertInstanceProcessor,
-        // Phase 2 dependency
         AlertStatisticsProcessor alertStatisticsProcessor,
-        // Phase 3 dependencies
         InvestBaseDataProcessor investBaseDataProcessor,
-        MovingAverageProcessor movingAverageProcessor,
-        KTypeProcessor kTypeProcessor,
-        JumpKongProcessor jumpKongProcessor,
-        NotifyLogProcessor notifyLogProcessor,
-        LowShadowProcessor lowShadowProcessor,
+        // Stock60 重算
+        IStock60DaysRecalcService stock60RecalcService,
         ILogger<StatisticsDataService> logger)
     {
-        // Phase 1
         _weekAll4Processor = weekAll4Processor;
         _afterHourTradeProcessor = afterHourTradeProcessor;
-        _threeMainTablesProcessor = threeMainTablesProcessor;
         _alertInstanceProcessor = alertInstanceProcessor;
-        
-        // Phase 2
         _alertStatisticsProcessor = alertStatisticsProcessor;
-        
-        // Phase 3
         _investBaseDataProcessor = investBaseDataProcessor;
-        _movingAverageProcessor = movingAverageProcessor;
-        _kTypeProcessor = kTypeProcessor;
-        _jumpKongProcessor = jumpKongProcessor;
-        _notifyLogProcessor = notifyLogProcessor;
-        _lowShadowProcessor = lowShadowProcessor;
-        
+        _stock60RecalcService = stock60RecalcService;
         _logger = logger;
     }
 
@@ -96,41 +72,36 @@ public class StatisticsDataService : IStatisticsDataService
                 _logger.LogInformation("========== 處理日期: {Date} ({DayIndex}/{Days}) ==========", 
                     currentDate, i + 1, days);
 
-                // ========== Phase 1: 核心按鈕操作 (4個 Processors) ==========
+                // ========== WeekAll4Processor ==========
                 var weekAll4Result = await _weekAll4Processor.ProcessAsync(currentDate);
                 result.ProcessorResults.Add(weekAll4Result);
 
+                // ========== AfterHourTradeProcessor ==========
                 var afterHourResult = await _afterHourTradeProcessor.ProcessAsync(currentDate);
                 result.ProcessorResults.Add(afterHourResult);
 
-                var threeMainResult = await _threeMainTablesProcessor.ProcessAsync(currentDate);
-                result.ProcessorResults.Add(threeMainResult);
-
+                // ========== AlertInstanceProcessor ==========
                 var alertInstanceResult = await _alertInstanceProcessor.ProcessAsync(currentDate);
                 result.ProcessorResults.Add(alertInstanceResult);
 
-                // ========== Phase 2: 警報統計處理 (1個 Processor) ==========
+                // ========== AlertStatisticsProcessor ==========
                 var alertStatsResult = await _alertStatisticsProcessor.ProcessAsync(currentDate);
                 result.ProcessorResults.Add(alertStatsResult);
 
-                // ========== Phase 3: 資料庫更新與清理 (6個 Processors) ==========
+                // ========== InvestBaseDataProcessor ==========
                 var investBaseResult = await _investBaseDataProcessor.ProcessAsync(currentDate);
                 result.ProcessorResults.Add(investBaseResult);
 
-                var maResult = await _movingAverageProcessor.ProcessAsync(currentDate);
-                result.ProcessorResults.Add(maResult);
-
-                var kTypeResult = await _kTypeProcessor.ProcessAsync(currentDate);
-                result.ProcessorResults.Add(kTypeResult);
-
-                var jumpKongResult = await _jumpKongProcessor.ProcessAsync(currentDate);
-                result.ProcessorResults.Add(jumpKongResult);
-
-                var notifyLogResult = await _notifyLogProcessor.ProcessAsync(currentDate);
-                result.ProcessorResults.Add(notifyLogResult);
-
-                var lowShadowResult = await _lowShadowProcessor.ProcessAsync(currentDate);
-                result.ProcessorResults.Add(lowShadowResult);
+                // ========== Stock60 重算 (1天 - 当天资料) ==========
+                var stock60Result = await _stock60RecalcService.RecalculateAsync(currentDate, 1);
+                result.ProcessorResults.Add(new ProcessorResultDto
+                {
+                    ProcessorName = "Stock60重算(當天)",
+                    Success = stock60Result.Success,
+                    ProcessedCount = stock60Result.ProcessedDays,
+                    ErrorMessage = stock60Result.ErrorMessage,
+                    Duration = stock60Result.Duration
+                });
 
                 _logger.LogInformation("---------- {Date} 處理完成 ----------", currentDate);
             }
