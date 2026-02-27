@@ -70,7 +70,17 @@ public class StatisticsDataService : IStatisticsDataService
             .Select(i => i.RecDate)
             .FirstOrDefaultAsync();
         
-        _logger.LogInformation("找到最近交易日 RecDate={RecDate}", recDate);
+        _logger.LogInformation("DEBUG: GetLatestRecDateAsync found RecDate={RecDate}", recDate);
+        
+        // Also log what dates exist
+        var allDates = await context.InvestBase
+            .OrderByDescending(i => i.RecDate)
+            .Take(5)
+            .Select(i => i.RecDate)
+            .ToListAsync();
+        
+        _logger.LogInformation("DEBUG: Recent RecDates in InvestBase: {Dates}", string.Join(", ", allDates.Select(d => d?.ToString("yyyy-MM-dd") ?? "null")));
+        
         return recDate;
     }
 
@@ -120,7 +130,9 @@ public class StatisticsDataService : IStatisticsDataService
 
                 // ========== Stock60 重算 (1天 - 最近交易日) ==========
                 // 找到最近有数据的交易日来计算
+                _logger.LogInformation("DEBUG: About to call GetLatestRecDateAsync");
                 var recDate = await GetLatestRecDateAsync();
+                _logger.LogInformation("DEBUG: Got recDate={RecDate}", recDate);
                 
                 if (recDate.HasValue)
                 {
