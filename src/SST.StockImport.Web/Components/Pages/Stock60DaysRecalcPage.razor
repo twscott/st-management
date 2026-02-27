@@ -142,7 +142,7 @@
     private async Task StartRecalculation()
     {
         isRunning = true;
-        resultMessage = "";
+        resultMessage = "計算已啟動，正在進行中...";
         progress = new Stock60DaysRecalcProgress { IsRunning = true, TotalDays = days };
 
         _progressTimer = new System.Threading.Timer(async _ => await RefreshProgress(), null, 0, 2000);
@@ -151,19 +151,13 @@
         {
             var request = new { StartLastDate = startLastDate, Days = days };
             var response = await Http.PostAsJsonAsync("/api/stock60days/recalc", request);
-            var result = await response.Content.ReadFromJsonAsync<Stock60DaysRecalcResult>();
-
-            if (result != null)
+            
+            if (!response.IsSuccessStatusCode)
             {
-                resultSuccess = result.Success;
-                if (result.Success)
-                {
-                    resultMessage = $"✅ 計算完成！處理了 {result.ProcessedDays} 天，耗時 {result.Duration.TotalMinutes:F2} 分鐘";
-                }
-                else
-                {
-                    resultMessage = $"❌ 計算失敗: {result.ErrorMessage}";
-                }
+                var error = await response.Content.ReadFromJsonAsync<dynamic>();
+                resultMessage = $"❌ 啟動失敗: {error?.Error ?? "未知錯誤"}";
+                isRunning = false;
+                _progressTimer?.Dispose();
             }
         }
         catch (Exception ex)
@@ -171,12 +165,31 @@
             resultSuccess = false;
             resultMessage = $"❌ 發生錯誤: {ex.Message}";
             Logger.LogError(ex, "Stock60 重算失敗");
-        }
-        finally
-        {
             isRunning = false;
             _progressTimer?.Dispose();
-            await RefreshProgress();
+        }
+    }
+
+    private async Task RefreshProgress()
+    {
+        try
+        {
+            var p = await Http.GetFromJsonAsync<Stock60DaysRecalcProgress>("/api/stock60days/progress");
+            if (p != null)
+            {
+                progress = p;
+                await InvokeAsync(StateHasChanged);
+                
+                if (!p.IsRunning && p.ProcessedDays > 0)
+                {
+                    isRunning = false;
+                    _progressTimer?.Dispose();
+                    resultMessage = $"✅ 計算完成！處理了 {p.ProcessedDays} 天";
+                }
+            }
+        }
+        catch
+        {
         }
     }
 
@@ -193,23 +206,6 @@
         }
     }
 
-    private async Task RefreshProgress()
-    {
-        try
-        {
-            var p = await Http.GetFromJsonAsync<Stock60DaysRecalcProgress>("/api/stock60days/progress");
-            if (p != null)
-            {
-                progress = p;
-                await InvokeAsync(StateHasChanged);
-            }
-        }
-        catch
-        {
-            // Ignore progress fetch errors
-        }
-    }
-
     public class Stock60DaysRecalcProgress
     {
         public bool IsRunning { get; set; }
@@ -219,19 +215,5 @@
         public int ProcessedStocks { get; set; }
         public int TotalStocks { get; set; }
         public DateTime? LastProcessedLastDate { get; set; }
-    }
-
-    public class Stock60DaysRecalcResult
-    {
-        public bool Success { get; set; }
-        public DateTime StartLastDate { get; set; }
-        public DateTime EndLastDate { get; set; }
-        public int TotalDays { get; set; }
-        public int ProcessedDays { get; set; }
-        public int TotalStocks { get; set; }
-        public int ProcessedStocks { get; set; }
-        public DateTime? LastProcessedLastDate { get; set; }
-        public string? ErrorMessage { get; set; }
-        public TimeSpan Duration { get; set; }
     }
 }

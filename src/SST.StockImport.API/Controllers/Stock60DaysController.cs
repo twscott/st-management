@@ -19,16 +19,26 @@ public class Stock60DaysController : ControllerBase
     }
 
     [HttpPost("recalc")]
-    public async Task<ActionResult<Stock60DaysRecalcResult>> Recalculate([FromBody] Stock60DaysRecalcRequest request)
+    public async Task<ActionResult> Recalculate([FromBody] Stock60DaysRecalcRequest request)
     {
         try
         {
             _logger.LogInformation("收到 Stock60Days 重算請求: StartLastDate={StartLastDate}, Days={Days}", 
                 request.StartLastDate, request.Days);
 
-            var result = await _recalcService.RecalculateAsync(request.StartLastDate, request.Days);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _recalcService.RecalculateAsync(request.StartLastDate, request.Days);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Stock60Days 重算在後台發生錯誤");
+                }
+            });
 
-            return Ok(result);
+            return Ok(new { Message = "計算已啟動，請透過 /progress 查詢進度" });
         }
         catch (Exception ex)
         {
