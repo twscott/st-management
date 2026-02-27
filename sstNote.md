@@ -1,14 +1,25 @@
 #启动脚本
 cd D:\OpenCode\sst
+opencode .
+
 dotnet build D:\OpenCode\sst\src\SST.StockImport.Services\SST.StockImport.Services.csproj
 .\start-api.ps1 -NoBuild
 
-cd D:\OpenCode\sst
+cd D:\vibeCoding\sst
+dotnet build D:\vibeCoding\sst\src\SST.StockImport.Services\SST.StockImport.Services.csproj
 .\start-api.ps1 -NoBuild
+
+cd D:\vibeCoding\sst
+.\StartAll.ps1 
 ////////////////////////
 
 cd D:\OpenCode\sst
 .\start-web.ps1
+
+cd D:\vibeCoding\sst
+.\start-web.ps1
+
+
 
 http://localhost:5089/
 
@@ -124,3 +135,75 @@ p5VRateNegCnt 價跌且出大量(5 分钟的量大于 5日均量的 1/2) 的次�
 pApRatePosCnt 價漲且出大量(5 分钟的量大于 昨日5分钟盘量的10倍) 的次数 ， 代表有人在进货
 pApRateNegCnt 價跌且出大量(5 分钟的量大于 昨日5分钟盘量的10倍) 的次数 ， 代表有人在出货
 maxPLVR 当天最大的 5 分钟盘量
+
+
+2025/11/03 的這些股票，能找到共同的特徵碼 ？ 
+1 	3163 	90 	17.0x 	28 天 	240.50 	+74.01% 	26 天 	⭐ 78
+2 	3105 	90 	15.0x 	28 天 	118.00 	+61.86% 	28 天 	⭐ 72
+3 	4542 	90 	13.0x 	28 天 	59.80 	+58.03% 	36 天 	⭐ 67
+4 	3455 	90 	18.0x 	28 天 	87.80 	+36.10% 	41 天 	⭐ 57
+
+
+ 	37 	KD_RSV 				decimal(10,2) 			否 	0.00 	
+	38 	KD_K 				decimal(10,2) 			否 	0.00 		
+	39 	KD_D 				decimal(10,2) 			否 	0.00 	
+	40 	boolUp 				decimal(10,2) 			否 	0.00 	布林上軌 
+	41 	boolMid 			decimal(10,2) 			否 	0.00 	布林中線  	
+	42 	boolDown 			decimal(10,2) 			否 	0.00 	布林下軌
+	43 	boolkaikouDiffRate 	decimal(10,2) 			否 	0.00 	布林寬價幅 
+	
+继续之前的 SST 项目工作，我们做到了：
+1. 修复了 TWSEScraper 数据完整性验证
+2. 修复了 ImportController 移除假数据
+3. 完成了「资料源统计与验证」功能
+请继续第二阶段：GoodInfo 导入功能	
+
+
+这个系统是用来管理股市交易资料
+资料的来源有三个：
+每天从交易所下载的收盘资料，交易所包括：
+a. 1. 上市 2. 上柜 3. 新柜
+b. 每 5 分钟的交易资料统计，这主要是去看分盘的交易量和突然的涨跌幅
+c. 每天从 GoodInfo 下载的股票统计资料
+
+目前就是稳定地保存这些资料就好了，还没有开始做比较有意义的分析。
+
+交易所資料： table:weekall, tradedata, 固定每天下載， 儲存 weekall 僅存 5 天資料， tradedata 存半年
+ 
+最穩定的是 alertlist, alertLog, dapan, detector, investbase, 這是由另一個系統固定時間到券商拉資料
+tradedata 除了交易所的資料, 主要的資料來源是 goodinfo 來的統計·資料
+stock60days 則是綜合的統計資料， 由本系統自己計算
+
+现在遇到的问题是：我的资料来源是不是都稳定而正确地被存入他们各自的 table
+最简单的从交易所下载资料并存到这两个 table:weekall, tradedata，到目前为止都一直失败。
+
+
+1. 首頁的 下載交易資料：是用 investbase 的 recDate, 作爲下載日期的預設日， 而非 下載當時的日期
+2. 交易所來的資料， 必須統一轉成以 張(千股) 爲單位
+3. 使用者可以多次下载资料，也就是每次下载的时候都要用 INSERT ... ON DUPLICATE KEY UPDATE
+4. 下载的档案应该要放到 D:\vibeCoding\sst\srcBackup, 以日期为单位的子目录, 例如 D:\vibeCoding\sst\srcBackup\20260226
+这些跟交易有关的 table 一定会有两个日期：一个是交易日，一个是前一天的交易日。
+
+因为交易日期不是连续的（也就是它跟日历日不一样），所以一定要靠 Last Date 去指到前一个交易日，这样才能够连贯下来。
+
+
+我需要在 Menu 增加一个查看指定日期的资料功能。
+包括: 
+1. 筆數 - weekall, tradedata, alertlist, alertLog, dapan, detector, investbase, stock60days
+2. dapan - 今昨上市/上櫃 點數
+3. weekall, tradedata  
+   今昨	上市/上櫃/興櫃 筆數, %
+   今昨 上市/上櫃/興櫃縂成交金額, %
+   今昨 上市/上櫃/興櫃縂成交張數, %
+ 
+ 
+ 交易所标准的下载流程
+ 到 InvestBase 找 RECDATE , 这个就是要下載的交易日期
+ 到网站下载这个日期的资料 csv
+ Parse CSV 档，Insert update 到那两个 Table 去
+ 
+ 
+ 明白了！stock60days 是一个重要的 table，存储 60 日统计数据，包含：
+- KD 指标 (KD_RSV, KD_K, KD_D)
+- 布林带 (boolUp, boolMid, boolDown)
+- 移动平均线等
