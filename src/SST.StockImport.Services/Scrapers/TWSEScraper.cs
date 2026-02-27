@@ -25,6 +25,9 @@ public class TWSEScraper : IStockDataScraper
     // 參考：https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes
     private const string OtcStockListUrl = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes";
     
+    // 原始数据备份根目录
+    private const string BackupRootPath = @"D:\vibeCoding\sst\srcBackup";
+    
     public TWSEScraper(ILogger<TWSEScraper> logger, HttpClient httpClient)
     {
         _logger = logger;
@@ -61,16 +64,31 @@ public class TWSEScraper : IStockDataScraper
             // 下載 TSE（上市）資料
             try
             {
-                _logger.LogInformation("Downloading TSE stock data...");
+                var tseStartTime = DateTime.Now;
+                _logger.LogInformation("📥 [TSE] 开始下载 CSV 文件...");
+                _logger.LogInformation("   URL: {Url}", TseStockDataUrl);
+                
                 var response = await _httpClient.GetAsync(TseStockDataUrl, cancellationToken);
                 response.EnsureSuccessStatusCode();
                 
                 var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                var downloadElapsed = (DateTime.Now - tseStartTime).TotalMilliseconds;
+                
+                _logger.LogInformation("✅ [TSE] CSV 下载完成: {Size:N0} bytes, 耗时 {Ms:F0} ms", 
+                    bytes.Length, downloadElapsed);
+                
                 var csvContent = System.Text.Encoding.UTF8.GetString(bytes);
                 
+                // ✅ 保存原始 CSV 文件到备份目录
+                await SaveRawDataToBackupAsync(csvContent, tradeDate, "TSE.csv");
+                
+                var parseStartTime = DateTime.Now;
                 var tseStocks = ParseTseCsv(csvContent, tradeDate);
+                var parseElapsed = (DateTime.Now - parseStartTime).TotalMilliseconds;
+                
                 result.AddRange(tseStocks);
-                _logger.LogInformation("Parsed {Count} TSE stocks", tseStocks.Count);
+                _logger.LogInformation("📊 [TSE] 解析完成: {Count} 笔股票数据, 耗时 {Ms:F0} ms", 
+                    tseStocks.Count, parseElapsed);
             }
             catch (Exception ex)
             {
@@ -135,10 +153,25 @@ public class TWSEScraper : IStockDataScraper
         
         try
         {
+            var otcStartTime = DateTime.Now;
+            _logger.LogInformation("📥 [OTC] 开始下载 JSON 数据...");
+            _logger.LogInformation("   URL: {Url}", otcApiUrl);
+            
             var response = await _httpClient.GetStringAsync(otcApiUrl, cancellationToken);
+            var downloadElapsed = (DateTime.Now - otcStartTime).TotalMilliseconds;
+            
+            _logger.LogInformation("✅ [OTC] JSON 下载完成: {Size:N0} bytes, 耗时 {Ms:F0} ms", 
+                response.Length, downloadElapsed);
+            
+            // ✅ 保存原始 JSON 文件到备份目录
+            await SaveRawDataToBackupAsync(response, tradeDate, "OTC.json");
+            
             var jsonDoc = JsonDocument.Parse(response);
 
             var stocks = new List<StockDataDto>();
+
+            // ✅ 新增：提取 API 返回的实际日期
+            DateTime? actualTradeDate = null;
 
             // 檢查 JSON 結構（可能是直接陣列或包含 data 屬性）
             JsonElement dataArray;
@@ -160,8 +193,53 @@ public class TWSEScraper : IStockDataScraper
             {
                 try
                 {
+                    // ✅ 解析 API 返回的实际日期（第一条记录）
+                    if (!actualTradeDate.HasValue)
+                    {
+                        string? dateStr = null;
+                        if (item.ValueKind == JsonValueKind.Object)
+                        {
+                            dateStr = GetJsonStringValue(item, "Date", "date", "日期");
+                        }
+                        else if (item.ValueKind == JsonValueKind.Array && item.GetArrayLength() > 0)
+                        {
+                            // 假设数组第一个元素可能是日期（需确认）
+                            dateStr = item[0].GetString()?.Trim();
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(dateStr) && dateStr.Length == 7)
+                        {
+                            try
+                            {
+                                var year = int.Parse(dateStr.Substring(0, 3)) + 1911; // 115 + 1911 = 2026
+                                var month = int.Parse(dateStr.Substring(3, 2));
+                                var day = int.Parse(dateStr.Substring(5, 2));
+                                actualTradeDate = new DateTime(year, month, day);
+                                
+                                _logger.LogInformation(
+                                    "📅 OTC API 返回实际日期：{ActualDate}（请求日期：{RequestDate}）",
+                                    actualTradeDate.Value.ToString("yyyy-MM-dd"),
+                                    tradeDate.ToString("yyyy-MM-dd"));
+                                
+                                // ⚠️ 检查日期是否匹配
+                                if (actualTradeDate.Value.Date != tradeDate.Date)
+                                {
+                                    _logger.LogWarning(
+                                        "⚠️ OTC 日期不匹配！API 返回 {ActualDate}，请求 {RequestDate}。将使用实际日期保存。",
+                                        actualTradeDate.Value.ToString("yyyy-MM-dd"),
+                                        tradeDate.ToString("yyyy-MM-dd"));
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "无法解析 OTC API 返回的日期：{Date}", dateStr);
+                            }
+                        }
+                    }
+
                     // 櫃買中心 API 欄位（可能是陣列或物件）
                     string? stockCode = null;
+                    string? stockName = null;
                     string? closePrice = null;
                     string? openPrice = null;
                     string? highPrice = null;
@@ -172,6 +250,7 @@ public class TWSEScraper : IStockDataScraper
                     {
                         // 陣列格式：[代號, 名稱, 收盤, 漲跌, 開盤, 最高, 最低, 成交量, ...]
                         stockCode = item[0].GetString()?.Trim();
+                        stockName = item[1].GetString()?.Trim();
                         closePrice = item[2].GetString()?.Trim();
                         openPrice = item[4].GetString()?.Trim();
                         highPrice = item[5].GetString()?.Trim();
@@ -182,11 +261,12 @@ public class TWSEScraper : IStockDataScraper
                     {
                         // 物件格式
                         stockCode = GetJsonStringValue(item, "SecuritiesCompanyCode", "代號", "Code");
+                        stockName = GetJsonStringValue(item, "CompanyName", "Name", "名稱", "StockName");
                         closePrice = GetJsonStringValue(item, "Close", "收盤價");
                         openPrice = GetJsonStringValue(item, "Open", "開盤價");
                         highPrice = GetJsonStringValue(item, "High", "最高價");
                         lowPrice = GetJsonStringValue(item, "Low", "最低價");
-                        volume = GetJsonStringValue(item, "Volume", "成交量");
+                        volume = GetJsonStringValue(item, "TradingShares", "Volume", "成交量");
                     }
 
                     // 只處理4位數字的股票代碼
@@ -198,7 +278,8 @@ public class TWSEScraper : IStockDataScraper
                     stocks.Add(new StockDataDto
                     {
                         StockCode = stockCode,
-                        TradeDate = tradeDate,
+                        StockName = stockName ?? "",
+                        TradeDate = actualTradeDate ?? tradeDate, // ✅ 使用 API 返回的实际日期
                         Market = "OTC",
                         OpenPrice = ParseDecimal(openPrice),
                         ClosePrice = ParseDecimal(closePrice),
@@ -214,6 +295,7 @@ public class TWSEScraper : IStockDataScraper
                 }
             }
 
+            _logger.LogInformation("📊 [OTC] 解析完成: {Count} 笔股票数据", stocks.Count);
             return stocks;
         }
         catch (Exception ex)
@@ -252,10 +334,25 @@ public class TWSEScraper : IStockDataScraper
         
         try
         {
+            var emergingStartTime = DateTime.Now;
+            _logger.LogInformation("📥 [EMERGING] 开始下载 JSON 数据...");
+            _logger.LogInformation("   URL: {Url}", emergingApiUrl);
+            
             var response = await _httpClient.GetStringAsync(emergingApiUrl, cancellationToken);
+            var downloadElapsed = (DateTime.Now - emergingStartTime).TotalMilliseconds;
+            
+            _logger.LogInformation("✅ [EMERGING] JSON 下载完成: {Size:N0} bytes, 耗时 {Ms:F0} ms", 
+                response.Length, downloadElapsed);
+            
+            // ✅ 保存原始 JSON 文件到备份目录
+            await SaveRawDataToBackupAsync(response, tradeDate, "EMERGING.json");
+            
             var jsonDoc = JsonDocument.Parse(response);
 
             var stocks = new List<StockDataDto>();
+
+            // ✅ 新增：提取 API 返回的实际日期
+            DateTime? actualTradeDate = null;
 
             // 檢查 JSON 結構
             JsonElement dataArray;
@@ -277,8 +374,48 @@ public class TWSEScraper : IStockDataScraper
             {
                 try
                 {
+                    // ✅ 解析 API 返回的实际日期（第一条记录）
+                    if (!actualTradeDate.HasValue)
+                    {
+                        string? dateStr = null;
+                        if (item.ValueKind == JsonValueKind.Object)
+                        {
+                            dateStr = GetJsonStringValue(item, "Date", "date", "日期");
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(dateStr) && dateStr.Length == 7)
+                        {
+                            try
+                            {
+                                var year = int.Parse(dateStr.Substring(0, 3)) + 1911;
+                                var month = int.Parse(dateStr.Substring(3, 2));
+                                var day = int.Parse(dateStr.Substring(5, 2));
+                                actualTradeDate = new DateTime(year, month, day);
+                                
+                                _logger.LogInformation(
+                                    "📅 EMERGING API 返回实际日期：{ActualDate}（请求日期：{RequestDate}）",
+                                    actualTradeDate.Value.ToString("yyyy-MM-dd"),
+                                    tradeDate.ToString("yyyy-MM-dd"));
+                                
+                                // ⚠️ 检查日期是否匹配
+                                if (actualTradeDate.Value.Date != tradeDate.Date)
+                                {
+                                    _logger.LogWarning(
+                                        "⚠️ EMERGING 日期不匹配！API 返回 {ActualDate}，请求 {RequestDate}。将使用实际日期保存。",
+                                        actualTradeDate.Value.ToString("yyyy-MM-dd"),
+                                        tradeDate.ToString("yyyy-MM-dd"));
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "无法解析 EMERGING API 返回的日期：{Date}", dateStr);
+                            }
+                        }
+                    }
+
                     // 興櫃 API 欄位（可能是陣列或物件）
                     string? stockCode = null;
+                    string? stockName = null;
                     string? closePrice = null;
                     string? openPrice = null;
                     string? highPrice = null;
@@ -290,6 +427,7 @@ public class TWSEScraper : IStockDataScraper
                         // 陣列格式：[代號, 名稱, 開盤, 最高, 最低, 均價, 成交金額, 成交股數, ...]
                         // 興櫃欄位：代號[0], 名稱[1], 開盤[2], 最高[3], 最低[4], 均價[5], 成交金額[6], 成交股數[7]
                         stockCode = item[0].GetString()?.Trim();
+                        stockName = item[1].GetString()?.Trim();
                         openPrice = item[2].GetString()?.Trim();
                         highPrice = item[3].GetString()?.Trim();
                         lowPrice = item[4].GetString()?.Trim();
@@ -300,6 +438,7 @@ public class TWSEScraper : IStockDataScraper
                     {
                         // 物件格式
                         stockCode = GetJsonStringValue(item, "SecuritiesCompanyCode", "代號", "Code", "code");
+                        stockName = GetJsonStringValue(item, "CompanyName", "Name", "名稱", "StockName");
                         openPrice = GetJsonStringValue(item, "Open", "開盤價", "OpeningPrice");
                         highPrice = GetJsonStringValue(item, "Highest", "High", "最高價", "HighestPrice");
                         lowPrice = GetJsonStringValue(item, "Lowest", "Low", "最低價", "LowestPrice");
@@ -320,7 +459,8 @@ public class TWSEScraper : IStockDataScraper
                     stocks.Add(new StockDataDto
                     {
                         StockCode = stockCode,
-                        TradeDate = tradeDate,
+                        StockName = stockName ?? "",
+                        TradeDate = actualTradeDate ?? tradeDate, // ✅ 使用 API 返回的实际日期
                         Market = "EMERGING",
                         OpenPrice = ParseDecimal(openPrice),
                         ClosePrice = ParseDecimal(closePrice),
@@ -336,6 +476,7 @@ public class TWSEScraper : IStockDataScraper
                 }
             }
 
+            _logger.LogInformation("📊 [EMERGING] 解析完成: {Count} 笔股票数据", stocks.Count);
             return stocks;
         }
         catch (Exception ex)
@@ -356,6 +497,9 @@ public class TWSEScraper : IStockDataScraper
 
         _logger.LogDebug("Parsing CSV with {LineCount} lines", lines.Length);
 
+        // ✅ 新增：提取 API 返回的实际日期（从第一笔数据）
+        DateTime? actualTradeDate = null;
+
         foreach (var line in lines.Skip(1)) // 跳過標題行
         {
             if (string.IsNullOrWhiteSpace(line))
@@ -371,6 +515,40 @@ public class TWSEScraper : IStockDataScraper
                     continue;
                 }
 
+                // ✅ 解析 API 返回的实际日期（fields[0]）- 民国年格式：1150223 = 2026-02-23
+                if (!actualTradeDate.HasValue && !string.IsNullOrWhiteSpace(fields[0]))
+                {
+                    try
+                    {
+                        var dateStr = fields[0].Trim().Replace("\"", "");
+                        if (dateStr.Length == 7) // 1150223
+                        {
+                            var year = int.Parse(dateStr.Substring(0, 3)) + 1911; // 115 + 1911 = 2026
+                            var month = int.Parse(dateStr.Substring(3, 2));
+                            var day = int.Parse(dateStr.Substring(5, 2));
+                            actualTradeDate = new DateTime(year, month, day);
+                            
+                            _logger.LogInformation(
+                                "📅 API 返回实际日期：{ActualDate}（请求日期：{RequestDate}）",
+                                actualTradeDate.Value.ToString("yyyy-MM-dd"),
+                                tradeDate.ToString("yyyy-MM-dd"));
+                            
+                            // ⚠️ 检查日期是否匹配
+                            if (actualTradeDate.Value.Date != tradeDate.Date)
+                            {
+                                _logger.LogWarning(
+                                    "⚠️ 日期不匹配！API 返回 {ActualDate}，请求 {RequestDate}。Open Data API 只提供最新数据，将使用实际日期保存。",
+                                    actualTradeDate.Value.ToString("yyyy-MM-dd"),
+                                    tradeDate.ToString("yyyy-MM-dd"));
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "无法解析 API 返回的日期：{Date}", fields[0]);
+                    }
+                }
+
                 // CSV格式：日期,證券代號,證券名稱,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數
                 // 欄位1：證券代號
                 var stockCode = fields[1].Trim().Replace("\"", "").Replace("=", "");
@@ -378,6 +556,9 @@ public class TWSEScraper : IStockDataScraper
                 // 只處理4位數字的股票代碼（過濾 ETF 等）
                 if (stockCode.Length != 4 || !stockCode.All(char.IsDigit))
                     continue;
+
+                // 欄位2：證券名稱
+                var stockName = fields[2].Trim().Replace("\"", "");
 
                 // 欄位索引：0=日期, 1=代號, 2=名稱, 3=成交股數, 4=成交金額, 5=開盤, 6=最高, 7=最低, 8=收盤, 9=漲跌, 10=筆數
                 var volume = ParseDecimal(fields[3]); // 成交股數（股）
@@ -390,7 +571,8 @@ public class TWSEScraper : IStockDataScraper
                 stocks.Add(new StockDataDto
                 {
                     StockCode = stockCode,
-                    TradeDate = tradeDate,
+                    StockName = stockName,
+                    TradeDate = actualTradeDate ?? tradeDate, // ✅ 使用 API 返回的实际日期
                     Market = "TSE",
                     OpenPrice = openPrice,
                     ClosePrice = closePrice,
@@ -712,5 +894,45 @@ public class TWSEScraper : IStockDataScraper
             allCodes.Count, tseTask.Result.Count, otcTask.Result.Count, emergingTask.Result.Count);
 
         return allCodes;
+    }
+
+    /// <summary>
+    /// 保存原始数据到备份目录
+    /// 目录格式: D:\vibeCoding\sst\srcBackup\yyyyMMdd\
+    /// 日期使用资料的交易日期（tradeDate），而不是下载日期
+    /// </summary>
+    /// <param name="content">文件内容（CSV 或 JSON）</param>
+    /// <param name="tradeDate">交易日期（资料日期）</param>
+    /// <param name="fileName">文件名（例如：TSE.csv, OTC.json）</param>
+    private async Task SaveRawDataToBackupAsync(string content, DateTime tradeDate, string fileName)
+    {
+        try
+        {
+            // 使用交易日期（资料日期）作为目录名
+            var dateFolder = tradeDate.ToString("yyyyMMdd");
+            var backupDir = Path.Combine(BackupRootPath, dateFolder);
+            
+            // 确保目录存在
+            if (!Directory.Exists(backupDir))
+            {
+                Directory.CreateDirectory(backupDir);
+                _logger.LogInformation("📁 创建备份目录: {Path}", backupDir);
+            }
+            
+            var filePath = Path.Combine(backupDir, fileName);
+            
+            // 保存文件
+            await File.WriteAllTextAsync(filePath, content, Encoding.UTF8);
+            
+            var fileInfo = new FileInfo(filePath);
+            _logger.LogInformation(
+                "💾 保存原始数据: {FileName} ({Size:N0} bytes) -> {Path}", 
+                fileName, fileInfo.Length, filePath);
+        }
+        catch (Exception ex)
+        {
+            // 备份失败不应该影响主流程，只记录错误
+            _logger.LogError(ex, "❌ 保存备份文件失败: {FileName}", fileName);
+        }
     }
 }

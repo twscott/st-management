@@ -4,16 +4,23 @@ using SST.StockImport.Core.Entities;
 using SST.StockImport.Infrastructure.Data;
 using SST.StockImport.Infrastructure.Repositories;
 using SST.StockImport.Services.GoodInfo;
+using Xunit.Abstractions;
 
 namespace SST.StockImport.Tests.Integration.GoodInfo;
 
 public class MovingAverageIntegrationTests : IAsyncLifetime
 {
+    private readonly ITestOutputHelper _output;
     private SqliteConnection _connection = null!;
     private StockImportDbContext _dbContext = null!;
     private TradeDataRepository _repository = null!;
     private MovingAverageService _service = null!;
     private string _testCsvPath = null!;
+
+    public MovingAverageIntegrationTests(ITestOutputHelper output)
+    {
+        _output = output;
+    }
 
     public async Task InitializeAsync()
     {
@@ -27,7 +34,7 @@ public class MovingAverageIntegrationTests : IAsyncLifetime
         _dbContext = new StockImportDbContext(options);
         await _dbContext.Database.EnsureCreatedAsync();
 
-        _repository = new TradeDataRepository(_dbContext);
+        _repository = new TradeDataRepository(_dbContext, new TestLogger<TradeDataRepository>(_output));
         _service = new MovingAverageService(_repository);
         _testCsvPath = Path.Combine(Path.GetTempPath(), $"ma_test_{Guid.NewGuid()}.csv");
     }

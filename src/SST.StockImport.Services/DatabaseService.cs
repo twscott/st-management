@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using MySqlConnector;
 using SST.StockImport.Core.Interfaces;
 
 namespace SST.StockImport.Services;
@@ -570,6 +571,22 @@ public class DatabaseService : IDatabaseService
 
                     var successCount = 0;
                     var failedTables = new List<string>();
+                    var skippedTables = new List<string>();
+                    
+                    // ✅ Define critical tables that must succeed
+                    var criticalTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase) 
+                    { 
+                        "tradedata", "stock60days", "alertlist", "stock20days" 
+                    };
+                    
+                    // ✅ Skip Hangfire tables (runtime data, not business data)
+                    // Hangfire will recreate these tables automatically on startup
+                    var skipTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        "hangfireaggregatedcounter", "hangfirecounter", "hangfiredistributedlock",
+                        "hangfirehash", "hangfirejob", "hangfirejobparameter", "hangfirejobqueue",
+                        "hangfirejobstate", "hangfirelist", "hangfireserver", "hangfireset", "hangfirestate"
+                    };
                     
                     foreach (var dataFile in dataFiles)
                     {
@@ -577,30 +594,100 @@ public class DatabaseService : IDatabaseService
 
                         var tableName = Path.GetFileNameWithoutExtension(dataFile);
                         
+                        // Skip Hangfire tables (foreign key constraint issues)
+                        if (skipTables.Contains(tableName))
+                        {
+                            _logger.LogInformation("  [{Current}/{Total}] {Table} - SKIPPED (Hangfire runtime data)",
+                                successCount + failedTables.Count + skippedTables.Count + 1, dataFiles.Length, tableName);
+                            skippedTables.Add(tableName);
+                            continue;
+                        }
+                        
+                        var isCritical = criticalTables.Contains(tableName);
+                        
                         try
                         {
-                            var content = await File.ReadAllTextAsync(dataFile, cancellationToken);
-                            content = content.Replace("`SST`", $"`{request.TargetDatabase}`");
-                            content = content.Replace("`sst`", $"`{request.TargetDatabase}`");
+                            // ✅ Use streaming method for large files (>= 100MB)
+                            var fileInfo = new FileInfo(dataFile);
+                            var fileSizeMB = fileInfo.Length / 1024.0 / 1024.0;
                             
-                            await ExecuteMySqlInputAsync(request.TargetDatabase, content);
+                            if (fileSizeMB >= 100)
+                            {
+                                _logger.LogInformation("  [{Current}/{Total}] {Table} ({SizeMB:F1} MB) - Using streaming mode",
+                                    successCount + failedTables.Count + 1, dataFiles.Length, tableName, fileSizeMB);
+                                await ImportTableDataStreamingAsync(request.TargetDatabase, dataFile, tableName, cancellationToken);
+                            }
+                            else
+                            {
+                                _logger.LogInformation("  [{Current}/{Total}] {Table} ({SizeMB:F1} MB)",
+                                    successCount + failedTables.Count + 1, dataFiles.Length, tableName, fileSizeMB);
+                                var content = await File.ReadAllTextAsync(dataFile, cancellationToken);
+                                content = content.Replace("`SST`", $"`{request.TargetDatabase}`");
+                                content = content.Replace("`sst`", $"`{request.TargetDatabase}`");
+                                await ExecuteMySqlInputAsync(request.TargetDatabase, content);
+                            }
+                            
                             result.ImportedTables.Add(tableName);
                             successCount++;
-                            _logger.LogInformation("Imported: {Table} ({Current}/{Total})", tableName, successCount, dataFiles.Length);
+                            
+                            // ✅ Verify row count for critical tables
+                            if (isCritical)
+                            {
+                                var rowCount = await GetTableRowCountAsync(request.TargetDatabase, tableName);
+                                if (rowCount == 0)
+                                {
+                                    var warning = $"⚠️ CRITICAL: {tableName} imported but has 0 rows!";
+                                    _logger.LogWarning(warning);
+                                    result.Errors.Add(warning);
+                                }
+                                else
+                                {
+                                    _logger.LogInformation("  ✅ {Table}: Verified {RowCount:N0} rows", tableName, rowCount);
+                                }
+                            }
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Failed to import table: {Table}", tableName);
+                            _logger.LogError(ex, "❌ Failed to import table: {Table}", tableName);
                             failedTables.Add(tableName);
-                            result.Errors.Add($"{tableName}: {ex.Message}");
+                            
+                            // ✅ Enhanced error message for critical tables
+                            var errorMsg = isCritical 
+                                ? $"❌ CRITICAL TABLE FAILED: {tableName}: {ex.Message}" 
+                                : $"{tableName}: {ex.Message}";
+                            result.Errors.Add(errorMsg);
+                            
+                            // ✅ For critical tables, consider immediate failure
+                            if (isCritical)
+                            {
+                                _logger.LogError("Critical table {Table} failed - this may cause system instability", tableName);
+                            }
                         }
                     }
                     
                     result.TablesImported = successCount;
                     
-                    if (failedTables.Count > 0)
+                    // Report skipped Hangfire tables
+                    if (skippedTables.Count > 0)
                     {
-                        result.Message = $"Imported {successCount}/{dataFiles.Length} tables. Failed: {string.Join(", ", failedTables)}";
+                        _logger.LogInformation("Skipped {Count} Hangfire runtime tables: {Tables}", 
+                            skippedTables.Count, string.Join(", ", skippedTables));
+                        result.Errors.Add($"ℹ️ INFO: Skipped {skippedTables.Count} Hangfire runtime tables (will be auto-recreated)");
+                    }
+                    
+                    // ✅ Check if any critical tables failed
+                    var failedCriticalTables = failedTables.Where(t => criticalTables.Contains(t)).ToList();
+                    
+                    if (failedCriticalTables.Count > 0)
+                    {
+                        result.Success = false;
+                        result.Message = $"❌ CRITICAL FAILURE: Failed to import {failedCriticalTables.Count} critical tables: {string.Join(", ", failedCriticalTables)}. " +
+                                       $"Successfully imported {successCount}/{dataFiles.Length} tables total.";
+                        _logger.LogError(result.Message);
+                    }
+                    else if (failedTables.Count > 0)
+                    {
+                        result.Message = $"⚠️ Partially successful: Imported {successCount}/{dataFiles.Length} tables. Failed: {string.Join(", ", failedTables)}";
                         _logger.LogWarning(result.Message);
                     }
                 }
@@ -616,11 +703,26 @@ public class DatabaseService : IDatabaseService
                 result.TablesImported = actualTableCount;
             }
             
+            // ✅ Enhanced success determination
             if (actualTableCount == 0)
             {
                 result.Success = false;
-                result.Message = "Import failed: No tables found in database after import";
+                result.Message = "❌ Import failed: No tables found in database after import";
                 result.Errors.Add("Schema import may have failed - database is empty");
+            }
+            else if (!string.IsNullOrEmpty(result.Message) && result.Message.Contains("CRITICAL FAILURE"))
+            {
+                // Already marked as failed by critical table failure
+                result.Success = false;
+            }
+            else if (result.Errors.Any(e => e.Contains("CRITICAL")))
+            {
+                // Has critical warnings
+                result.Success = false;
+                if (string.IsNullOrEmpty(result.Message))
+                {
+                    result.Message = $"❌ Import failed with critical errors. {actualTableCount} tables exist but critical data may be missing.";
+                }
             }
             else
             {
@@ -628,11 +730,11 @@ public class DatabaseService : IDatabaseService
                 if (string.IsNullOrEmpty(result.Message))
                 {
                     var warnings = result.Errors.Count > 0 ? $" (with {result.Errors.Count} warnings)" : "";
-                    result.Message = $"Successfully imported {result.TablesImported} tables to {request.TargetDatabase} (verified {actualTableCount} tables exist){warnings}";
+                    result.Message = $"✅ Successfully imported {result.TablesImported} tables to {request.TargetDatabase} (verified {actualTableCount} tables exist){warnings}";
                 }
-                else if (!result.Message.Contains("successfully") && !result.Message.Contains("Successfully"))
+                else if (!result.Message.Contains("successfully") && !result.Message.Contains("Successfully") && !result.Message.Contains("✅"))
                 {
-                    // Data import already set a partial success message, just mark as successful
+                    // Partial success message already set
                     result.Success = true;
                 }
             }
@@ -697,24 +799,41 @@ public class DatabaseService : IDatabaseService
             {
                 var output = await process.StandardOutput.ReadToEndAsync();
                 var error = await process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync();
+                
+                // ✅ FIX 1: Add timeout protection (30 minutes for large files)
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+                try
+                {
+                    await process.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(); } catch { }
+                    throw new TimeoutException($"MySQL import timed out after 30 minutes. File may be too large or process hung.");
+                }
                 
                 if (process.ExitCode != 0)
                 {
                     _logger.LogError("MySQL import failed. Exit code: {Code}, Error: {Error}", process.ExitCode, error);
-                    // Only throw if not in force mode, or if it's a critical error
-                    if (!force)
+                    // ✅ FIX 2: Always throw on critical errors, even in force mode
+                    if (!force || error.Contains("ERROR 2006") || error.Contains("ERROR 2013") || error.Contains("Lost connection"))
                     {
                         throw new InvalidOperationException($"MySQL import failed with exit code {process.ExitCode}: {error}");
                     }
                     else
                     {
-                        _logger.LogWarning("MySQL import completed with errors (force mode): {Error}", error);
+                        _logger.LogWarning("MySQL import completed with non-critical errors (force mode): {Error}", error);
                     }
                 }
                 else if (!string.IsNullOrEmpty(error) && error.Contains("ERROR"))
                 {
-                    if (!force)
+                    // ✅ FIX 3: Check for critical errors even when exit code is 0
+                    if (error.Contains("ERROR 2006") || error.Contains("ERROR 2013") || error.Contains("Lost connection") || error.Contains("Out of memory"))
+                    {
+                        _logger.LogError("MySQL import critical error: {Error}", error);
+                        throw new InvalidOperationException($"MySQL import critical error: {error}");
+                    }
+                    else if (!force)
                     {
                         _logger.LogError("MySQL import error: {Error}", error);
                         throw new InvalidOperationException($"MySQL import error: {error}");
@@ -738,6 +857,109 @@ public class DatabaseService : IDatabaseService
         finally
         {
             try { File.Delete(tempFile); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// ✅ NEW: Import large table data files using streaming + MySqlConnector
+    /// Avoids Out-of-Memory and provides better progress tracking
+    /// </summary>
+    private async Task ImportTableDataStreamingAsync(string database, string dataFile, string tableName, CancellationToken cancellationToken = default)
+    {
+        var connectionString = $"Server=localhost;Database={database};User=root;Password=;AllowLoadLocalInfile=true;DefaultCommandTimeout=600";
+        var fileInfo = new FileInfo(dataFile);
+        var fileSizeMB = fileInfo.Length / 1024.0 / 1024.0;
+        
+        _logger.LogInformation("Importing {Table}: {SizeMB:F1} MB...", tableName, fileSizeMB);
+        
+        // For small files (<100MB), use traditional method
+        if (fileSizeMB < 100)
+        {
+            var content = await File.ReadAllTextAsync(dataFile, cancellationToken);
+            await ExecuteMySqlInputAsync(database, content);
+            return;
+        }
+        
+        // For large files (>=100MB), use streaming with MySqlConnector
+        _logger.LogInformation("Using streaming mode for large file");
+        
+        await using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        
+        var sqlBatch = new StringBuilder();
+        var batchCount = 0;
+        var totalBatches = 0;
+        var statementCount = 0;
+        const int maxBatchStatements = 1000; // Execute 1000 INSERT statements per batch
+        const int maxBatchSizeMB = 10; // Or 10MB, whichever comes first
+        
+        using var reader = new StreamReader(dataFile, Encoding.UTF8);
+        
+        while (!reader.EndOfStream)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            
+            var line = await reader.ReadLineAsync();
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            
+            // Skip comments and USE statements
+            if (line.TrimStart().StartsWith("--") || line.TrimStart().StartsWith("/*") || line.TrimStart().StartsWith("USE "))
+                continue;
+            
+            sqlBatch.AppendLine(line);
+            
+            // Check if statement is complete (ends with semicolon)
+            if (line.TrimEnd().EndsWith(";"))
+            {
+                statementCount++;
+                
+                // Execute batch when size limit reached
+                if (statementCount >= maxBatchStatements || sqlBatch.Length >= maxBatchSizeMB * 1024 * 1024)
+                {
+                    await ExecuteBatchAsync(connection, sqlBatch.ToString(), cancellationToken);
+                    totalBatches++;
+                    batchCount++;
+                    
+                    if (batchCount % 10 == 0)
+                    {
+                        var progress = (double)reader.BaseStream.Position / reader.BaseStream.Length * 100;
+                        _logger.LogInformation("  {Table}: {Progress:F1}% ({Batches} batches, ~{Statements} statements)",
+                            tableName, progress, totalBatches, totalBatches * maxBatchStatements);
+                    }
+                    
+                    sqlBatch.Clear();
+                    statementCount = 0;
+                }
+            }
+        }
+        
+        // Execute remaining statements
+        if (sqlBatch.Length > 0)
+        {
+            await ExecuteBatchAsync(connection, sqlBatch.ToString(), cancellationToken);
+            totalBatches++;
+        }
+        
+        _logger.LogInformation("✅ {Table}: Completed {Batches} batches", tableName, totalBatches);
+    }
+
+    private async Task ExecuteBatchAsync(MySqlConnection connection, string sql, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var command = new MySqlCommand(sql, connection);
+            command.CommandTimeout = 300; // 5 minutes per batch
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == MySqlErrorCode.LockDeadlock)
+        {
+            // Retry once on deadlock
+            _logger.LogWarning("Deadlock detected, retrying batch...");
+            await Task.Delay(1000, cancellationToken);
+            
+            await using var retryCommand = new MySqlCommand(sql, connection);
+            retryCommand.CommandTimeout = 300;
+            await retryCommand.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 
@@ -817,6 +1039,33 @@ public class DatabaseService : IDatabaseService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to get table count for database: {Database}", database);
+        }
+        
+        return 0;
+    }
+
+    /// <summary>
+    /// ✅ NEW: Get row count for a specific table to verify data was imported
+    /// </summary>
+    private async Task<long> GetTableRowCountAsync(string database, string tableName)
+    {
+        try
+        {
+            var output = await ExecuteMySqlAsync(
+                $"SELECT COUNT(*) FROM `{database}`.`{tableName}`", false);
+            
+            if (!string.IsNullOrEmpty(output))
+            {
+                var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                if (lines.Length > 0 && long.TryParse(lines[0].Trim(), out var count))
+                {
+                    return count;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get row count for table: {Database}.{Table}", database, tableName);
         }
         
         return 0;

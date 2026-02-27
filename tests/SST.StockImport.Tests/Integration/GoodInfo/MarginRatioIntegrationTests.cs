@@ -39,7 +39,7 @@ public class MarginRatioIntegrationTests : IAsyncLifetime
         await _dbContext.Database.EnsureCreatedAsync();
 
         // 初始化 Repository 和 Service
-        _repository = new TradeDataRepository(_dbContext);
+        _repository = new TradeDataRepository(_dbContext, new TestLogger<TradeDataRepository>(_output));
         _service = new MarginRatioService(_repository);
 
         _output.WriteLine("SQLite In-Memory database initialized");

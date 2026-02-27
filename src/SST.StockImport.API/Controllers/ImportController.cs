@@ -90,6 +90,24 @@ public class ImportController : ControllerBase
     }
 
     /// <summary>
+    /// 獲取下載目標日期 (智能決定邏輯：基於 investbase + 時間判斷)
+    /// </summary>
+    [HttpGet("download-target-date")]
+    public async Task<IActionResult> GetDownloadTargetDate()
+    {
+        try
+        {
+            var targetDate = await _importService.GetDownloadTargetDateAsync();
+            return Ok(new { LatestDate = targetDate });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "獲取下載目標日期失敗");
+            return StatusCode(500, new { Error = "獲取下載目標日期失敗", Message = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// 下載交易資料 (新增支援排程管理) - 使用真實的數據匯入服務
     /// </summary>
     [HttpPost("trading-data")]

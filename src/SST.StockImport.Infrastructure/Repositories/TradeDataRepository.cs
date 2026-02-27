@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using SST.StockImport.Core.Entities;
 using SST.StockImport.Core.Interfaces;
 using SST.StockImport.Infrastructure.Data;
@@ -11,10 +12,12 @@ namespace SST.StockImport.Infrastructure.Repositories;
 public class TradeDataRepository : ITradeDataRepository
 {
     private readonly StockImportDbContext _context;
+    private readonly ILogger<TradeDataRepository> _logger;
 
-    public TradeDataRepository(StockImportDbContext context)
+    public TradeDataRepository(StockImportDbContext context, ILogger<TradeDataRepository> logger)
     {
         _context = context;
+        _logger = logger;
     }
 
     /// <summary>
@@ -22,6 +25,9 @@ public class TradeDataRepository : ITradeDataRepository
     /// </summary>
     public async Task UpsertAsync(TradeData tradeData, CancellationToken cancellationToken = default)
     {
+        _logger.LogDebug("🔍 DEBUG: UpsertAsync called for {StockID} on {TransDate}", 
+            tradeData.StockID, tradeData.TransDate);
+
         var existing = await _context.TradeData
             .FirstOrDefaultAsync(t => 
                 t.StockID == tradeData.StockID && 
@@ -29,6 +35,7 @@ public class TradeDataRepository : ITradeDataRepository
 
         if (existing != null)
         {
+            _logger.LogDebug("🔍 DEBUG: Updating existing tradedata record for {StockID}", tradeData.StockID);
             // 更新現有記錄 - 複製所有重要欄位
             existing.OpenPriec = tradeData.OpenPriec;
             existing.StockPrice = tradeData.StockPrice;
@@ -41,11 +48,13 @@ public class TradeDataRepository : ITradeDataRepository
         }
         else
         {
+            _logger.LogDebug("🔍 DEBUG: Adding new tradedata record for {StockID}", tradeData.StockID);
             // 新增記錄
             await _context.TradeData.AddAsync(tradeData);
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+        _logger.LogDebug("🔍 DEBUG: SaveChangesAsync completed for tradedata {StockID}", tradeData.StockID);
     }
 
     /// <summary>
@@ -197,5 +206,15 @@ public class TradeDataRepository : ITradeDataRepository
             .FirstOrDefaultAsync();
         
         return latestDate != default ? latestDate : DateTime.Today.AddDays(-1);
+    }
+
+    /// <summary>
+    /// 獲取最新的 InvestBase 記錄（依 RecDate 降序排列取第一筆）
+    /// </summary>
+    public async Task<InvestBase?> GetLatestInvestBaseAsync()
+    {
+        return await _context.InvestBase
+            .OrderByDescending(i => i.RecDate)
+            .FirstOrDefaultAsync();
     }
 }

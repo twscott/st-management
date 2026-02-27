@@ -490,3 +490,227 @@ dotnet test tests/SST.StockImport.Core.Tests --filter "TimeMachineAnalysisServic
 **最后验证时间**: 2025-12-18 22:00 UTC+8  
 **准备状态**: ✅ 完全就绪  
 **下一步**: 等待下个 Session 的后续开发
+
+---
+
+---
+
+# 📦 Stock Import Service 交接清单
+
+**文档日期**: 2026-02-24  
+**状态**: ⚙️ L2 集成测试开发中（待调试 API 问题）  
+**最后更新**: 2026-02-24 20:30 UTC+8
+
+---
+
+## 📌 快速概览
+
+本 Session 开始建立 **Stock Import Service 的多市场集成测试**，目标是支持 TSE（上市）、OTC（上柜）、EMERGING（兴柜）三个市场的股票数据导入。
+
+| 层级 | 名称 | 测试数 | 状态 | 文件 |
+|------|------|--------|------|------|
+| L1 | CSV 解析单元测试 | 5 | ✅ PASS | TWSEScraperTests.cs |
+| L2 | 导入幂等性集成测试 | 4 | ❌ FAIL | ImportServiceIdempotencyTests.cs |
+| L3 | WebAPI 集成测试 | 0 | ⏳ 未开始 | (待创建) |
+| UI | Blazor 集成 | - | ⏳ 未开始 | (待开发) |
+| **总计** | **导入功能测试** | **9** | **55% (5/9 PASS)** | **2 个文件** |
+
+---
+
+## 📁 交付物清单
+
+### 测试文件
+
+```
+tests/SST.StockImport.Tests/
+├─ Unit/
+│  └─ TWSEScraperTests.cs                      ✅ 5 个单元测试（CSV 解析）
+└─ Integration/
+   └─ ImportServiceIdempotencyTests.cs         ❌ 4 个集成测试（API 调用失败）
+```
+
+### 生产代码修改
+
+```
+src/SST.StockImport.Services/
+└─ ImportService.cs                            ✅ 修复 MySQL 8.0.20+ 语法 + 事务管理
+   ├─ BatchInsertWeekAllAsync (Lines 295-310)   ✅ VALUES() → AS alias
+   ├─ BatchInsertTradeDataAsync (Lines 435-450) ✅ VALUES() → AS alias
+   └─ UpdateStockIdTableAsync (Lines 565-580)   ✅ VALUES() → AS alias
+```
+
+### 数据库设置
+
+```sql
+-- MySQL sstv2_test 测试数据库（已创建）
+CREATE TABLE sstv2_test.weekall LIKE sstv2.weekall;
+CREATE TABLE sstv2_test.tradedata LIKE sstv2.tradedata;
+CREATE TABLE sstv2_test.stockid LIKE sstv2.stockid;
+```
+
+### 文档
+
+```
+Docs/
+├─ Todo/
+│  └─ 20260224_2030_SessionReport.md           ✅ 本次 Session 详细报告
+└─ DATABASE_SCHEMA_ISSUES.md                    ✅ MySQL 8.0.20+ 语法问题记录
+```
+
+---
+
+## 🚨 当前阻塞问题（Critical）
+
+### ❌ **L2 测试失败 - API 调用返回 0 笔数据**
+
+**现象**:
+```
+Expected result.IsSuccess to be True, but found False
+导入记录数: 0 (预期 1,900+)
+```
+
+**可能原因**:
+1. TWSE API 调用失败（网络、并发限制）
+2. TWSEScraper 异常处理不完整
+3. 测试环境 HttpClient 未正确配置
+
+**诊断步骤**（下个 Session 优先执行）:
+```powershell
+# 1. 手动验证 API 可访问性
+Invoke-RestMethod -Uri "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=open_data"
+
+# 2. 运行单个测试并查看详细日志
+dotnet test tests/SST.StockImport.Tests/SST.StockImport.Tests.csproj `
+  --filter "FullyQualifiedName~ImportStockDataAsync_FirstTime" `
+  --logger "console;verbosity=detailed"
+
+# 3. 检查 TWSEScraper.cs 的异常处理和日志记录
+```
+
+---
+
+## ✅ 已完成工作
+
+### 1. L1 单元测试（CSV 解析）✅
+- 创建 `TWSEScraperTests.cs`
+- 验证 TSE 新格式 CSV 解析（1,080 stocks）
+- 验证字段映射和成交量单位转换
+- **状态**: 5/5 tests PASSED
+
+### 2. L2 集成测试框架 ✅
+- 创建 `ImportServiceIdempotencyTests.cs`
+- 实现 4 个幂等性测试（首次导入、2x 导入、8x 导入、UPDATE 功能）
+- 预期记录数：1,900+ (TSE 1,080 + OTC 878 + EMERGING 359)
+- **状态**: 代码完成，执行失败（API 问题）
+
+### 3. MySQL 8.0.20+ 语法升级 ✅
+- 修复 weekall, tradedata, stockid 的 UPSERT 语法
+- 从 `VALUES(column)` → `AS alias ... alias.column`
+- **原因**: MySQL 8.0.20+ 已弃用 VALUES() 函数
+- **状态**: 代码修复完成，待测试验证
+
+### 4. 事务管理修复 ✅
+- 移动 `UpdateStockIdTableAsync` 到 `CommitAsync` 之前
+- 确保所有操作在事务保护范围内
+- **状态**: 代码修复完成
+
+### 5. DI 配置修复 ✅
+- 测试从 Singleton DbContext 改为 Scoped DbContext
+- 避免 "Cannot access a disposed context" 错误
+- **状态**: 代码修复完成
+
+---
+
+## 🎯 下一步计划
+
+### Priority 1: 调试 L2 API 调用失败（预计 1-2 小时）⚠️
+- [ ] 检查 TWSEScraper 异常处理逻辑
+- [ ] 添加详细日志追踪 API 调用
+- [ ] 手动测试 3 个 TWSE API 端点
+- [ ] 考虑添加重试机制或超时配置
+
+### Priority 2: 完成 L2 测试（预计 30 分钟）
+- [ ] 确保 4 个测试全部通过
+- [ ] 验证 MySQL UPSERT 逻辑
+- [ ] 验证幂等性（2x, 8x 重复导入）
+
+### Priority 3: 创建 L3 WebAPI 测试（预计 1-2 小时）
+- [ ] 使用 `WebApplicationFactory<Program>` 测试 API
+- [ ] 测试端点：POST `/api/import`, GET `/api/import/status/{jobId}`
+- [ ] 验证 HTTP 层幂等性
+- [ ] 验证错误处理（无效日期 → 400 Bad Request）
+
+### Priority 4: 实际导入到 sstv2 生产数据库（预计 30 分钟）
+- [ ] 通过 Swagger UI 或 curl 触发真实导入
+- [ ] 导入 2026-02-24 数据（2,317 stocks）
+- [ ] SQL 验证记录数按市场分组统计
+
+### Priority 5: UI 集成（预计 2-3 小时）
+- [ ] Blazor UI 整合导入功能
+- [ ] 日期选择器 + 市场选择器
+- [ ] 导入按钮 + 进度指示器
+- [ ] 结果展示
+
+---
+
+## 📊 数据统计
+
+### TWSE API 端点
+- **TSE（上市）**: https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=open_data
+  - 股票数: 1,080
+- **OTC（上柜）**: https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes
+  - 股票数: 878
+- **EMERGING（兴柜）**: https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics
+  - 股票数: 359
+- **总计**: 2,317 stocks
+
+### 测试数量变化
+- Session 开始前: 38 tests
+- Session 结束时: 42 tests (+4 L2 集成测试)
+- **L1**: 5 tests ✅ PASS
+- **L2**: 4 tests ❌ FAIL (API 问题)
+
+---
+
+## 🔧 技术决策
+
+### 决策 #1: 切换到 MySQL sstv2_test
+- **原计划**: SQLite In-Memory
+- **问题**: 2,300+ 笔记录导致 4,634 次 SELECT 查询，事务超时
+- **方案**: 使用真实 MySQL sstv2_test 数据库
+- **优点**: 批量 SQL + 真实环境测试
+
+### 决策 #2: MySQL VALUES() 语法升级
+- **背景**: MySQL 8.0.20+ 已弃用 VALUES() 函数
+- **影响**: 所有 UPSERT 操作需要使用 AS alias 语法
+- **修复**: weekall, tradedata, stockid 三张表
+
+---
+
+## 📂 重要文件路径
+
+### 生产代码
+- `src/SST.StockImport.Services/ImportService.cs` (Lines 114-580)
+
+### 测试代码
+- `tests/SST.StockImport.Tests/Unit/TWSEScraperTests.cs`
+- `tests/SST.StockImport.Tests/Integration/ImportServiceIdempotencyTests.cs`
+
+### 文档
+- `Docs/Todo/20260224_2030_SessionReport.md` - 详细 Session 报告
+- `Docs/DATABASE_SCHEMA_ISSUES.md` - MySQL 语法问题记录
+
+---
+
+## ⚠️ 已知限制
+
+1. **L2 测试失败**: API 调用返回 0 笔数据，需要调试
+2. **L3 测试未开始**: 等待 L2 通过后进行
+3. **UI 未集成**: 等待 L2 + L3 完成后进行
+
+---
+
+**最后验证时间**: 2026-02-24 20:30 UTC+8  
+**准备状态**: ⚙️ L2 开发中（待调试）  
+**下一步**: 诊断 TWSEScraper API 调用失败原因  
+**预计完成时间**: L2 完成需 1-2 小时，L3 + 实际导入需 2-3 小时，总计 3-5 小时

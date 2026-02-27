@@ -35,7 +35,7 @@ public class TurnoverRateIntegrationTests : IAsyncLifetime
         await _dbContext.Database.OpenConnectionAsync();
         await _dbContext.Database.EnsureCreatedAsync();
 
-        _repository = new TradeDataRepository(_dbContext);
+        _repository = new TradeDataRepository(_dbContext, new TestLogger<TradeDataRepository>(_output));
         _service = new TurnoverRateService(_repository);
 
         _output.WriteLine("SQLite In-Memory database initialized for TurnoverRate tests");

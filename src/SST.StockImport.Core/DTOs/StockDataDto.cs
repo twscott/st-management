@@ -11,6 +11,11 @@ public class StockDataDto
     public string StockCode { get; set; } = string.Empty;
 
     /// <summary>
+    /// 股票名稱（從 CSV 直接取得）
+    /// </summary>
+    public string StockName { get; set; } = string.Empty;
+
+    /// <summary>
     /// 交易日期
     /// </summary>
     public DateTime TradeDate { get; set; }

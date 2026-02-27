@@ -226,8 +226,12 @@
         {
             AddLog("⏰ 預計處理時間：15-30 分鐘 (2100+ 筆股票)");
             
+            // 使用智能日期決定邏輯（基於 investbase + 時間判斷）
+            var targetDate = await ApiService.GetDownloadTargetDateAsync() ?? DateTime.Today.AddDays(-1);
+            AddLog($"📅 下載目標日期：{targetDate:yyyy-MM-dd}");
+            
             // 調用真實 API
-            var result = await ApiService.DownloadTradingDataAsync(DateTime.Today.AddDays(-1));
+            var result = await ApiService.DownloadTradingDataAsync(targetDate);
             
             if (result.Success)
             {

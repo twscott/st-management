@@ -34,7 +34,6 @@ public class InvestBaseRepository : IInvestBaseRepository
         else
         {
             // 新增記錄
-            investBase.Created = DateTime.UtcNow;
             investBase.Updated = DateTime.UtcNow;
             await _context.InvestBase.AddAsync(investBase, cancellationToken);
         }
@@ -69,7 +68,6 @@ public class InvestBaseRepository : IInvestBaseRepository
             else
             {
                 // 新增
-                investBase.Created = DateTime.UtcNow;
                 investBase.Updated = DateTime.UtcNow;
                 _context.InvestBase.Add(investBase);
             }

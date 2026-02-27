@@ -78,4 +78,10 @@ public interface ITradeDataRepository
     /// </summary>
     /// <returns>最新交易日期</returns>
     Task<DateTime> GetLatestTradingDateAsync();
+
+    /// <summary>
+    /// 獲取最新的 InvestBase 記錄
+    /// </summary>
+    /// <returns>最新的 InvestBase 實體，若無資料則回傳 null</returns>
+    Task<InvestBase?> GetLatestInvestBaseAsync();
 }

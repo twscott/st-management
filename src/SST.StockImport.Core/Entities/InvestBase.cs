@@ -329,10 +329,11 @@ public class InvestBase
 
     /// <summary>
     /// 建立時間 (DEFAULT CURRENT_TIMESTAMP)
+    /// 注意：資料庫表中不存在 CREATED 欄位，已註解以避免 EF Core 查詢錯誤
     /// </summary>
-    [Column("CREATED", TypeName = "timestamp")]
-    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
-    public DateTime? Created { get; set; }
+    // [Column("CREATED", TypeName = "timestamp")]
+    // [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+    // public DateTime? Created { get; set; }
 
     /// <summary>
     /// 更新時間 (ON UPDATE CURRENT_TIMESTAMP)

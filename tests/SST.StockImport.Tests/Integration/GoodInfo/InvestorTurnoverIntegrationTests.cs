@@ -36,7 +36,7 @@ public class InvestorTurnoverIntegrationTests : IAsyncLifetime
         await _dbContext.Database.OpenConnectionAsync();
         await _dbContext.Database.EnsureCreatedAsync();
 
-        _repository = new TradeDataRepository(_dbContext);
+        _repository = new TradeDataRepository(_dbContext, new TestLogger<TradeDataRepository>(_output));
         _service = new InvestorTurnoverService(_repository, new TestLogger<InvestorTurnoverService>(_output));
 
         _output.WriteLine("SQLite In-Memory database initialized for Investor Turnover tests");

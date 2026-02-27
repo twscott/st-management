@@ -124,5 +124,63 @@ public class TWSEScraperTests
             stock.LowPrice.Should().BeLessThanOrEqualTo(stock.ClosePrice);
         }
     }
+
+    [Fact(DisplayName = "📥 L1: 下載 2026-02-24 上市股票應該解析正確數量（1080+ 筆）並正確轉換單位")]
+    public async Task ScrapeBatchAsync_Feb24_2026_ShouldParseCorrectCountAndConvertUnits()
+    {
+        // Arrange
+        var tradeDate = new DateTime(2026, 2, 24);
+
+        // Act
+        var stockData = await _scraper.ScrapeBatchAsync(Enumerable.Empty<string>(), tradeDate);
+
+        // Assert - 驗證數量
+        var tseStocks = stockData.Where(s => s.Market == "TSE").ToList();
+        tseStocks.Should().NotBeEmpty("應該能下載到上市股票資料");
+        tseStocks.Count.Should().BeGreaterThanOrEqualTo(1000, 
+            "上市股票（包含 4位數 ETF）應該至少有 1000 筆");
+
+        // Assert - 驗證台積電 (2330) 資料正確性
+        var tsmc = tseStocks.FirstOrDefault(s => s.StockCode == "2330");
+        tsmc.Should().NotBeNull("應該包含台積電 (2330)");
+        tsmc!.StockName.Should().Contain("台積電", "股票名稱應該是台積電");
+        tsmc.TradeDate.Should().Be(tradeDate, "交易日期應該正確");
+        tsmc.Market.Should().Be("TSE", "市場應該是上市");
+        
+        // Assert - 驗證價格資料合理性
+        tsmc.ClosePrice.Should().BeGreaterThan(0, "收盤價應該大於 0");
+        tsmc.OpenPrice.Should().BeGreaterThan(0, "開盤價應該大於 0");
+        tsmc.HighPrice.Should().BeGreaterThanOrEqualTo(tsmc.ClosePrice, "最高價應該 >= 收盤價");
+        tsmc.LowPrice.Should().BeLessThanOrEqualTo(tsmc.ClosePrice, "最低價應該 <= 收盤價");
+        
+        // Assert - 驗證成交量單位轉換（股 → 張）
+        tsmc.Volume.Should().BeGreaterThan(0, "成交量（張）應該大於 0");
+        // 台積電日成交量通常在 10,000 張以上（原始數據 > 10,000,000 股）
+        tsmc.Volume.Should().BeGreaterThan(10000, 
+            "台積電成交量應該 > 10,000 張（已經除以 1000）");
+        
+        // Assert - 驗證 0050 (ETF) 也被正確解析
+        var etf0050 = tseStocks.FirstOrDefault(s => s.StockCode == "0050");
+        etf0050.Should().NotBeNull("應該包含元大台灣50 (0050)");
+        etf0050!.StockName.Should().Contain("元大台灣50", "ETF 名稱應該正確");
+        etf0050.Volume.Should().BeGreaterThan(0, "ETF 成交量應該大於 0");
+        
+        // Assert - 驗證所有股票的成交量都已轉換成"張"（不應該有超大數字）
+        var maxVolume = tseStocks.Max(s => s.Volume);
+        maxVolume.Should().BeLessThan(10_000_000, 
+            "最大成交量應該 < 10,000,000 張，確認已正確轉換單位（若是股數會 > 10,000,000,000）");
+
+        // 輸出統計資訊（到測試日誌）
+        var totalStocks = tseStocks.Count;
+        var totalVolume = tseStocks.Sum(s => s.Volume);
+        var avgVolume = totalVolume / totalStocks;
+        
+        // 使用 Should() 來輸出信息（會顯示在測試成功時的日誌中）
+        totalStocks.Should().BeGreaterThan(0, 
+            $"✅ 成功解析 {totalStocks} 筆上市股票，" +
+            $"總成交量 {totalVolume:N0} 張，" +
+            $"平均 {avgVolume:N0} 張/檔");
+    }
 }
+
 

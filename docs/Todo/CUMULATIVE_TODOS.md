@@ -1,7 +1,7 @@
 # 累积待办事项 (Cumulative TODOs)
 
-**最后更新**: 2026-02-24 22:00  
-**状态**: ✅ 数据库切换功能完成
+**最后更新**: 2026-02-24 23:30  
+**状态**: ✅ 数据下载功能已修复
 
 ---
 
@@ -10,8 +10,57 @@
 ### P0 - 无（Critical，必须立即处理）
 无
 
-### P1 - 无（High，本周内完成）
-无
+### P1 - 建议验证（High，明天优先处理）
+
+#### 1. 测试明天的自动下载流程
+**描述**: 验证 2月25日数据自动下载功能  
+**理由**: 确保 SQL 修复后系统可持续正常工作  
+**工作量**: 10-15 分钟  
+**测试步骤**:
+1. 打开 UI: http://localhost:5089
+2. 点击 "📥 下載交易資料" 按钮
+3. 验证下载成功（2,300+ 股票）
+4. 检查 `investbase.LastDate` 自动更新到 2026-02-25
+5. 验证数据质量（总金额 1,500-3,000 亿）
+
+**SQL 验证**:
+```sql
+-- 检查是否成功更新
+SELECT * FROM investbase;
+
+-- 验证数据质量
+SELECT 
+    RecDate,
+    COUNT(*) AS StockCount,
+    SUM(Amount) / 100000000 AS TotalAmount_100M
+FROM weekall
+WHERE RecDate = '2026-02-25'
+GROUP BY RecDate;
+```
+
+**优先级**: High（确保修复有效）
+
+---
+
+#### 2. 检查历史异常数据（可选）
+**描述**: 验证 2月10/11日 数据是否异常  
+**理由**: 这两天总交易金额达 5,000 亿（远超正常范围）  
+**工作量**: 5-10 分钟  
+**检查步骤**:
+```sql
+SELECT 
+    RecDate,
+    COUNT(*) AS StockCount,
+    SUM(Amount) / 100000000 AS TotalAmount_100M
+FROM weekall
+WHERE RecDate IN ('2026-02-10', '2026-02-11')
+GROUP BY RecDate;
+
+-- 如果总金额 > 5000 亿，可能需要重新下载
+-- 正常范围: 1,500-3,000 亿
+```
+
+**优先级**: Low（不影响当前功能，可选检查）
 
 ### P2 - 低优先级建议（Low，可选改进）
 
@@ -70,6 +119,41 @@ if (!await TestDatabaseConnectionAsync(testConnection))
 ---
 
 ## ✅ 已完成事项
+
+### 2026-02-24 (晚) - 数据下载功能修复
+**时间**: 23:00-23:30 (~30分钟)  
+**问题**: 系统显示 "2月23日收盘" 而非当前 "2月24日"，数据下载功能失效  
+**根本原因**: MySQL 8.0.31 不完全支持 `INSERT ... AS new` 语法
+
+**修复内容**:
+- ✅ 修复 3 处 SQL 语法错误（AS new → VALUES()）
+  - `BatchInsertWeekAllMySql()` 
+  - `BatchInsertTradeDataMySql()`
+  - `UpdateStockIdTableAsync()`
+- ✅ 修复事务策略冲突（用 CreateExecutionStrategy().ExecuteAsync() 包装）
+- ✅ 成功下载 2026-02-24 数据（2,317 支股票，1,742.5亿交易额）
+- ✅ 验证数据质量通过（台积电 87亿, 鸿海 15亿, 联发科 12亿）
+- ✅ 更新 investbase.LastDate 到 2026-02-24
+- ✅ 确认 UI 已整合下载功能（ScheduleManagementPage.razor）
+- ✅ Git commit & push (331846f)
+- ✅ 生成 Session Report (022423_2315_SessionReport.md)
+
+**关键经验**:
+> **"直接从源头获取新数据" 往往比 "修复已损坏的数据" 简单 100 倍**
+
+用户的领域知识（"直接从交易所下载"）是解决问题的关键突破点。
+
+**修改文件**:
+- `src/SST.StockImport.Services/ImportService.cs` (核心修复)
+
+**数据状态**:
+- 2月21日: 无数据（未下载）
+- 2月22日: 已删除（周日非交易日）
+- 2月23日: 已删除（备份不完整）
+- 2月24日: ✅ 已修复（新鲜下载）
+- 2月10/11日: 待验证（总额 5,000 亿偏高）
+
+---
 
 ### 2026-02-24 - 数据库切换功能
 - ✅ 实现数据库切换 API endpoints

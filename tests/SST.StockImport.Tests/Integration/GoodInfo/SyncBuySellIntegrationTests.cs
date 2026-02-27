@@ -35,7 +35,7 @@ public class SyncBuySellIntegrationTests : IAsyncLifetime
         await _dbContext.Database.OpenConnectionAsync();
         await _dbContext.Database.EnsureCreatedAsync();
 
-        _repository = new TradeDataRepository(_dbContext);
+        _repository = new TradeDataRepository(_dbContext, new TestLogger<TradeDataRepository>(_output));
         _service = new SyncBuySellService(_repository);
 
         _output.WriteLine("SQLite In-Memory database initialized for SyncBuySell tests");

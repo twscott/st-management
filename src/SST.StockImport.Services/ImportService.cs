@@ -58,7 +58,7 @@ public class ImportService : IImportService
                 "📥 開始匯入 - JobId: {JobId}, 市場: {Market}, 日期: {TradeDate}",
                 jobId, request.Market, tradeDate);
 
-            // ✅ 步驟 0: 檢查數據是否已存在
+            // ✅ 步驟 0: 檢查數據是否已存在（無論是否存在都會重新下載並更新）
             using var checkScope = _scopeFactory.CreateScope();
             var checkContext = checkScope.ServiceProvider.GetRequiredService<StockImportDbContext>();
             var existingCount = await checkContext.WeekAll
@@ -68,7 +68,7 @@ public class ImportService : IImportService
             if (existingCount > 0)
             {
                 _logger.LogWarning(
-                    "⚠️ 數據已存在：{Date} 已有 {Count} 筆記錄，將執行更新操作（ON DUPLICATE KEY UPDATE）",
+                    "⚠️ 數據已存在：{Date} 已有 {Count} 筆記錄，將重新下載並更新交易所欄位（ON DUPLICATE KEY UPDATE）",
                     tradeDate.ToString("yyyy-MM-dd"), existingCount);
             }
             else

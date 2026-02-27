@@ -21,6 +21,12 @@ function Force-KillPortProcess {
     try {
         $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
         foreach ($conn in $connections) {
+            # Skip PID 0 (System Idle Process)
+            if ($conn.OwningProcess -eq 0) {
+                Write-Host "  [SKIP] PID 0 (System Idle - network state leftover)" -ForegroundColor Gray
+                continue
+            }
+            
             $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
             if ($proc) {
                 Write-Host "  [KILL] $($proc.ProcessName) (PID $($proc.Id))" -ForegroundColor Yellow
@@ -35,7 +41,7 @@ function Force-KillPortProcess {
             foreach ($line in $netstatOutput) {
                 $parts = $line -split '\s+'
                 $pid = $parts[-1]
-                if ($pid -match '^\d+$') {
+                if ($pid -match '^\d+$' -and $pid -ne '0') {
                     taskkill /F /PID $pid 2>$null | Out-Null
                 }
             }
@@ -92,28 +98,41 @@ for ($i = 1; $i -le 5; $i++) {
 }
 
 Write-Host "[CLEANUP] Port 5089..." -ForegroundColor Cyan
+$port5089Cleaned = $false
 for ($i = 1; $i -le 3; $i++) {
     $connections = Get-NetTCPConnection -LocalPort 5089 -ErrorAction SilentlyContinue
-    if ($connections) {
+    # 过滤掉 PID 0 的连接
+    $realConnections = $connections | Where-Object { $_.OwningProcess -ne 0 }
+    
+    if ($realConnections) {
         Write-Host "  [Attempt $i/3] Port 5089 in use, force cleaning..." -ForegroundColor Red
         Force-KillPortProcess -Port 5089
         Force-KillDotNet
         Start-Sleep -Seconds 1
     } else {
-        Write-Host "  [OK] Port 5089 released" -ForegroundColor Green
+        Write-Host "  [OK] Port 5089 released (or only system idle connections)" -ForegroundColor Green
+        $port5089Cleaned = $true
         break
     }
+}
+
+if (-not $port5089Cleaned) {
+    Write-Host "  [WARNING] Port 5089 cleanup incomplete, but continuing..." -ForegroundColor Yellow
+    Write-Host "  [INFO] If you see 'Address already in use' errors, manually kill the process:" -ForegroundColor Gray
+    Write-Host "        Get-Process | Where-Object { \$_.ProcessName -like '*Web*' } | Stop-Process -Force" -ForegroundColor Gray
 }
 
 Start-Sleep -Seconds 1
 
 if (-not $NoBuild) {
-    Write-Host "[BUILD] Compiling project..." -ForegroundColor Cyan
-    dotnet build SST.StockImport.sln --configuration Debug
+    Write-Host "[BUILD] Compiling API project..." -ForegroundColor Cyan
+    # 只编译 API 项目，跳过测试项目（避免测试项目编译错误阻止启动）
+    dotnet build src/SST.StockImport.API/SST.StockImport.API.csproj --configuration Debug
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[ERROR] Build failed" -ForegroundColor Red
         exit 1
     }
+    Write-Host "[OK] Build successful" -ForegroundColor Green
 }
 
 Write-Host "[STARTING] API..." -ForegroundColor Green

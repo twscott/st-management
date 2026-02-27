@@ -69,4 +69,15 @@ public interface IImportService
     /// </summary>
     /// <returns>最新交易日期</returns>
     Task<DateTime> GetLatestTradingDateAsync();
+
+    /// <summary>
+    /// 獲取下載目標日期（智能決定邏輯）
+    /// 規則：
+    /// 1. 默認：下載昨天的數據 (DateTime.Today.AddDays(-1))
+    /// 2. 特殊情況：當 investbase.RecDate == 今天 且 時間 < 15:00
+    ///    → 改用 investbase.LastDate（因為今天數據還沒準備好）
+    /// 3. 若 investbase 無資料 → 使用昨天（fallback）
+    /// </summary>
+    /// <returns>下載目標日期</returns>
+    Task<DateTime> GetDownloadTargetDateAsync();
 }

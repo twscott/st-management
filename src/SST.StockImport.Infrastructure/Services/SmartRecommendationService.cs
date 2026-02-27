@@ -94,7 +94,7 @@ public class SmartRecommendationService : ISmartRecommendationService
     /// <summary>
     /// 获取历史学习期间统计（最近30天的历史数据）
     /// </summary>
-    private async Task<LearningPeriodStats> GetLearningPeriodStatsAsync(DateTime recommendationDate)
+    private Task<LearningPeriodStats> GetLearningPeriodStatsAsync(DateTime recommendationDate)
     {
         var stats = new LearningPeriodStats
         {
@@ -118,7 +118,7 @@ public class SmartRecommendationService : ISmartRecommendationService
             _logger.LogWarning(ex, "Could not fetch learning period stats");
         }
 
-        return stats;
+        return Task.FromResult(stats);
     }
 
     /// <summary>

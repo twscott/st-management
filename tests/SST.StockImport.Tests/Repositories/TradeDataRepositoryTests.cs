@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Moq;
 using SST.StockImport.Core.Entities;
 using SST.StockImport.Infrastructure.Data;
 using SST.StockImport.Infrastructure.Repositories;
@@ -27,7 +29,8 @@ public class TradeDataRepositoryTests : IDisposable
         _context.Database.OpenConnection(); // 必須保持連線以使用 in-memory SQLite
         _context.Database.EnsureCreated();
 
-        _repository = new TradeDataRepository(_context);
+        var mockLogger = new Mock<ILogger<TradeDataRepository>>();
+        _repository = new TradeDataRepository(_context, mockLogger.Object);
     }
 
     public void Dispose()

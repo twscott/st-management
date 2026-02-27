@@ -35,7 +35,7 @@ public class MacdIndicatorIntegrationTests : IAsyncLifetime
         await _dbContext.Database.OpenConnectionAsync();
         await _dbContext.Database.EnsureCreatedAsync();
 
-        _repository = new TradeDataRepository(_dbContext);
+        _repository = new TradeDataRepository(_dbContext, new TestLogger<TradeDataRepository>(_output));
         _service = new MacdIndicatorService(_repository, new TestLogger<MacdIndicatorService>(_output));
 
         _output.WriteLine("SQLite In-Memory database initialized for MACD Indicator tests");
