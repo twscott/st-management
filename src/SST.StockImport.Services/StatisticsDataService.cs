@@ -57,20 +57,20 @@ public class StatisticsDataService : IStatisticsDataService
     }
 
     /// <summary>
-    /// 從 InvestBase 找到對應的 RecDate (交易日期/LastDay)
+    /// 找到 InvestBase 中最近有数据的交易日
     /// </summary>
-    private async Task<DateTime?> GetRecDateAsync(DateTime targetDate)
+    private async Task<DateTime?> GetLatestRecDateAsync()
     {
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
         
-        // 直接取得 RecDate (交易日期)
+        // 找到最近的一个 RecDate
         var recDate = await context.InvestBase
-            .Where(i => i.RecDate == targetDate)
+            .OrderByDescending(i => i.RecDate)
             .Select(i => i.RecDate)
             .FirstOrDefaultAsync();
         
-        _logger.LogInformation("找到 RecDate={RecDate} for targetDate={TargetDate}", recDate, targetDate);
+        _logger.LogInformation("找到最近交易日 RecDate={RecDate}", recDate);
         return recDate;
     }
 
@@ -118,9 +118,9 @@ public class StatisticsDataService : IStatisticsDataService
                 var investBaseResult = await _investBaseDataProcessor.ProcessAsync(currentDate);
                 result.ProcessorResults.Add(investBaseResult);
 
-                // ========== Stock60 重算 (1天 - 当天资料) ==========
-                // 直接使用 RecDate (交易日期/LastDay)
-                var recDate = await GetRecDateAsync(currentDate);
+                // ========== Stock60 重算 (1天 - 最近交易日) ==========
+                // 找到最近有数据的交易日来计算
+                var recDate = await GetLatestRecDateAsync();
                 
                 if (recDate.HasValue)
                 {
