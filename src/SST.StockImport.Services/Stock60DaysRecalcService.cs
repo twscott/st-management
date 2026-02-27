@@ -163,9 +163,10 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
         _logger.LogError("### GetTradingDatesAsync: startLastDate={Start}, days={Days}, now={Now}", 
             startLastDate, days, now);
         
+        // 使用 StockDate（资料入库日期）而不是 LastDate
         var tradingDates = await context.Stock60Days
-            .Where(s => s.LastDate != null && s.LastDate >= startLastDate)
-            .Select(s => s.LastDate!.Value)
+            .Where(s => s.StockDate != null && s.StockDate >= startLastDate)
+            .Select(s => s.StockDate)
             .Distinct()
             .OrderBy(d => d)
             .Take(days)
@@ -192,14 +193,14 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                            CAST(ROUND(AVG(EndPrice), 2) AS DECIMAL(10,2)) as ma_val,
                            CAST(ROUND(AVG(Vol)) AS SIGNED) as mv_val
                     FROM stock60days 
-                    WHERE LastDate IS NOT NULL 
-                      AND LastDate <= '{targetDateStr}'
+                    WHERE StockDate IS NOT NULL 
+                      AND StockDate <= '{targetDateStr}'
                       AND EndPrice IS NOT NULL
                     GROUP BY StockID
                     HAVING COUNT(*) >= {period}
                 ) calc ON s.StockID = calc.StockID
                 SET s.MA{period} = calc.ma_val, s.MV{period} = calc.mv_val
-                WHERE s.LastDate = '{targetDateStr}'";
+                WHERE s.StockDate = '{targetDateStr}'";
 
             try
             {
@@ -227,19 +228,19 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                         t.EndPrice as currentPrice,
                         MAX(t.EndPrice) OVER (
                             PARTITION BY t.StockID 
-                            ORDER BY t.LastDate 
+                            ORDER BY t.StockDate 
                             ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
                         ) as maxPrice9,
                         MIN(t.EndPrice) OVER (
                             PARTITION BY t.StockID 
-                            ORDER BY t.LastDate 
+                            ORDER BY t.StockDate 
                             ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
                         ) as minPrice9,
-                        LAG(t.KD_K) OVER (PARTITION BY t.StockID ORDER BY t.LastDate) as prev_K,
-                        LAG(t.KD_D) OVER (PARTITION BY t.StockID ORDER BY t.LastDate) as prev_D
+                        LAG(t.KD_K) OVER (PARTITION BY t.StockID ORDER BY t.StockDate) as prev_K,
+                        LAG(t.KD_D) OVER (PARTITION BY t.StockID ORDER BY t.StockDate) as prev_D
                     FROM stock60days t
-                    WHERE t.LastDate IS NOT NULL 
-                      AND t.LastDate <= '{targetDateStr}'
+                    WHERE t.StockDate IS NOT NULL 
+                      AND t.StockDate <= '{targetDateStr}'
                       AND t.EndPrice IS NOT NULL
                       AND t.EndPrice > 0
                 ) calc ON s.StockID = calc.StockID
@@ -274,7 +275,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                                 END, 4)
                             END, 4)
                     END
-                WHERE s.LastDate = '{targetDateStr}'";
+                WHERE s.StockDate = '{targetDateStr}'";
 
             var rows = await context.Database.ExecuteSqlRawAsync(sql);
             _logger.LogDebug("KD 更新 {Rows} 筆記錄 for {Date}", rows, targetDateStr);
@@ -298,24 +299,24 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                         StockID,
                         AVG(EndPrice) OVER (
                             PARTITION BY StockID 
-                            ORDER BY LastDate 
+                            ORDER BY StockDate 
                             ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
                         ) as ma20,
                         STDDEV_POP(EndPrice) OVER (
                             PARTITION BY StockID 
-                            ORDER BY LastDate 
+                            ORDER BY StockDate 
                             ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
                         ) as stddev20
                     FROM stock60days 
-                    WHERE LastDate IS NOT NULL 
-                      AND LastDate <= '{targetDateStr}'
+                    WHERE StockDate IS NOT NULL 
+                      AND StockDate <= '{targetDateStr}'
                       AND EndPrice IS NOT NULL
                       AND EndPrice > 0
                 ) calc ON s.StockID = calc.StockID
                 SET s.BoolMid = ROUND(calc.ma20, 4),
                     s.BoolUp = ROUND(calc.ma20 + 2 * calc.stddev20, 4),
                     s.BoolDown = GREATEST(ROUND(calc.ma20 - 2 * calc.stddev20, 4), 0)
-                WHERE s.LastDate = '{targetDateStr}'";
+                WHERE s.StockDate = '{targetDateStr}'";
 
             var rows = await context.Database.ExecuteSqlRawAsync(sql);
             _logger.LogDebug("布林帶更新 {Rows} 筆記錄 for {Date}", rows, targetDateStr);
