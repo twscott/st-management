@@ -156,172 +156,134 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
 
     private async Task CalculateMAAsync(StockImportDbContext context, DateTime targetLastDate)
     {
-        var stocksOnDate = await context.Stock60Days
-            .Where(s => s.LastDate == targetLastDate)
-            .Select(s => s.StockID)
-            .Distinct()
-            .ToListAsync();
-
         var periods = new[] { 5, 10, 14, 20, 35, 60 };
+        var targetDateStr = targetLastDate.ToString("yyyy-MM-dd");
 
-        foreach (var stockId in stocksOnDate)
+        foreach (var period in periods)
         {
-            var historicalData = await context.Stock60Days
-                .Where(s => s.StockID == stockId && s.LastDate <= targetLastDate && s.EndPrice != null)
-                .OrderByDescending(s => s.LastDate)
-                .ToListAsync();
+            var sql = $@"
+                UPDATE stock60days s
+                INNER JOIN (
+                    SELECT StockID,
+                           CAST(ROUND(AVG(EndPrice), 2) AS DECIMAL(10,2)) as ma_val,
+                           CAST(ROUND(AVG(Vol)) AS SIGNED) as mv_val
+                    FROM stock60days 
+                    WHERE LastDate IS NOT NULL 
+                      AND LastDate <= '{targetDateStr}'
+                      AND EndPrice IS NOT NULL
+                    GROUP BY StockID
+                    HAVING COUNT(*) >= {period}
+                ) calc ON s.StockID = calc.StockID
+                SET s.MA{period} = calc.ma_val, s.MV{period} = calc.mv_val
+                WHERE s.LastDate = '{targetDateStr}'";
 
-            if (!historicalData.Any()) continue;
-
-            var result = new Stock60Days();
-
-            foreach (var period in periods)
+            try
             {
-                var lastN = historicalData.Take(period).ToList();
-                if (lastN.Count < period) continue;
-
-                var ma = (decimal)lastN.Average(s => s.EndPrice!.Value);
-                var mv = (int)lastN.Average(s => s.Vol ?? 0);
-
-                switch (period)
-                {
-                    case 5: result.MA5 = ma; result.MV5 = mv; break;
-                    case 10: result.MA10 = ma; result.MV10 = mv; break;
-                    case 14: result.MA14 = ma; result.MV14 = mv; break;
-                    case 20: result.MA20 = ma; result.MV20 = mv; break;
-                    case 35: result.MA35 = ma; result.MV35 = mv; break;
-                    case 60: result.MA60 = ma; result.MV60 = mv; break;
-                }
+                var rows = await context.Database.ExecuteSqlRawAsync(sql);
+                _logger.LogDebug("MA{Period}/MV{Period} 更新 {Rows} 筆記錄 for {Date}", period, rows, targetDateStr);
             }
-
-            var entity = await context.Stock60Days
-                .FirstOrDefaultAsync(s => s.StockID == stockId && s.LastDate == targetLastDate);
-            
-            if (entity != null)
+            catch (Exception ex)
             {
-                entity.MA5 = result.MA5; entity.MV5 = result.MV5;
-                entity.MA10 = result.MA10; entity.MV10 = result.MV10;
-                entity.MA14 = result.MA14; entity.MV14 = result.MV14;
-                entity.MA20 = result.MA20; entity.MV20 = result.MV20;
-                entity.MA35 = result.MA35; entity.MV35 = result.MV35;
-                entity.MA60 = result.MA60; entity.MV60 = result.MV60;
-                await context.SaveChangesAsync();
+                _logger.LogError(ex, "MA{Period}/MV{Period} 計算失敗 for {Date}", period, targetLastDate);
             }
         }
     }
 
     private async Task CalculateKDAsync(StockImportDbContext context, DateTime targetLastDate)
     {
-        var stocksOnDate = await context.Stock60Days
-            .Where(s => s.LastDate == targetLastDate)
-            .Select(s => new { s.StockID, s.EndPrice })
-            .ToListAsync();
-
-        foreach (var stock in stocksOnDate)
+        try
         {
-            if (stock.EndPrice == null || stock.EndPrice <= 0) continue;
+            var targetDateStr = targetLastDate.ToString("yyyy-MM-dd");
 
-            var historicalData = await context.Stock60Days
-                .Where(s => s.StockID == stock.StockID && s.LastDate <= targetLastDate && s.EndPrice != null && s.EndPrice > 0)
-                .OrderByDescending(s => s.LastDate)
-                .Take(9)
-                .Select(s => s.EndPrice!.Value)
-                .ToListAsync();
+            var sql = $@"
+                UPDATE stock60days s
+                INNER JOIN (
+                    SELECT 
+                        t.StockID,
+                        t.EndPrice as currentPrice,
+                        MAX(t.EndPrice) OVER (PARTITION BY t.StockID) as maxPrice,
+                        MIN(t.EndPrice) OVER (PARTITION BY t.StockID) as minPrice,
+                        LAG(t.KD_K) OVER (PARTITION BY t.StockID ORDER BY t.LastDate) as prev_K,
+                        LAG(t.KD_D) OVER (PARTITION BY t.StockID ORDER BY t.LastDate) as prev_D
+                    FROM stock60days t
+                    WHERE t.LastDate IS NOT NULL 
+                      AND t.LastDate <= '{targetDateStr}'
+                      AND t.EndPrice IS NOT NULL
+                      AND t.EndPrice > 0
+                ) calc ON s.StockID = calc.StockID
+                SET s.KD_RSV = CASE 
+                    WHEN calc.maxPrice = calc.minPrice THEN 0 
+                    ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                END,
+                    s.KD_K = CASE 
+                        WHEN calc.prev_K IS NULL OR calc.prev_K = 0 THEN CASE 
+                            WHEN calc.maxPrice = calc.minPrice THEN 0 
+                            ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                        END
+                        ELSE ROUND((2.0/3.0) * calc.prev_K + (1.0/3.0) * CASE 
+                            WHEN calc.maxPrice = calc.minPrice THEN 0 
+                            ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                        END, 4)
+                    END,
+                    s.KD_D = CASE
+                        WHEN calc.prev_D IS NULL OR calc.prev_D = 0 THEN CASE
+                            WHEN calc.maxPrice = calc.minPrice THEN 0 
+                            ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                        END
+                        ELSE ROUND((2.0/3.0) * calc.prev_D + (1.0/3.0) * CASE
+                            WHEN calc.prev_K IS NULL OR calc.prev_K = 0 THEN CASE 
+                                WHEN calc.maxPrice = calc.minPrice THEN 0 
+                                ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                            END
+                            ELSE ROUND((2.0/3.0) * calc.prev_K + (1.0/3.0) * CASE 
+                                WHEN calc.maxPrice = calc.minPrice THEN 0 
+                                ELSE ROUND((calc.currentPrice - calc.minPrice) / (calc.maxPrice - calc.minPrice) * 100, 4) 
+                            END, 4)
+                        END, 4)
+                    END
+                WHERE s.LastDate = '{targetDateStr}'";
 
-            if (historicalData.Count < 9) continue;
-
-            var high = historicalData.Max();
-            var low = historicalData.Min();
-            decimal rsv = 0;
-
-            if (high != low)
-            {
-                rsv = ((stock.EndPrice.Value - low) / (high - low)) * 100;
-            }
-
-            var previousDate = await context.Stock60Days
-                .Where(s => s.StockID == stock.StockID && s.LastDate < targetLastDate)
-                .OrderByDescending(s => s.LastDate)
-                .Select(s => new { s.KD_K, s.KD_D })
-                .FirstOrDefaultAsync();
-
-            decimal prevK = previousDate?.KD_K ?? 0;
-            decimal prevD = previousDate?.KD_D ?? 0;
-
-            decimal currentK, currentD;
-
-            if (prevK == 0 && prevD == 0)
-            {
-                currentK = rsv;
-                currentD = rsv;
-            }
-            else
-            {
-                currentK = (2.0m / 3.0m) * prevK + (1.0m / 3.0m) * rsv;
-                currentD = (2.0m / 3.0m) * prevD + (1.0m / 3.0m) * currentK;
-            }
-
-            var entity = await context.Stock60Days
-                .FirstOrDefaultAsync(s => s.StockID == stock.StockID && s.LastDate == targetLastDate);
-
-            if (entity != null)
-            {
-                entity.KD_RSV = Math.Round(rsv, 4);
-                entity.KD_K = Math.Round(currentK, 4);
-                entity.KD_D = Math.Round(currentD, 4);
-                await context.SaveChangesAsync();
-            }
+            var rows = await context.Database.ExecuteSqlRawAsync(sql);
+            _logger.LogDebug("KD 更新 {Rows} 筆記錄 for {Date}", rows, targetDateStr);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "KD 批量計算失敗 for {Date}", targetLastDate);
         }
     }
 
     private async Task CalculateBollingerBandsAsync(StockImportDbContext context, DateTime targetLastDate)
     {
-        var stocksOnDate = await context.Stock60Days
-            .Where(s => s.LastDate == targetLastDate)
-            .Select(s => s.StockID)
-            .Distinct()
-            .ToListAsync();
-
-        foreach (var stockId in stocksOnDate)
+        try
         {
-            var historicalData = await context.Stock60Days
-                .Where(s => s.StockID == stockId && s.LastDate <= targetLastDate && s.EndPrice != null && s.EndPrice > 0)
-                .OrderByDescending(s => s.LastDate)
-                .Take(20)
-                .Select(s => s.EndPrice!.Value)
-                .ToListAsync();
+            var targetDateStr = targetLastDate.ToString("yyyy-MM-dd");
 
-            if (historicalData.Count < 20) continue;
+            var sql = $@"
+                UPDATE stock60days s
+                INNER JOIN (
+                    SELECT 
+                        StockID,
+                        AVG(EndPrice) as ma,
+                        STDDEV_POP(EndPrice) as stddev
+                    FROM stock60days 
+                    WHERE LastDate IS NOT NULL 
+                      AND LastDate <= '{targetDateStr}'
+                      AND EndPrice IS NOT NULL
+                      AND EndPrice > 0
+                    GROUP BY StockID
+                    HAVING COUNT(*) >= 20
+                ) calc ON s.StockID = calc.StockID
+                SET s.BoolMid = ROUND(calc.ma, 4),
+                    s.BoolUp = ROUND(calc.ma + 2 * calc.stddev, 4),
+                    s.BoolDown = GREATEST(ROUND(calc.ma - 2 * calc.stddev, 4), 0)
+                WHERE s.LastDate = '{targetDateStr}'";
 
-            var mid = historicalData.Average();
-            var stdDev = CalculateStdDev(historicalData);
-
-            var boolMid = mid;
-            var boolUp = mid + 2 * stdDev;
-            var boolDown = mid - 2 * stdDev;
-
-            var entity = await context.Stock60Days
-                .FirstOrDefaultAsync(s => s.StockID == stockId && s.LastDate == targetLastDate);
-
-            if (entity != null)
-            {
-                entity.BoolMid = Math.Round(boolMid, 4);
-                entity.BoolUp = Math.Round(boolUp, 4);
-                entity.BoolDown = Math.Round(boolDown, 4);
-                await context.SaveChangesAsync();
-            }
+            var rows = await context.Database.ExecuteSqlRawAsync(sql);
+            _logger.LogDebug("布林帶更新 {Rows} 筆記錄 for {Date}", rows, targetDateStr);
         }
-    }
-
-    private decimal CalculateStdDev(IEnumerable<decimal> values)
-    {
-        var list = values.ToList();
-        if (list.Count <= 1) return 0;
-
-        var avg = list.Average();
-        var sumOfSquares = list.Sum(v => (v - avg) * (v - avg));
-        var variance = sumOfSquares / list.Count;
-
-        return (decimal)Math.Sqrt((double)variance);
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "布林帶批量計算失敗 for {Date}", targetLastDate);
+        }
     }
 }
