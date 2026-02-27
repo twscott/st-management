@@ -133,14 +133,15 @@ public class StatisticsDataService : IStatisticsDataService
 
                 // ========== Stock60 重算 (1天 - 最近交易日) ==========
                 // 找到最近有数据的交易日来计算
-                _logger.LogInformation("DEBUG: About to call GetLatestRecDateAsync");
+                _logger.LogInformation("========== Stock60 重算开始 ==========");
                 var recDate = await GetLatestRecDateAsync();
-                _logger.LogInformation("DEBUG: Got recDate={RecDate}", recDate);
+                _logger.LogInformation("========== Stock60 重算: recDate = {RecDate} ==========", recDate);
                 
                 if (recDate.HasValue)
                 {
-                    _logger.LogInformation("開始 Stock60 重算 for RecDate={RecDate}", recDate.Value);
-                    var stock60Result = await _stock60RecalcService.RecalculateAsync(recDate.Value, 1);
+                    var stock60Date = recDate.Value.Date;
+                    _logger.LogInformation("========== Stock60 重算: 调用 RecalculateAsync({Date}, 1) ==========", stock60Date);
+                    var stock60Result = await _stock60RecalcService.RecalculateAsync(stock60Date, 1);
                     
                     _logger.LogInformation("Stock60 重算結果: Success={Success}, ProcessedDays={Days}, Error={Error}", 
                         stock60Result.Success, stock60Result.ProcessedDays, stock60Result.ErrorMessage);
