@@ -57,20 +57,23 @@ public class StatisticsDataService : IStatisticsDataService
     }
 
     /// <summary>
-    /// 找到 InvestBase 中最近有数据的交易日
+    /// 找到 InvestBase 中最近有数据的交易日（不超过今天）
     /// </summary>
     private async Task<DateTime?> GetLatestRecDateAsync()
     {
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<StockImportDbContext>();
         
-        // 找到最近的一个 RecDate
+        var today = DateTime.Today;
+        
+        // 找到最近的一个 RecDate (<= 今天)
         var recDate = await context.InvestBase
+            .Where(i => i.RecDate <= today)
             .OrderByDescending(i => i.RecDate)
             .Select(i => i.RecDate)
             .FirstOrDefaultAsync();
         
-        _logger.LogInformation("DEBUG: GetLatestRecDateAsync found RecDate={RecDate}", recDate);
+        _logger.LogInformation("DEBUG: GetLatestRecDateAsync found RecDate={RecDate} (today={Today})", recDate, today);
         
         // Also log what dates exist
         var allDates = await context.InvestBase
