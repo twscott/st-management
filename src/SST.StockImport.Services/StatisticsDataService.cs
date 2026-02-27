@@ -132,15 +132,20 @@ public class StatisticsDataService : IStatisticsDataService
                 result.ProcessorResults.Add(investBaseResult);
 
                 // ========== Stock60 重算 (1天 - 最近交易日) ==========
+                _logger.LogError("========== Stock60 重算: 开始 ==========");
+                
                 // 找到最近有数据的交易日来计算
-                _logger.LogInformation("========== Stock60 重算开始 ==========");
                 var recDate = await GetLatestRecDateAsync();
-                _logger.LogInformation("========== Stock60 重算: recDate = {RecDate} ==========", recDate);
+                
+                _logger.LogError("========== Stock60 重算: recDate = {RecDate} ==========", recDate);
                 
                 if (recDate.HasValue)
                 {
+                    _logger.LogError("========== Stock60 重算: _isRunning 状态检查 ==========");
+                    
                     var stock60Date = recDate.Value.Date;
-                    _logger.LogInformation("========== Stock60 重算: 调用 RecalculateAsync({Date}, 1) ==========", stock60Date);
+                    _logger.LogError("========== Stock60 重算: 准备调用 RecalculateAsync({Date}, 1) ==========", stock60Date);
+                    
                     var stock60Result = await _stock60RecalcService.RecalculateAsync(stock60Date, 1);
                     
                     _logger.LogInformation("Stock60 重算結果: Success={Success}, ProcessedDays={Days}, Error={Error}", 
@@ -157,7 +162,7 @@ public class StatisticsDataService : IStatisticsDataService
                 }
                 else
                 {
-                    _logger.LogWarning("找不到 recDate={RecDate} 對應的 LastDate，跳過 Stock60 重算", currentDate);
+                    _logger.LogError("========== Stock60 重算: recDate 是 null，跳过 ==========");
                     result.ProcessorResults.Add(new ProcessorResultDto
                     {
                         ProcessorName = "Stock60重算(當天)",
