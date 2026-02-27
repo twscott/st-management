@@ -43,8 +43,9 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
 
     public async Task<Stock60DaysRecalcResult> RecalculateAsync(DateTime startLastDate, int days, CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Stock60DaysRecalcService.RecalculateAsync 被調用: startLastDate={StartLastDate}, days={Days}", 
-            startLastDate, days);
+        var now = DateTime.Now;
+        _logger.LogError("### Stock60DaysRecalcService.RecalculateAsync 被調用: startLastDate={StartLastDate}, days={Days}, now={Now}, _isRunning={IsRunning}", 
+            startLastDate, days, now, _isRunning);
 
         if (_isRunning)
         {
@@ -158,6 +159,10 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
 
     private async Task<List<DateTime>> GetTradingDatesAsync(StockImportDbContext context, DateTime startLastDate, int days)
     {
+        var now = DateTime.Now;
+        _logger.LogError("### GetTradingDatesAsync: startLastDate={Start}, days={Days}, now={Now}", 
+            startLastDate, days, now);
+        
         var tradingDates = await context.Stock60Days
             .Where(s => s.LastDate != null && s.LastDate >= startLastDate)
             .Select(s => s.LastDate!.Value)
@@ -166,8 +171,9 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             .Take(days)
             .ToListAsync();
         
-        _logger.LogInformation("GetTradingDatesAsync: startLastDate={Start}, days={Days}, found={Count}", 
-            startLastDate, days, tradingDates.Count);
+        _logger.LogError("### GetTradingDatesAsync: found {Count} dates, first few: {FirstFew}", 
+            tradingDates.Count, 
+            string.Join(", ", tradingDates.Take(5).Select(d => d.ToString("yyyy-MM-dd"))));
         
         return tradingDates;
     }
