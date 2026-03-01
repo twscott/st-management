@@ -44,7 +44,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
     public async Task<Stock60DaysRecalcResult> RecalculateAsync(DateTime startLastDate, int days, CancellationToken cancellationToken = default)
     {
         var now = DateTime.Now;
-        _logger.LogError("### Stock60DaysRecalcService.RecalculateAsync 被調用: startLastDate={StartLastDate}, days={Days}, now={Now}, _isRunning={IsRunning}", 
+        _logger.LogDebug("Stock60DaysRecalcService.RecalculateAsync 被調用: startLastDate={StartLastDate}, days={Days}, now={Now}, _isRunning={IsRunning}", 
             startLastDate, days, now, _isRunning);
 
         if (_isRunning)
@@ -116,7 +116,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                 _logger.LogInformation("========== 處理日期: {LastDate} ({DayIndex}/{Days}) ==========", 
                     currentLastDate, i + 1, tradingDates.Count);
 
-                await CalculateMAAsync(context, currentLastDate);
+                await CalculateMAMVAsync(context, currentLastDate);
                 await CalculateKDAsync(context, currentLastDate);
                 await CalculateBollingerBandsAsync(context, currentLastDate);
 
@@ -160,7 +160,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
     private async Task<List<DateTime>> GetTradingDatesAsync(StockImportDbContext context, DateTime startLastDate, int days)
     {
         var now = DateTime.Now;
-        _logger.LogError("### GetTradingDatesAsync: startLastDate={Start}, days={Days}, now={Now}", 
+        _logger.LogDebug("GetTradingDatesAsync: startLastDate={Start}, days={Days}, now={Now}", 
             startLastDate, days, now);
         
         // 使用 StockDate（资料入库日期）而不是 LastDate
@@ -172,14 +172,14 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             .Take(days)
             .ToListAsync();
         
-        _logger.LogError("### GetTradingDatesAsync: found {Count} dates, first few: {FirstFew}", 
+        _logger.LogDebug("GetTradingDatesAsync: found {Count} dates, first few: {FirstFew}", 
             tradingDates.Count, 
             string.Join(", ", tradingDates.Take(5).Select(d => d.ToString("yyyy-MM-dd"))));
         
         return tradingDates;
     }
 
-    private async Task CalculateMAAsync(StockImportDbContext context, DateTime targetLastDate)
+    private async Task CalculateMAMVAsync(StockImportDbContext context, DateTime targetLastDate)
     {
         var periods = new[] { 5, 10, 14, 20, 35, 60 };
         var targetDateStr = targetLastDate.ToString("yyyy-MM-dd");
@@ -189,18 +189,31 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             var sql = $@"
                 UPDATE stock60days s
                 INNER JOIN (
-                    SELECT StockID,
-                           CAST(ROUND(AVG(EndPrice), 2) AS DECIMAL(10,2)) as ma_val,
-                           CAST(ROUND(AVG(Vol)) AS SIGNED) as mv_val
+                    SELECT 
+                        StockID,
+                        StockDate,
+                        AVG(EndPrice) OVER (
+                            PARTITION BY StockID 
+                            ORDER BY StockDate 
+                            ROWS BETWEEN {period - 1} PRECEDING AND CURRENT ROW
+                        ) as ma_val,
+                        AVG(Vol) OVER (
+                            PARTITION BY StockID 
+                            ORDER BY StockDate 
+                            ROWS BETWEEN {period - 1} PRECEDING AND CURRENT ROW
+                        ) as mv_val,
+                        COUNT(*) OVER (
+                            PARTITION BY StockID 
+                            ORDER BY StockDate 
+                            ROWS BETWEEN {period - 1} PRECEDING AND CURRENT ROW
+                        ) as data_points
                     FROM stock60days 
                     WHERE StockDate IS NOT NULL 
                       AND StockDate <= '{targetDateStr}'
                       AND EndPrice IS NOT NULL
-                    GROUP BY StockID
-                    HAVING COUNT(*) >= {period}
-                ) calc ON s.StockID = calc.StockID
-                SET s.MA{period} = calc.ma_val, s.MV{period} = calc.mv_val
-                WHERE s.StockDate = '{targetDateStr}'";
+                ) calc ON s.StockID = calc.StockID AND s.StockDate = calc.StockDate
+                SET s.MA{period} = ROUND(calc.ma_val, 2), s.MV{period} = CAST(calc.mv_val AS SIGNED)
+                WHERE s.StockDate = '{targetDateStr}' AND calc.data_points >= {period}";
 
             try
             {
@@ -218,71 +231,14 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
     {
         try
         {
-            var targetDateStr = targetLastDate.ToString("yyyy-MM-dd");
-
-            var sql = $@"
-                UPDATE stock60days s
-                INNER JOIN (
-                    SELECT 
-                        t.StockID,
-                        t.EndPrice as currentPrice,
-                        MAX(t.EndPrice) OVER (
-                            PARTITION BY t.StockID 
-                            ORDER BY t.StockDate 
-                            ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
-                        ) as maxPrice9,
-                        MIN(t.EndPrice) OVER (
-                            PARTITION BY t.StockID 
-                            ORDER BY t.StockDate 
-                            ROWS BETWEEN 8 PRECEDING AND CURRENT ROW
-                        ) as minPrice9,
-                        LAG(t.KD_K) OVER (PARTITION BY t.StockID ORDER BY t.StockDate) as prev_K,
-                        LAG(t.KD_D) OVER (PARTITION BY t.StockID ORDER BY t.StockDate) as prev_D
-                    FROM stock60days t
-                    WHERE t.StockDate IS NOT NULL 
-                      AND t.StockDate <= '{targetDateStr}'
-                      AND t.EndPrice IS NOT NULL
-                      AND t.EndPrice > 0
-                ) calc ON s.StockID = calc.StockID
-                SET s.KD_RSV = CASE 
-                    WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
-                    ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
-                END,
-                    s.KD_K = CASE 
-                        WHEN calc.prev_K IS NULL OR calc.prev_K = 0 THEN CASE 
-                            WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
-                            ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
-                        END
-                        ELSE ROUND((2.0/3.0) * calc.prev_K + (1.0/3.0) * CASE 
-                            WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
-                            ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
-                        END, 4)
-                    END,
-                    s.KD_D = CASE
-                        WHEN calc.prev_D IS NULL OR calc.prev_D = 0 THEN CASE
-                            WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
-                            ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
-                        END
-                        ELSE ROUND((2.0/3.0) * calc.prev_D + (1.0/3.0) * 
-                            CASE 
-                                WHEN calc.prev_K IS NULL OR calc.prev_K = 0 THEN CASE 
-                                    WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
-                                    ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
-                                END
-                                ELSE ROUND((2.0/3.0) * calc.prev_K + (1.0/3.0) * CASE 
-                                    WHEN calc.maxPrice9 = calc.minPrice9 THEN 0 
-                                    ELSE ROUND((calc.currentPrice - calc.minPrice9) / (calc.maxPrice9 - calc.minPrice9) * 100, 4) 
-                                END, 4)
-                            END, 4)
-                    END
-                WHERE s.StockDate = '{targetDateStr}'";
-
-            var rows = await context.Database.ExecuteSqlRawAsync(sql);
-            _logger.LogDebug("KD 更新 {Rows} 筆記錄 for {Date}", rows, targetDateStr);
+            using var scope = _scopeFactory.CreateScope();
+            var kdProcessor = scope.ServiceProvider.GetRequiredService<Processors.KDIndicatorProcessor>();
+            await kdProcessor.CalculateKDForDateAsync(targetLastDate);
+            _logger.LogDebug("KD 更新完成 for {Date}", targetLastDate);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "KD 批量計算失敗 for {Date}", targetLastDate);
+            _logger.LogError(ex, "KD 計算失敗 for {Date}", targetLastDate);
         }
     }
 
@@ -290,40 +246,14 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
     {
         try
         {
-            var targetDateStr = targetLastDate.ToString("yyyy-MM-dd");
-
-            var sql = $@"
-                UPDATE stock60days s
-                INNER JOIN (
-                    SELECT 
-                        StockID,
-                        AVG(EndPrice) OVER (
-                            PARTITION BY StockID 
-                            ORDER BY StockDate 
-                            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
-                        ) as ma20,
-                        STDDEV_POP(EndPrice) OVER (
-                            PARTITION BY StockID 
-                            ORDER BY StockDate 
-                            ROWS BETWEEN 19 PRECEDING AND CURRENT ROW
-                        ) as stddev20
-                    FROM stock60days 
-                    WHERE StockDate IS NOT NULL 
-                      AND StockDate <= '{targetDateStr}'
-                      AND EndPrice IS NOT NULL
-                      AND EndPrice > 0
-                ) calc ON s.StockID = calc.StockID
-                SET s.BoolMid = ROUND(calc.ma20, 4),
-                    s.BoolUp = ROUND(calc.ma20 + 2 * calc.stddev20, 4),
-                    s.BoolDown = GREATEST(ROUND(calc.ma20 - 2 * calc.stddev20, 4), 0)
-                WHERE s.StockDate = '{targetDateStr}'";
-
-            var rows = await context.Database.ExecuteSqlRawAsync(sql);
-            _logger.LogDebug("布林帶更新 {Rows} 筆記錄 for {Date}", rows, targetDateStr);
+            using var scope = _scopeFactory.CreateScope();
+            var bollingerProcessor = scope.ServiceProvider.GetRequiredService<Processors.BollingerBandsProcessor>();
+            await bollingerProcessor.CalculateBollingerBandsForDateAsync(targetLastDate);
+            _logger.LogDebug("Bollinger 更新完成 for {Date}", targetLastDate);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "布林帶批量計算失敗 for {Date}", targetLastDate);
+            _logger.LogError(ex, "Bollinger 計算失敗 for {Date}", targetLastDate);
         }
     }
 }

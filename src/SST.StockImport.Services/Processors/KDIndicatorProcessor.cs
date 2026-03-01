@@ -19,6 +19,11 @@ namespace SST.StockImport.Services.Processors;
 /// </summary>
 public class KDIndicatorProcessor
 {
+    private const int RSV_PERIOD = 9; // RSV 計算使用的歷史天數
+    private const int BATCH_SIZE = 100; // 批量更新的批次大小
+    private const decimal KD_SMOOTHING_FACTOR = 1m / 3m; // K/D 平滑係數 (1/3)
+    private const decimal KD_PREVIOUS_WEIGHT = 2m / 3m; // 前值權重 (2/3)
+    
     private readonly StockImportDbContext _context;
     private readonly ILogger<KDIndicatorProcessor> _logger;
     private readonly bool _useOptimizedVersion = true; // 默認使用優化版本
@@ -100,10 +105,19 @@ public class KDIndicatorProcessor
                 var (previousK, previousD) = await GetPreviousKDFromStock60Days(stock.StockID, stock.StockDate);
 
                 // Step 3: 計算當日 K 和 D
-                var (currentK, currentD) = CalculateKD(rsv, previousK, previousD);
+                var kdResult = CalculateKD(rsv, previousK, previousD);
+                
+                if (!kdResult.HasValue)
+                {
+                    // RSV 為 null，跳過更新
+                    _logger.LogDebug("Stock60Days KD: StockID={StockID} RSV 為 null，跳過", stock.StockID);
+                    continue;
+                }
+
+                var (currentK, currentD) = kdResult.Value;
 
                 // Step 4: 更新資料庫
-                await UpdateStock60DaysKD(stock.StockID, stock.StockDate, rsv, currentK, currentD);
+                await UpdateStock60DaysKD(stock.StockID, stock.StockDate, rsv ?? 0, currentK, currentD);
 
                 updatedCount++;
             }
@@ -147,10 +161,18 @@ public class KDIndicatorProcessor
                 var (previousK, previousD) = await GetPreviousKDFromTradeData(stock.StockID, stock.TransDate);
 
                 // Step 3: 計算當日 K 和 D
-                var (currentK, currentD) = CalculateKD(rsv, previousK, previousD);
+                var kdResult = CalculateKD(rsv, previousK, previousD);
+                
+                if (!kdResult.HasValue)
+                {
+                    _logger.LogDebug("TradeData KD: StockID={StockID} RSV 為 null，跳過", stock.StockID);
+                    continue;
+                }
+
+                var (currentK, currentD) = kdResult.Value;
 
                 // Step 4: 更新資料庫
-                await UpdateTradeDataKD(stock.StockID, stock.TransDate, rsv, currentK, currentD);
+                await UpdateTradeDataKD(stock.StockID, stock.TransDate, rsv ?? 0, currentK, currentD);
 
                 updatedCount++;
             }
@@ -168,25 +190,27 @@ public class KDIndicatorProcessor
     /// 計算 RSV (Raw Stochastic Value) for Stock60Days
     /// RSV = (當前收盤價 - 9日最低價) / (9日最高價 - 9日最低價) × 100
     /// </summary>
-    private async Task<decimal> CalculateRSVForStock60Days(string stockId, DateTime currentDate, decimal currentPrice)
+    /// <returns>返回 RSV 値，如果無數據則返回 null</returns>
+    private async Task<decimal?> CalculateRSVForStock60Days(string stockId, DateTime currentDate, decimal currentPrice)
     {
-        // 取得包含當日在內的最近 9 天數據
+        // 取得包含當日在內的最近 N 天數據（N = RSV_PERIOD）
         var historicalData = await _context.Stock60Days
             .Where(s => s.StockID == stockId && s.StockDate <= currentDate && s.EndPrice != null && s.EndPrice > 0)
             .OrderByDescending(s => s.StockDate)
-            .Take(9)
+            .Take(RSV_PERIOD)
             .Select(s => s.EndPrice!.Value)
             .ToListAsync();
 
-        if (historicalData.Count < 9)
+        if (historicalData.Count < RSV_PERIOD)
         {
-            // 不足 9 天，使用所有可用數據
-            _logger.LogDebug("Stock60Days KD: StockID={StockID} 只有 {Count} 天數據", stockId, historicalData.Count);
+            // 不足指定天數，使用所有可用數據
+            _logger.LogDebug("Stock60Days KD: StockID={StockID} 只有 {Count} 天數據（需要 {Required}）", stockId, historicalData.Count, RSV_PERIOD);
         }
 
         if (!historicalData.Any())
         {
-            return 0;
+            _logger.LogWarning("Stock60Days KD: StockID={StockID} 無歷史數據，跳過 RSV 計算", stockId);
+            return null; // 無數據，返回 null
         }
 
         var highestPrice = historicalData.Max();
@@ -204,24 +228,26 @@ public class KDIndicatorProcessor
     /// <summary>
     /// 計算 RSV for TradeData
     /// </summary>
-    private async Task<decimal> CalculateRSVForTradeData(string stockId, DateTime currentDate, decimal currentPrice)
+    /// <returns>返回 RSV 値，如果無數據則返回 null</returns>
+    private async Task<decimal?> CalculateRSVForTradeData(string stockId, DateTime currentDate, decimal currentPrice)
     {
-        // 取得包含當日在內的最近 9 天數據
+        // 取得包含當日在內的最近 N 天數據（N = RSV_PERIOD）
         var historicalData = await _context.TradeData
             .Where(s => s.StockID == stockId && s.TransDate <= currentDate && s.StockPrice != null && s.StockPrice > 0)
             .OrderByDescending(s => s.TransDate)
-            .Take(9)
+            .Take(RSV_PERIOD)
             .Select(s => s.StockPrice!.Value)
             .ToListAsync();
 
-        if (historicalData.Count < 9)
+        if (historicalData.Count < RSV_PERIOD)
         {
-            _logger.LogDebug("TradeData KD: StockID={StockID} 只有 {Count} 天數據", stockId, historicalData.Count);
+            _logger.LogDebug("TradeData KD: StockID={StockID} 只有 {Count} 天數據（需要 {Required}）", stockId, historicalData.Count, RSV_PERIOD);
         }
 
         if (!historicalData.Any())
         {
-            return 0;
+            _logger.LogWarning("TradeData KD: StockID={StockID} 無歷史數據，跳過 RSV 計算", stockId);
+            return null;
         }
 
         var highestPrice = historicalData.Max();
@@ -281,22 +307,30 @@ public class KDIndicatorProcessor
     /// D = (2/3) × 前日D + (1/3) × 當日K
     /// 初始化時（沒有前值），K = D = RSV
     /// </summary>
-    private (decimal K, decimal D) CalculateKD(decimal rsv, decimal previousK, decimal previousD)
+    /// <param name="rsv">當日 RSV 値，如果為 null 則返回 null</param>
+    /// <returns>返回 (K, D)，如果 RSV 為 null 則返回 null</returns>
+    private (decimal K, decimal D)? CalculateKD(decimal? rsv, decimal previousK, decimal previousD)
     {
+        if (!rsv.HasValue)
+        {
+            // RSV 為 null 表示無數據，不計算 KD
+            return null;
+        }
+
         decimal currentK;
         decimal currentD;
 
         if (previousK == 0 && previousD == 0)
         {
             // 初始化：第一次計算時，K 和 D 都等於 RSV
-            currentK = rsv;
-            currentD = rsv;
+            currentK = rsv.Value;
+            currentD = rsv.Value;
         }
         else
         {
             // 使用 2/3 和 1/3 的加權平滑
-            currentK = (2.0m / 3.0m) * previousK + (1.0m / 3.0m) * rsv;
-            currentD = (2.0m / 3.0m) * previousD + (1.0m / 3.0m) * currentK;
+            currentK = KD_PREVIOUS_WEIGHT * previousK + KD_SMOOTHING_FACTOR * rsv.Value;
+            currentD = KD_PREVIOUS_WEIGHT * previousD + KD_SMOOTHING_FACTOR * currentK;
         }
 
         return (Math.Round(currentK, 4), Math.Round(currentD, 4));
@@ -406,20 +440,20 @@ public class KDIndicatorProcessor
             try
             {
                 // 計算 RSV
-                decimal rsv = 0;
+                decimal? rsv = null;
                 if (pricesByStock.TryGetValue(stock.StockID, out var prices))
                 {
-                    var last9Days = prices.Take(9).Select(p => p.EndPrice).ToList();
+                    var lastNDays = prices.Take(RSV_PERIOD).Select(p => p.EndPrice).ToList();
                     
-                    if (last9Days.Any())
+                    if (lastNDays.Any())
                     {
-                        var high = last9Days.Max();
-                        var low = last9Days.Min();
+                        var high = lastNDays.Max();
+                        var low = lastNDays.Min();
                         
                         if (high != low)
                         {
                             rsv = (stock.EndPrice - low) / (high - low) * 100;
-                            rsv = Math.Round(rsv, 4);
+                            rsv = Math.Round(rsv.Value, 4);
                         }
                         else
                         {
@@ -428,14 +462,28 @@ public class KDIndicatorProcessor
                     }
                 }
 
+                // 無歷史數據，跳過此股票
+                if (!rsv.HasValue)
+                {
+                    _logger.LogDebug("優化版 KD: StockID={StockID} 無歷史數據，跳過", stock.StockID);
+                    continue;
+                }
+
                 // 獲取前日 K/D
                 var prevK = previousKD.ContainsKey(stock.StockID) ? previousKD[stock.StockID].K : 0;
                 var prevD = previousKD.ContainsKey(stock.StockID) ? previousKD[stock.StockID].D : 0;
 
                 // 計算當日 K/D
-                var (currentK, currentD) = CalculateKD(rsv, prevK, prevD);
+                var kdResult = CalculateKD(rsv, prevK, prevD);
+                
+                if (!kdResult.HasValue)
+                {
+                    continue;
+                }
 
-                results.Add((stock.StockID, rsv, currentK, currentD));
+                var (currentK, currentD) = kdResult.Value;
+
+                results.Add((stock.StockID, rsv.Value, currentK, currentD));
             }
             catch (Exception ex)
             {
@@ -461,26 +509,24 @@ public class KDIndicatorProcessor
         DateTime targetDate, 
         List<(string StockID, decimal RSV, decimal K, decimal D)> results)
     {
-        const int batchSize = 100;
-        var totalBatches = (int)Math.Ceiling(results.Count / (double)batchSize);
+        var totalBatches = (int)Math.Ceiling(results.Count / (double)BATCH_SIZE);
         
         _logger.LogInformation("開始批量更新：{Total} 筆，分 {Batches} 批", results.Count, totalBatches);
 
-        for (int i = 0; i < results.Count; i += batchSize)
+        for (int i = 0; i < results.Count; i += BATCH_SIZE)
         {
-            var batch = results.Skip(i).Take(batchSize).ToList();
+            var batch = results.Skip(i).Take(BATCH_SIZE).ToList();
             
             try
             {
-                var updates = new List<string>();
+                // 使用单个事务批量更新（避免 SQL 注入）
                 foreach (var (stockId, rsv, k, d) in batch)
                 {
-                    var sql = $@"UPDATE stock60days SET KD_RSV = {rsv}, KD_K = {k}, KD_D = {d} WHERE StockDate = '{targetDate:yyyy-MM-dd}' AND StockID = '{stockId}'";
-                    updates.Add(sql);
+                    await _context.Database.ExecuteSqlRawAsync(
+                        @"UPDATE stock60days SET KD_RSV = {0}, KD_K = {1}, KD_D = {2} 
+                          WHERE StockDate = {3} AND StockID = {4}",
+                        rsv, k, d, targetDate, stockId);
                 }
-
-                var combinedSql = string.Join(";", updates);
-                await _context.Database.ExecuteSqlRawAsync(combinedSql);
             }
             catch (Exception ex)
             {
