@@ -54,6 +54,21 @@ public class TimeMachineAnalysisRequest
     /// 追踪天数（查看推荐后多少天的表现）
     /// </summary>
     public int TrackingDays { get; set; } = 60;
+
+    /// <summary>
+    /// KD_K 最小值（可选）
+    /// </summary>
+    public int? MinKD { get; set; }
+
+    /// <summary>
+    /// KD_K 最大值（可选）
+    /// </summary>
+    public int? MaxKD { get; set; }
+
+    /// <summary>
+    /// 布林带宽最小值%（可选）
+    /// </summary>
+    public decimal? MinBandwidth { get; set; }
 }
 
 /// <summary>
@@ -80,6 +95,16 @@ public class HistoricalCandidate
     /// 峰值量能倍数
     /// </summary>
     public decimal PeakVolumeRatio { get; set; }
+
+    /// <summary>
+    /// KD_K 值
+    /// </summary>
+    public decimal? KD_K { get; set; }
+
+    /// <summary>
+    /// 布林带宽 (%)
+    /// </summary>
+    public decimal? Bandwidth { get; set; }
 
     /// <summary>
     /// 量能评分

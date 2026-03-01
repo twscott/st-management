@@ -51,6 +51,20 @@
                     <small class="text-muted">天</small>
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label fw-bold">KD_K 范围</label>
+                    <div class="input-group">
+                        <input type="number" class="form-control" @bind="MinKD" min="0" max="100" placeholder="最小" />
+                        <span class="input-group-text">~</span>
+                        <input type="number" class="form-control" @bind="MaxKD" min="0" max="100" placeholder="最大" />
+                    </div>
+                    <small class="text-muted">留空为不限制</small>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">布林带宽(%)</label>
+                    <input type="number" class="form-control" @bind="MinBandwidth" min="0" step="0.5" placeholder="最小%" />
+                    <small class="text-muted">留空为不限制</small>
+                </div>
+                <div class="col-md-1">
                     <label class="form-label fw-bold">追踪天数</label>
                     <input type="number" class="form-control" @bind="TrackingDays" min="30" max="120" />
                     <small class="text-muted">后续追踪</small>
@@ -252,6 +266,8 @@
                                         <th>股票</th>
                                         <th>成熟度</th>
                                         <th>量能</th>
+                                        <th>KD</th>
+                                        <th>带宽(%)</th>
                                         <th>建议价</th>
                                         <th>目标价(20%)</th>
                                         <th>实际结果</th>
@@ -269,6 +285,8 @@
                                             <span class="badge bg-info">@candidate.MaturityScore.ToString("F0") 分</span>
                                         </td>
                                         <td>@candidate.PeakVolumeRatio.ToString("F1")x</td>
+                                        <td>@(candidate.KD_K?.ToString("F0") ?? "-")</td>
+                                        <td>@(candidate.Bandwidth?.ToString("F1") ?? "-")</td>
                                         <td>@candidate.SuggestedEntryPrice.ToString("F2")</td>
                                         <td>@candidate.TargetPrice_20.ToString("F2")</td>
                                         <td>@GetResultBadge(candidate)</td>
@@ -370,6 +388,10 @@
     private int MaxCoolingDays = 30;
     private int TrackingDays = 60;
 
+    private int MinKD = 20;
+    private int MaxKD = 80;
+    private decimal MinBandwidth = 3;
+
     private DateTime EarliestDate = DateTime.Now.AddMonths(-6);
     private DateTime LatestDate = DateTime.Now;
 
@@ -468,7 +490,10 @@
                       $"&maxCoolingDays={MaxCoolingDays}" +
                       $"&minVolumeRatio={MinVolumeRatio}" +
                       $"&maxVolumeRatio={MaxVolumeRatio}" +
-                      $"&trackingDays={TrackingDays}";
+                      $"&trackingDays={TrackingDays}" +
+                      $"&minKD={MinKD}" +
+                      $"&maxKD={MaxKD}" +
+                      $"&minBandwidth={MinBandwidth}";
 
             Logger.LogInformation("开始时光机分析: {Url}", url);
             AnalysisResult = await Http.GetFromJsonAsync<TimeMachineAnalysisResponse>(url);

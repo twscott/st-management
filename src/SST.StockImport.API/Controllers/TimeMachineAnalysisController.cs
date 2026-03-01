@@ -52,6 +52,9 @@ public class TimeMachineAnalysisController : ControllerBase
     /// <param name="minVolumeRatio">最小量能倍数 (默认10)</param>
     /// <param name="maxVolumeRatio">最大量能倍数 (默认50)</param>
     /// <param name="trackingDays">追踪天数 (默认60)</param>
+    /// <param name="minKD">KD指标最小值 (可选)</param>
+    /// <param name="maxKD">KD指标最大值 (可选)</param>
+    /// <param name="minBandwidth">布林带宽最小值% (可选)</param>
     [HttpGet("analyze/{date}")]
     public async Task<ActionResult<TimeMachineAnalysisResponse>> AnalyzeDate(
         string date,
@@ -60,7 +63,10 @@ public class TimeMachineAnalysisController : ControllerBase
         [FromQuery] int maxCoolingDays = 30,
         [FromQuery] decimal minVolumeRatio = 10,
         [FromQuery] decimal? maxVolumeRatio = 50,
-        [FromQuery] int trackingDays = 60)
+        [FromQuery] int trackingDays = 60,
+        [FromQuery] int? minKD = null,
+        [FromQuery] int? maxKD = null,
+        [FromQuery] decimal? minBandwidth = null)
     {
         try
         {
@@ -77,7 +83,10 @@ public class TimeMachineAnalysisController : ControllerBase
                 MaxCoolingDays = maxCoolingDays,
                 MinPeakVolumeRatio = minVolumeRatio,
                 MaxPeakVolumeRatio = maxVolumeRatio,
-                TrackingDays = trackingDays
+                TrackingDays = trackingDays,
+                MinKD = minKD,
+                MaxKD = maxKD,
+                MinBandwidth = minBandwidth
             };
 
             _logger.LogInformation("开始时光机分析: {Date}", date);

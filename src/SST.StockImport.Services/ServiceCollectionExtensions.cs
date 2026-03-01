@@ -94,6 +94,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<Processors.JumpKongProcessor>();
         services.AddScoped<Processors.NotifyLogProcessor>();
         services.AddScoped<Processors.LowShadowProcessor>();
+        services.AddScoped<Processors.KDIndicatorProcessor>();
+        services.AddScoped<Processors.BollingerBandsProcessor>();
 
         // 註冊 GoodInfo 整合測試服務
         services.AddScoped<GoodInfoIntegrationTestService>();

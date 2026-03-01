@@ -182,11 +182,22 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                                              AND DATE_ADD(@analysisDate, INTERVAL 5 DAY)
                          ORDER BY ABS(DATEDIFF(StockDate, @analysisDate))
                          LIMIT 1)
-                    ) as entry_price
+                    ) as entry_price,
+                    -- KD 和布林带宽
+                    s60.KD_K as kd_k,
+                    s60.boolkaikouDiffRate as bandwidth
                 FROM alertlist a
+                INNER JOIN stock60days s60 
+                    ON s60.StockID = a.StockID 
+                    AND s60.StockDate = @analysisDate
                 WHERE a.alertDate < @analysisDate
                   AND DATEDIFF(@analysisDate, a.alertDate) BETWEEN @minCoolingDays AND @maxCoolingDays
                   AND a.maxPLVR BETWEEN @minVolumeRatio AND @maxVolumeRatio
+                  AND (s60.KD_K IS NOT NULL)
+                  AND (@MinKD IS NULL OR s60.KD_K >= @MinKD)
+                  AND (@MaxKD IS NULL OR s60.KD_K <= @MaxKD)
+                  AND (s60.boolkaikouDiffRate IS NOT NULL)
+                  AND (s60.boolkaikouDiffRate >= @MinBandwidth OR @MinBandwidth IS NULL)
             ) AS candidates
             WHERE maturity_score >= @minMaturityScore
               AND entry_price IS NOT NULL
@@ -223,18 +234,37 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
         param.Value = request.MinMaturityScore;
         command.Parameters.Add(param);
 
+        param = command.CreateParameter();
+        param.ParameterName = "@MinKD";
+        param.Value = (object?)request.MinKD ?? DBNull.Value;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@MaxKD";
+        param.Value = (object?)request.MaxKD ?? DBNull.Value;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@MinBandwidth";
+        param.Value = (object?)request.MinBandwidth ?? DBNull.Value;
+        command.Parameters.Add(param);
+
         var candidates = new List<HistoricalCandidate>();
         using var reader = await command.ExecuteReaderAsync();
         
         while (await reader.ReadAsync())
         {
             var entryPrice = reader.GetDecimal(reader.GetOrdinal("entry_price"));
+            var kdOrdinal = reader.GetOrdinal("kd_k");
+            var bandwidthOrdinal = reader.GetOrdinal("bandwidth");
             var candidate = new HistoricalCandidate
             {
                 StockCode = reader.GetString(reader.GetOrdinal("stock_code")),
                 HotspotDate = reader.GetDateTime(reader.GetOrdinal("hotspot_date")),
                 DaysSinceHotspotAtAnalysis = reader.GetInt32(reader.GetOrdinal("days_since_hotspot")),
                 PeakVolumeRatio = reader.GetDecimal(reader.GetOrdinal("peak_volume_ratio")),
+                KD_K = reader.IsDBNull(kdOrdinal) ? null : reader.GetDecimal(kdOrdinal),
+                Bandwidth = reader.IsDBNull(bandwidthOrdinal) ? null : reader.GetDecimal(bandwidthOrdinal),
                 VolumeScore = reader.GetInt32(reader.GetOrdinal("volume_score")),
                 MaturityScore = reader.GetDecimal(reader.GetOrdinal("maturity_score")),
                 SuggestedEntryPrice = entryPrice,
