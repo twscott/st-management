@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SST.StockImport.Core.Interfaces;
+using SST.StockImport.Core.DTOs;
+using SST.StockImport.Infrastructure.Data;
 
 namespace SST.StockImport.API.Controllers;
 
@@ -8,13 +11,16 @@ namespace SST.StockImport.API.Controllers;
 public class Stock60DaysController : ControllerBase
 {
     private readonly IStock60DaysRecalcService _recalcService;
+    private readonly StockImportDbContext _dbContext;
     private readonly ILogger<Stock60DaysController> _logger;
 
     public Stock60DaysController(
         IStock60DaysRecalcService recalcService,
+        StockImportDbContext dbContext,
         ILogger<Stock60DaysController> logger)
     {
         _recalcService = recalcService;
+        _dbContext = dbContext;
         _logger = logger;
     }
 
@@ -60,10 +66,131 @@ public class Stock60DaysController : ControllerBase
         var progress = _recalcService.GetProgress();
         return Ok(progress);
     }
+
+    /// <summary>
+    /// 获取指定股票过去 N 天的 Stock60Days 数据
+    /// </summary>
+    [HttpGet("{stockId}/history")]
+    public async Task<ActionResult<Stock60DaysResponse>> GetStockHistory(
+        string stockId, 
+        [FromQuery] int days = 20,
+        [FromQuery] DateTime? endDate = null)
+    {
+        try
+        {
+            var targetEndDate = endDate ?? DateTime.Today;
+            
+            // JOIN stockid 获取股票名称和类型
+            var stockInfo = await _dbContext.Database
+                .SqlQueryRaw<StockInfoResult>($@"
+                    SELECT id as StockID, name as StockName, stype as StockType  
+                    FROM stockid 
+                    WHERE id = {{0}}", stockId)
+                .FirstOrDefaultAsync();
+
+            if (stockInfo == null)
+            {
+                return NotFound(new { Message = $"股票 {stockId} 不存在" });
+            }
+
+            // 查询过去 N 天的 Stock60Days 数据
+            var dailyData = await _dbContext.Stock60Days
+                .Where(s => s.StockID == stockId && s.StockDate <= targetEndDate)
+                .OrderByDescending(s => s.StockDate)
+                .Take(days)
+                .OrderBy(s => s.StockDate)
+                .Select(s => new Stock60DaysDetailDto
+                {
+                    StockID = s.StockID,
+                    StockName = stockInfo.StockName,
+                    StockType = stockInfo.StockType,
+                    StockDate = s.StockDate,
+                    LastDate = s.LastDate,
+                    OpenPrice = s.OpenPriec,
+                    EndPrice = s.EndPrice,
+                    HighPrice = s.HPrice,
+                    LowPrice = s.LPrice,
+                    Volume = s.Vol,
+                    MA5 = s.MA5,
+                    MA10 = s.MA10,
+                    MA20 = s.MA20,
+                    MA60 = s.MA60,
+                    MV5 = s.MV5,
+                    MV10 = s.MV10,
+                    MV20 = s.MV20,
+                    MV60 = s.MV60,
+                    KD_RSV = s.KD_RSV,
+                    KD_K = s.KD_K,
+                    KD_D = s.KD_D,
+                    BoolUp = s.BoolUp,
+                    BoolMid = s.BoolMid,
+                    BoolDown = s.BoolDown,
+                    BoolkaikouDiffRate = s.BoolkaikouDiffRate
+                })
+                .ToListAsync();
+
+            if (!dailyData.Any())
+            {
+                return NotFound(new { Message = $"股票 {stockId} 没有 Stock60Days 数据" });
+            }
+
+            // 计算涨跌幅
+            for (int i = 1; i < dailyData.Count; i++)
+            {
+                var prev = dailyData[i - 1].EndPrice;
+                var curr = dailyData[i].EndPrice;
+                if (prev.HasValue && prev.Value > 0 && curr.HasValue)
+                {
+                    dailyData[i].DailyChangePercent = ((curr.Value - prev.Value) / prev.Value) * 100;
+                }
+            }
+
+            // 计算统计摘要
+            var latest = dailyData.Last();
+            var summary = new Stock60DaysSummary
+            {
+                TotalDays = dailyData.Count,
+                MaxGainPercent = dailyData.Select(d => d.DailyChangePercent).Max(),
+                MaxLossPercent = dailyData.Select(d => d.DailyChangePercent).Min(),
+                AvgDailyChange = dailyData.Where(d => d.DailyChangePercent.HasValue)
+                    .Select(d => d.DailyChangePercent!.Value).DefaultIfEmpty(0).Average(),
+                CurrentKD_K = latest.KD_K,
+                CurrentBandwidth = latest.BoolkaikouDiffRate,
+                AvgVolume_5D = latest.MV5,
+                AvgVolume_20D = latest.MV20,
+                AvgVolume_60D = latest.MV60,
+                AvgPrice_5D = latest.MA5,
+                AvgPrice_20D = latest.MA20,
+                AvgPrice_60D = latest.MA60
+            };
+
+            var response = new Stock60DaysResponse
+            {
+                StockID = stockId,
+                StockName = stockInfo.StockName,
+                StockType = stockInfo.StockType,
+                DailyData = dailyData,
+                Summary = summary
+            };
+
+            return Ok(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取 Stock60Days 数据失败: StockID={StockID}", stockId);
+            return StatusCode(500, new { Error = ex.Message });
+        }
+    }
 }
 
 public class Stock60DaysRecalcRequest
 {
     public DateTime StartLastDate { get; set; }
     public int Days { get; set; }
+}
+public class StockInfoResult
+{
+    public string StockID { get; set; } = string.Empty;
+    public string StockName { get; set; } = string.Empty;
+    public string StockType { get; set; } = string.Empty;
 }

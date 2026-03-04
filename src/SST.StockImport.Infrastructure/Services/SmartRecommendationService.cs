@@ -184,8 +184,15 @@ public class SmartRecommendationService : ISmartRecommendationService
                                              AND @recommendationDate
                          ORDER BY ABS(DATEDIFF(StockDate, @recommendationDate))
                          LIMIT 1)
-                    ) as entry_price
+                    ) as entry_price,
+                    -- 获取布林带宽（开口率）
+                    COALESCE(s60.BoolkaikouDiffRate, 0) as bollinger_bandwidth,
+                    -- 获取股票名称和市场类型
+                    COALESCE(t.StockName, '') as stock_name,
+                    COALESCE(t.StockType, '') as market_type
                 FROM alertlist a
+                LEFT JOIN stock60days s60 ON s60.StockID = a.StockID AND s60.StockDate = @recommendationDate
+                LEFT JOIN tradedata t ON t.StockID = a.StockID AND t.TransDate = @recommendationDate
                 WHERE a.alertDate < @recommendationDate
                   AND DATEDIFF(@recommendationDate, a.alertDate) BETWEEN @minCoolingDays AND @maxCoolingDays
                   AND a.maxPLVR BETWEEN @minVolumeRatio AND @maxVolumeRatio
@@ -193,6 +200,7 @@ public class SmartRecommendationService : ISmartRecommendationService
             WHERE maturity_score >= @minMaturityScore
               AND entry_price IS NOT NULL
               AND entry_price > 0
+              AND bollinger_bandwidth >= @minBollingerBandwidth
             ORDER BY maturity_score DESC
             LIMIT 50";
 
@@ -202,6 +210,7 @@ public class SmartRecommendationService : ISmartRecommendationService
         AddParameter(command, "@minVolumeRatio", request.MinPeakVolumeRatio);
         AddParameter(command, "@maxVolumeRatio", request.MaxPeakVolumeRatio);
         AddParameter(command, "@minMaturityScore", request.MinMaturityScore);
+        AddParameter(command, "@minBollingerBandwidth", request.MinBollingerBandwidth);
 
         var candidates = new List<RecommendedStock>();
         using var reader = await command.ExecuteReaderAsync();
@@ -214,7 +223,8 @@ public class SmartRecommendationService : ISmartRecommendationService
             {
                 Rank = rank++,
                 StockCode = reader.GetString(reader.GetOrdinal("stock_code")),
-                StockName = "", // TODO: 从 stock 表或其他地方获取股票名称
+                StockName = reader.IsDBNull(reader.GetOrdinal("stock_name")) ? "" : reader.GetString(reader.GetOrdinal("stock_name")),
+                MarketType = reader.IsDBNull(reader.GetOrdinal("market_type")) ? "" : reader.GetString(reader.GetOrdinal("market_type")),
                 HotspotDate = reader.GetDateTime(reader.GetOrdinal("hotspot_date")),
                 CoolingDays = reader.GetInt32(reader.GetOrdinal("cooling_days")),
                 PeakVolumeRatio = reader.GetDecimal(reader.GetOrdinal("peak_volume_ratio")),

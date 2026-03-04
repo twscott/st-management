@@ -325,6 +325,7 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
             decimal maxGain = 0;
             decimal minReturn = 0;
             decimal? finalReturn = null;
+            DateTime? maxGainDate = null;
             int? daysTo20 = null, daysTo30 = null, daysTo50 = null;
             int dayCounter = 0;
 
@@ -343,7 +344,11 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                 });
 
                 // 追踪最大涨幅和最大回撤
-                if (changePercent > maxGain) maxGain = changePercent;
+                if (changePercent > maxGain)
+                {
+                    maxGain = changePercent;
+                    maxGainDate = priceDate;
+                }
                 if (changePercent < minReturn) minReturn = changePercent;
 
                 // 追踪达标时间
@@ -356,6 +361,7 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
 
             // 设置结果
             candidate.MaxGainPercent = maxGain;
+            candidate.MaxGainDate = maxGainDate;
             candidate.MaxDrawdownPercent = minReturn;
             candidate.FinalReturnPercent = finalReturn;
 

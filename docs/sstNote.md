@@ -1,5 +1,13 @@
 #启动脚本
 cd D:\vibeCoding\sst
+opencode .
+
+cd D:\vibeCoding\sst
+.\StartAll.ps1
+
+
+//////
+cd D:\vibeCoding\sst
 dotnet build D:\vibeCoding\sst\src\SST.StockImport.Services\SST.StockImport.Services.csproj
 .\start-api.ps1 -NoBuild
 

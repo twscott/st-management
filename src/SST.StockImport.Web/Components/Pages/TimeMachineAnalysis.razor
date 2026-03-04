@@ -1,6 +1,7 @@
 @page "/time-machine"
 @rendermode InteractiveServer
 @using SST.StockImport.Core.DTOs.MaturityAnalysis
+@using SST.StockImport.Core.DTOs
 @inject HttpClient Http
 @inject ILogger<TimeMachineAnalysis> Logger
 @inject IJSRuntime JS
@@ -191,6 +192,7 @@
                                     <th>建议价</th>
                                     <th>最高涨幅</th>
                                     <th>达标天数</th>
+                                    <th>最终涨幅</th>
                                     <th>综合评分</th>
                                 </tr>
                             </thead>
@@ -206,8 +208,17 @@
                                             <td>@candidate.PeakVolumeRatio.ToString("F1")x</td>
                                             <td>@candidate.DaysSinceHotspotAtAnalysis 天</td>
                                             <td>@candidate.SuggestedEntryPrice.ToString("F2")</td>
-                                            <td class="text-success fw-bold">+@candidate.MaxGainPercent.ToString("F2")%</td>
+                                            <td class="text-success fw-bold">
+                                                +@candidate.MaxGainPercent.ToString("F2")%
+                                                @if (candidate.MaxGainDate.HasValue)
+                                                {
+                                                    <br/><small class="text-muted">(@candidate.MaxGainDate.Value.ToString("MM/dd"))</small>
+                                                }
+                                            </td>
                                             <td>@candidate.DaysToAchieve 天</td>
+                                            <td class="@GetReturnColor(candidate.FinalReturnPercent ?? 0)">
+                                                <strong>@((candidate.FinalReturnPercent ?? 0).ToString("F2"))%</strong>
+                                            </td>
                                             <td><span class="badge bg-warning text-dark">⭐ @CalculateQualityScore(candidate).ToString("F0")</span></td>
                                         </tr>
                                         rank++;
@@ -291,17 +302,26 @@
                                         <td>@candidate.TargetPrice_20.ToString("F2")</td>
                                         <td>@GetResultBadge(candidate)</td>
                                         <td class="@GetReturnColor(candidate.MaxGainPercent)">
-                                            <strong>@candidate.MaxGainPercent.ToString("F2")%</strong>
-                                        </td>
+                                            <strong>@candidate.MaxGainPercent.ToString("F2")%</strong>                                            @if (candidate.MaxGainDate.HasValue)
+                                            {
+                                                <br/><small class="text-muted">(@candidate.MaxGainDate.Value.ToString("MM/dd"))</small>
+                                            }                                        </td>
                                         <td class="@GetReturnColor(candidate.FinalReturnPercent ?? 0)">
                                             @(candidate.FinalReturnPercent?.ToString("F2") ?? "-")%
                                         </td>
                                         <td>
-                                            <button class="btn btn-sm btn-outline-primary" 
-                                                    @onclick="() => ToggleChart(candidate.StockCode)">
-                                                <i class="bi bi-@(SelectedStockCode == candidate.StockCode ? "eye-slash" : "eye")"></i>
-                                                @(SelectedStockCode == candidate.StockCode ? "隐藏" : "查看")
-                                            </button>
+                                            <div class="btn-group btn-group-sm" role="group">
+                                                <button class="btn btn-outline-primary" 
+                                                        @onclick="() => ToggleChart(candidate.StockCode)">
+                                                    <i class="bi bi-@(SelectedStockCode == candidate.StockCode ? "eye-slash" : "eye")"></i>
+                                                    @(SelectedStockCode == candidate.StockCode ? "隐藏" : "查看")
+                                                </button>
+                                                <button class="btn btn-outline-success" 
+                                                        @onclick="() => ToggleStock60(candidate.StockCode)">
+                                                    <i class="bi bi-graph-up-arrow"></i>
+                                                    S60
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                     @if (SelectedStockCode == candidate.StockCode)
@@ -362,6 +382,143 @@
                                             </td>
                                         </tr>
                                     }
+                                    @if (SelectedStock60Code == candidate.StockCode)
+                                    {
+                                        <tr>
+                                            <td colspan="11" class="bg-light">
+                                                <div class="p-3">
+                                                    <h6 class="mb-3">
+                                                        <i class="bi bi-graph-up-arrow"></i> 
+                                                        @candidate.StockCode Stock60Days 详细数据 (过去 20 天)
+                                                    </h6>
+                                                    
+                                                    @if (IsLoadingStock60)
+                                                    {
+                                                        <div class="text-center py-4">
+                                                            <div class="spinner-border text-primary" role="status">
+                                                                <span class="visually-hidden">加载中...</span>
+                                                            </div>
+                                                            <p class="mt-2">加载 Stock60Days 数据中...</p>
+                                                        </div>
+                                                    }
+                                                    else if (Stock60Data != null)
+                                                    {
+                                                        <!-- 统计摘要 -->
+                                                        <div class="row mb-3">
+                                                            <div class="col-md-12">
+                                                                <div class="alert alert-info">
+                                                                    <strong>📊 统计摘要</strong> - 
+                                                                    股票: <strong>@Stock60Data.StockName (@Stock60Data.StockID)</strong> | 
+                                                                    类型: <strong>@Stock60Data.StockType</strong> | 
+                                                                    数据天数: <strong>@Stock60Data.Summary.TotalDays 天</strong> | 
+                                                                    最高涨幅: <strong class="text-success">@(Stock60Data.Summary.MaxGainPercent?.ToString("F2") ?? "-")%</strong> | 
+                                                                    最低跌幅: <strong class="text-danger">@(Stock60Data.Summary.MaxLossPercent?.ToString("F2") ?? "-")%</strong> | 
+                                                                    当前 KD_K: <strong>@(Stock60Data.Summary.CurrentKD_K?.ToString("F2") ?? "-")</strong>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <!-- 每日详细数据表格 -->
+                                                        <div class="row">
+                                                            <div class="col-md-12">
+                                                                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                                                    <table class="table table-sm table-striped table-hover">
+                                                                        <thead class="table-dark sticky-top">
+                                                                            <tr>
+                                                                                <th>日期</th>
+                                                                                <th>开盘</th>
+                                                                                <th>收盘</th>
+                                                                                <th>最高</th>
+                                                                                <th>最低</th>
+                                                                                <th>涨跌幅</th>
+                                                                                <th>成交量</th>
+                                                                                <th>KD_K</th>
+                                                                                <th>KD_D</th>
+                                                                                <th>布林带宽</th>
+                                                                                <th>MA5</th>
+                                                                                <th>MA20</th>
+                                                                                <th>MV5</th>
+                                                                                <th>MV20</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            @foreach (var day in Stock60Data.DailyData.OrderByDescending(d => d.StockDate))
+                                                                            {
+                                                                                <tr>
+                                                                                    <td><small>@day.StockDate.ToString("MM/dd")</small></td>
+                                                                                    <td>@day.OpenPrice?.ToString("F2")</td>
+                                                                                    <td><strong>@day.EndPrice?.ToString("F2")</strong></td>
+                                                                                    <td class="text-success">@day.HighPrice?.ToString("F2")</td>
+                                                                                    <td class="text-danger">@day.LowPrice?.ToString("F2")</td>
+                                                                                    <td class="@GetReturnColor(day.DailyChangePercent ?? 0)">
+                                                                                        @(day.DailyChangePercent?.ToString("F2") ?? "-")%
+                                                                                    </td>
+                                                                                    <td><small>@((day.Volume / 1000)?.ToString("N0")) 张</small></td>
+                                                                                    <td>@day.KD_K.ToString("F2")</td>
+                                                                                    <td>@day.KD_D.ToString("F2")</td>
+                                                                                    <td>@day.BoolkaikouDiffRate.ToString("F2")%</td>
+                                                                                    <td><small>@day.MA5?.ToString("F2")</small></td>
+                                                                                    <td><small>@day.MA20?.ToString("F2")</small></td>
+                                                                                    <td><small>@((day.MV5 / 1000)?.ToString("N0"))</small></td>
+                                                                                    <td><small>@((day.MV20 / 1000)?.ToString("N0"))</small></td>
+                                                                                </tr>
+                                                                            }
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <!-- 平均量价摘要 -->
+                                                        <div class="row mt-3">
+                                                            <div class="col-md-12">
+                                                                <div class="card">
+                                                                    <div class="card-body">
+                                                                        <h6><i class="bi bi-bar-chart"></i> 平均量价分析</h6>
+                                                                        <div class="row text-center">
+                                                                            <div class="col-md-2">
+                                                                                <strong>短期 (5日)</strong>
+                                                                                <p class="mb-0">价: @Stock60Data.Summary.AvgPrice_5D?.ToString("F2")</p>
+                                                                                <p class="mb-0">量: @((Stock60Data.Summary.AvgVolume_5D / 1000)?.ToString("N0")) 张</p>
+                                                                            </div>
+                                                                            <div class="col-md-2">
+                                                                                <strong>中期 (20日)</strong>
+                                                                                <p class="mb-0">价: @Stock60Data.Summary.AvgPrice_20D?.ToString("F2")</p>
+                                                                                <p class="mb-0">量: @((Stock60Data.Summary.AvgVolume_20D / 1000)?.ToString("N0")) 张</p>
+                                                                            </div>
+                                                                            <div class="col-md-2">
+                                                                                <strong>长期 (60日)</strong>
+                                                                                <p class="mb-0">价: @Stock60Data.Summary.AvgPrice_60D?.ToString("F2")</p>
+                                                                                <p class="mb-0">量: @((Stock60Data.Summary.AvgVolume_60D / 1000)?.ToString("N0")) 张</p>
+                                                                            </div>
+                                                                            <div class="col-md-3">
+                                                                                <strong>布林带</strong>
+                                                                                <p class="mb-0 text-success">上轨: @Stock60Data.DailyData.Last().BoolUp.ToString("F2")</p>
+                                                                                <p class="mb-0">中轨: @Stock60Data.DailyData.Last().BoolMid.ToString("F2")</p>
+                                                                                <p class="mb-0 text-danger">下轨: @Stock60Data.DailyData.Last().BoolDown.ToString("F2")</p>
+                                                                            </div>
+                                                                            <div class="col-md-3">
+                                                                                <strong>当前 KD</strong>
+                                                                                <p class="mb-0">K: @Stock60Data.DailyData.Last().KD_K.ToString("F2")</p>
+                                                                                <p class="mb-0">D: @Stock60Data.DailyData.Last().KD_D.ToString("F2")</p>
+                                                                                <p class="mb-0 text-muted">RSV: @Stock60Data.DailyData.Last().KD_RSV.ToString("F2")</p>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="alert alert-warning">
+                                                            <i class="bi bi-exclamation-triangle"></i> 未能获取 Stock60Days 数据
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -385,19 +542,22 @@
     private decimal MinVolumeRatio = 10;
     private decimal MaxVolumeRatio = 50;
     private int MinCoolingDays = 8;
-    private int MaxCoolingDays = 30;
+    private int MaxCoolingDays = 50;
     private int TrackingDays = 60;
 
-    private int MinKD = 20;
-    private int MaxKD = 80;
-    private decimal MinBandwidth = 3;
+    private int MinKD = 30;
+    private int MaxKD = 60;
+    private decimal MinBandwidth = 30;
 
     private DateTime EarliestDate = DateTime.Now.AddMonths(-6);
     private DateTime LatestDate = DateTime.Now;
 
     private TimeMachineAnalysisResponse? AnalysisResult;
     private string? SelectedStockCode;
+    private string? SelectedStock60Code;
+    private Stock60DaysResponse? Stock60Data;
     private bool IsLoading = false;
+    private bool IsLoadingStock60 = false;
     private bool ShowOnlySuccessful = false;
 
     // 成功案例筛选（涨超 30%）
@@ -513,6 +673,41 @@
     private void ToggleChart(string stockCode)
     {
         SelectedStockCode = SelectedStockCode == stockCode ? null : stockCode;
+    }
+
+    private async Task ToggleStock60(string stockCode)
+    {
+        if (SelectedStock60Code == stockCode)
+        {
+            SelectedStock60Code = null;
+            Stock60Data = null;
+            return;
+        }
+
+        SelectedStock60Code = stockCode;
+        IsLoadingStock60 = true;
+        Stock60Data = null;
+        StateHasChanged();
+
+        try
+        {
+            var endDate = AnalysisDate.ToString("yyyy-MM-dd");
+            var url = $"/api/Stock60Days/{stockCode}/history?days=20&endDate={endDate}";
+            Logger.LogInformation("获取 Stock60Days 数据: {Url}", url);
+            
+            Stock60Data = await Http.GetFromJsonAsync<Stock60DaysResponse>(url);
+            Logger.LogInformation("Stock60Days 数据获取完成: {Days} 天", Stock60Data?.DailyData.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "获取 Stock60Days 数据失败");
+            await JS.InvokeVoidAsync("alert", $"获取 S60 数据失败: {ex.Message}");
+            SelectedStock60Code = null;
+        }
+        finally
+        {
+            IsLoadingStock60 = false;
+        }
     }
 
     private string GetRowClass(ResultStatus status) => status switch

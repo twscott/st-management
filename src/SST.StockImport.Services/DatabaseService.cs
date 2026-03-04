@@ -605,6 +605,24 @@ public class DatabaseService : IDatabaseService
                         
                         var isCritical = criticalTables.Contains(tableName);
                         
+                        // ✅ FIX: TRUNCATE table before importing data (data-only restore mode)
+                        if (!request.ImportSchema && request.ImportData)
+                        {
+                            try
+                            {
+                                _logger.LogInformation("  Clearing existing data: TRUNCATE TABLE {Table}", tableName);
+                                await ExecuteMySqlAsync($"TRUNCATE TABLE `{request.TargetDatabase}`.`{tableName}`", false);
+                            }
+                            catch (Exception truncEx) when (truncEx.Message.Contains("doesn't exist") || truncEx.Message.Contains("Table") && truncEx.Message.Contains("doesn't exist"))
+                            {
+                                _logger.LogWarning("  Table {Table} doesn't exist yet, skipping TRUNCATE", tableName);
+                            }
+                            catch (Exception truncEx)
+                            {
+                                _logger.LogWarning(truncEx, "  Failed to TRUNCATE {Table}, will try to import anyway", tableName);
+                            }
+                        }
+                        
                         try
                         {
                             // ✅ Use streaming method for large files (>= 100MB)
@@ -622,6 +640,16 @@ public class DatabaseService : IDatabaseService
                                 _logger.LogInformation("  [{Current}/{Total}] {Table} ({SizeMB:F1} MB)",
                                     successCount + failedTables.Count + 1, dataFiles.Length, tableName, fileSizeMB);
                                 var content = await File.ReadAllTextAsync(dataFile, cancellationToken);
+                                
+                                // ✅ FIX: Remove ALL UTF-8 BOM characters (ERROR 1064 \uFEFF fix)
+                                // SQL files may have multiple BOMs if they were concatenated
+                                var originalLength = content.Length;
+                                content = content.Replace("\uFEFF", "");
+                                if (content.Length < originalLength)
+                                {
+                                    _logger.LogDebug("  Removed {Count} UTF-8 BOM characters from {Table}", originalLength - content.Length, tableName);
+                                }
+                                
                                 content = content.Replace("`SST`", $"`{request.TargetDatabase}`");
                                 content = content.Replace("`sst`", $"`{request.TargetDatabase}`");
                                 await ExecuteMySqlInputAsync(request.TargetDatabase, content);
@@ -779,7 +807,8 @@ public class DatabaseService : IDatabaseService
     private async Task ExecuteMySqlInputAsync(string database, string content, bool force = false)
     {
         var tempFile = Path.Combine(Path.GetTempPath(), $"mysql_input_{Guid.NewGuid():N}.sql");
-        await File.WriteAllTextAsync(tempFile, content);
+        // ✅ Explicitly use UTF-8 without BOM to prevent any BOM issues
+        await File.WriteAllTextAsync(tempFile, content, new System.Text.UTF8Encoding(false));
 
         try
         {
@@ -876,6 +905,16 @@ public class DatabaseService : IDatabaseService
         if (fileSizeMB < 100)
         {
             var content = await File.ReadAllTextAsync(dataFile, cancellationToken);
+            
+            // ✅ FIX: Remove ALL UTF-8 BOM characters (ERROR 1064 \uFEFF fix)
+            // SQL files may have multiple BOMs if they were concatenated
+            var originalLength = content.Length;
+            content = content.Replace("\uFEFF", "");
+            if (content.Length < originalLength)
+            {
+                _logger.LogDebug("  Removed {Count} UTF-8 BOM characters from {Table}", originalLength - content.Length, tableName);
+            }
+            
             await ExecuteMySqlInputAsync(database, content);
             return;
         }
@@ -901,6 +940,9 @@ public class DatabaseService : IDatabaseService
             
             var line = await reader.ReadLineAsync();
             if (string.IsNullOrWhiteSpace(line)) continue;
+            
+            // ✅ FIX: Remove UTF-8 BOM from each line (critical for large files)
+            line = line.Replace("\uFEFF", "");
             
             // Skip comments and USE statements
             if (line.TrimStart().StartsWith("--") || line.TrimStart().StartsWith("/*") || line.TrimStart().StartsWith("USE "))
@@ -945,6 +987,10 @@ public class DatabaseService : IDatabaseService
 
     private async Task ExecuteBatchAsync(MySqlConnection connection, string sql, CancellationToken cancellationToken)
     {
+        // ✅ FIX: Remove UTF-8 BOM before execution (critical for large files)
+        // Large files processed line-by-line may still have BOM in batched SQL
+        sql = sql.Replace("\uFEFF", "");
+        
         try
         {
             await using var command = new MySqlCommand(sql, connection);
@@ -986,8 +1032,10 @@ public class DatabaseService : IDatabaseService
             using var process = Process.Start(psi);
             if (process == null) return;
             
+            // ✅ FIX: Use UTF8 without BOM for export (prevent BOM in exported files)
+            var utf8NoBom = new System.Text.UTF8Encoding(false);
             using var reader = process.StandardOutput;
-            using var writer = new StreamWriter(tempFile, false, Encoding.UTF8, bufferSize: 1024 * 1024);
+            using var writer = new StreamWriter(tempFile, false, utf8NoBom, bufferSize: 1024 * 1024);
             
             var copyTask = reader.BaseStream.CopyToAsync(writer.BaseStream);
             

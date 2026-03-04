@@ -31,6 +31,7 @@ public class SmartRecommendationController : ControllerBase
     /// <param name="maxCoolingDays">最大冷却天数（默认30）</param>
     /// <param name="minPeakVolumeRatio">最小量能倍数（默认10）</param>
     /// <param name="maxPeakVolumeRatio">最大量能倍数（默认50）</param>
+    /// <param name="minBollingerBandwidth">最小布林带宽（默认3.0）</param>
     /// <returns>智能推荐结果</returns>
     /// <response code="200">返回推荐结果</response>
     /// <response code="400">参数错误</response>
@@ -45,7 +46,8 @@ public class SmartRecommendationController : ControllerBase
         [FromQuery] int minCoolingDays = 8,
         [FromQuery] int maxCoolingDays = 30,
         [FromQuery] decimal minPeakVolumeRatio = 10,
-        [FromQuery] decimal maxPeakVolumeRatio = 50)
+        [FromQuery] decimal maxPeakVolumeRatio = 50,
+        [FromQuery] decimal minBollingerBandwidth = 3.0m)
     {
         try
         {
@@ -68,7 +70,8 @@ public class SmartRecommendationController : ControllerBase
                 MinCoolingDays = minCoolingDays,
                 MaxCoolingDays = maxCoolingDays,
                 MinPeakVolumeRatio = minPeakVolumeRatio,
-                MaxPeakVolumeRatio = maxPeakVolumeRatio
+                MaxPeakVolumeRatio = maxPeakVolumeRatio,
+                MinBollingerBandwidth = minBollingerBandwidth
             };
 
             var result = await _recommendationService.GetTodayRecommendationsAsync(request);

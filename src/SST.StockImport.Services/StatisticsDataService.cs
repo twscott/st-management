@@ -15,12 +15,13 @@ namespace SST.StockImport.Services;
 
 /// <summary>
 /// 統計資料處理服務 (處理統計資料按鈕)
-/// 包含 6 個 Processors: WeekAll4 + AfterHourTrade + AlertInstance + AlertStatistics + InvestBaseData + Stock60
+/// 包含 7 個 Processors: WeekAll4 + Stock60DaysInit + AfterHourTrade + AlertInstance + AlertStatistics + InvestBaseData + Stock60重算
 /// </summary>
 public class StatisticsDataService : IStatisticsDataService
 {
-    // 保留的 Processors (5個)
+    // 保留的 Processors (6個)
     private readonly WeekAll4Processor _weekAll4Processor;
+    private readonly Stock60DaysInitProcessor _stock60DaysInitProcessor;
     private readonly AfterHourTradeProcessor _afterHourTradeProcessor;
     private readonly AlertInstanceProcessor _alertInstanceProcessor;
     private readonly AlertStatisticsProcessor _alertStatisticsProcessor;
@@ -37,6 +38,7 @@ public class StatisticsDataService : IStatisticsDataService
     public StatisticsDataService(
         // 保留的 processors
         WeekAll4Processor weekAll4Processor,
+        Stock60DaysInitProcessor stock60DaysInitProcessor,
         AfterHourTradeProcessor afterHourTradeProcessor,
         AlertInstanceProcessor alertInstanceProcessor,
         AlertStatisticsProcessor alertStatisticsProcessor,
@@ -47,6 +49,7 @@ public class StatisticsDataService : IStatisticsDataService
         ILogger<StatisticsDataService> logger)
     {
         _weekAll4Processor = weekAll4Processor;
+        _stock60DaysInitProcessor = stock60DaysInitProcessor;
         _afterHourTradeProcessor = afterHourTradeProcessor;
         _alertInstanceProcessor = alertInstanceProcessor;
         _alertStatisticsProcessor = alertStatisticsProcessor;
@@ -114,6 +117,11 @@ public class StatisticsDataService : IStatisticsDataService
                 // ========== WeekAll4Processor ==========
                 var weekAll4Result = await _weekAll4Processor.ProcessAsync(currentDate);
                 result.ProcessorResults.Add(weekAll4Result);
+
+                // ========== Stock60DaysInitProcessor ========== 
+                // 從 weekall 創建 stock60days 基礎記錄（必須在 Stock60重算之前執行）
+                var stock60InitResult = await _stock60DaysInitProcessor.ProcessAsync(currentDate);
+                result.ProcessorResults.Add(stock60InitResult);
 
                 // ========== AfterHourTradeProcessor ==========
                 var afterHourResult = await _afterHourTradeProcessor.ProcessAsync(currentDate);

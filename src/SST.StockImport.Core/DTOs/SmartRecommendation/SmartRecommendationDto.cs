@@ -39,6 +39,11 @@ public class SmartRecommendationRequest
     /// 最大冷却天数
     /// </summary>
     public int MaxCoolingDays { get; set; } = 30;
+
+    /// <summary>
+    /// 最小布林带宽（开口率）
+    /// </summary>
+    public decimal MinBollingerBandwidth { get; set; } = 3.0m;
 }
 
 /// <summary>
@@ -183,6 +188,11 @@ public class RecommendedStock
     /// 股票名称
     /// </summary>
     public string StockName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 市场类型（上市/上柜/兴柜）
+    /// </summary>
+    public string MarketType { get; set; } = string.Empty;
 
     /// <summary>
     /// 热点触发日期

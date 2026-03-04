@@ -83,6 +83,7 @@ public static class ServiceCollectionExtensions
         
         // Phase 1: 核心按鈕操作 Processors
         services.AddScoped<Processors.WeekAll4Processor>();
+        services.AddScoped<Processors.Stock60DaysInitProcessor>();
         services.AddScoped<Processors.AfterHourTradeProcessor>();
         services.AddScoped<Processors.ThreeMainTablesProcessor>();
         services.AddScoped<Processors.AlertInstanceProcessor>();

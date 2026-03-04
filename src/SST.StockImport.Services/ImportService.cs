@@ -162,8 +162,7 @@ public class ImportService : IImportService
                     // 提交事務（确保所有操作都在事务内）
                     await transaction.CommitAsync(cancellationToken);
 
-                    // 步驟 4: 更新 weekall.lastDate 和 tradedata.lastDate 參考 investbase.lastDate
-                    await UpdateLastDateFromInvestBaseAsync(tradeDate, cancellationToken);
+                    // ✅ lastDate 已在 INSERT 时从 investbase.MAX(lastDate) 获取，无需额外更新
 
                     // 統計結果
                     result.SuccessCount = Math.Min(weekallInserted, tradedataInserted);
@@ -301,6 +300,11 @@ public class ImportService : IImportService
         DateTime tradeDate,
         CancellationToken cancellationToken)
     {
+        // ⚡ 先查询一次 lastDate，避免在 VALUES 中重复执行 2300 次子查询
+        var lastDate = await dbContext.InvestBase
+            .MaxAsync(i => (DateTime?)i.LastDate, cancellationToken);
+        var lastDateStr = lastDate.HasValue ? $"'{lastDate.Value:yyyy-MM-dd}'" : "NULL";
+
         // 構建批量 INSERT ON DUPLICATE KEY UPDATE SQL
         var values = new List<string>();
 
@@ -314,20 +318,22 @@ public class ImportService : IImportService
             stockName = stockName.Replace("'", "''");
             stockType = stockType.Replace("'", "''");
 
-            // weekall 欄位：StockID, StockName, StockType, StockDate, OpenPriec, EndPrice, HPrice, LPrice, Vol, transVol
+            // weekall 欄位：直接使用查询好的 lastDate 值
             var value = $"('{data.StockCode}', '{stockName}', '{stockType}', " +
-                       $"'{tradeDate:yyyy-MM-dd}', {data.OpenPrice}, {data.ClosePrice}, " +
+                       $"'{tradeDate:yyyy-MM-dd}', {lastDateStr}, " +
+                        $"{data.OpenPrice}, {data.ClosePrice}, " +
                         $"{data.HighPrice}, {data.LowPrice}, {data.Volume}, {data.TradeCount ?? 0})";
             values.Add(value);
         }
 
         // MySQL 8.0 使用传统的 VALUES() 函数（兼容性最好）
         var sql = @"
-            INSERT INTO weekall (StockID, StockName, StockType, StockDate, OpenPriec, EndPrice, HPrice, LPrice, Vol, transVol)
+            INSERT INTO weekall (StockID, StockName, StockType, StockDate, lastDate, OpenPriec, EndPrice, HPrice, LPrice, Vol, transVol)
             VALUES " + string.Join(",\n", values) + @"
             ON DUPLICATE KEY UPDATE
                 StockName = VALUES(StockName),
                 StockType = VALUES(StockType),
+                lastDate = VALUES(lastDate),
                 OpenPriec = VALUES(OpenPriec),
                 EndPrice = VALUES(EndPrice),
                 HPrice = VALUES(HPrice),
@@ -337,7 +343,8 @@ public class ImportService : IImportService
 
         var affectedRows = await dbContext.Database.ExecuteSqlRawAsync(sql, cancellationToken);
         
-        _logger.LogDebug("weekall 批量插入 (MySQL)：{Count} 筆資料，影響 {Rows} 行", scrapedData.Count, affectedRows);
+        _logger.LogInformation("⚡ weekall 批量插入：{Count} 笔，lastDate={LastDate}，影响 {Rows} 行", 
+            scrapedData.Count, lastDateStr, affectedRows);
         
         return scrapedData.Count;
     }
@@ -355,6 +362,10 @@ public class ImportService : IImportService
         // SQLite: 使用 EF Core 原生 Add/Update 逻辑
         int totalInserted = 0;
 
+        // 从 investbase 获取标准 lastDate
+        var lastDate = await dbContext.InvestBase
+            .MaxAsync(i => (DateTime?)i.LastDate, cancellationToken);
+
         foreach (var data in scrapedData)
         {
             var stockName = data.StockName?.Replace("'", "''") ?? "";
@@ -370,6 +381,7 @@ public class ImportService : IImportService
                 // 更新现有记录
                 existing.StockName = stockName;
                 existing.StockType = stockType;
+                existing.LastDate = lastDate;
                 existing.OpenPriec = data.OpenPrice;
                 existing.EndPrice = data.ClosePrice;
                 existing.HPrice = data.HighPrice;
@@ -386,6 +398,7 @@ public class ImportService : IImportService
                     StockName = stockName,
                     StockType = stockType,
                     StockDate = tradeDate,
+                    LastDate = lastDate,
                     OpenPriec = data.OpenPrice,
                     EndPrice = data.ClosePrice,
                     HPrice = data.HighPrice,
@@ -442,6 +455,11 @@ public class ImportService : IImportService
         DateTime tradeDate,
         CancellationToken cancellationToken)
     {
+        // ⚡ 先查询一次 lastDate，避免在 VALUES 中重复执行 2300 次子查询
+        var lastDate = await dbContext.InvestBase
+            .MaxAsync(i => (DateTime?)i.LastDate, cancellationToken);
+        var lastDateStr = lastDate.HasValue ? $"'{lastDate.Value:yyyy-MM-dd}'" : "NULL";
+
         // 構建批量 INSERT ON DUPLICATE KEY UPDATE SQL
         var values = new List<string>();
 
@@ -450,20 +468,22 @@ public class ImportService : IImportService
             var stockName = data.StockName.Replace("'", "''");
             var stockType = (MapMarketToStockType(data.Market) ?? "").Replace("'", "''");
 
-            // tradedata 欄位：StockID, StockName, StockType, TransDate, OpenPriec, StockPrice, HPrice, LPrice, Vol, TransVol
+            // tradedata 欄位：直接使用查询好的 lastDate 值
             var value = $"('{data.StockCode}', '{stockName}', '{stockType}', " +
-                       $"'{tradeDate:yyyy-MM-dd}', {data.OpenPrice}, {data.ClosePrice}, " +
+                       $"'{tradeDate:yyyy-MM-dd}', {lastDateStr}, " +
+                       $"{data.OpenPrice}, {data.ClosePrice}, " +
                        $"{data.HighPrice}, {data.LowPrice}, {data.Volume}, {data.TradeCount ?? 0})";
             values.Add(value);
         }
 
         // MySQL 8.0 使用传统的 VALUES() 函数（兼容性最好）
         var sql = @"
-            INSERT INTO tradedata (StockID, StockName, StockType, TransDate, OpenPriec, StockPrice, HPrice, LPrice, Vol, TransVol)
+            INSERT INTO tradedata (StockID, StockName, StockType, TransDate, lastDate, OpenPriec, StockPrice, HPrice, LPrice, Vol, TransVol)
             VALUES " + string.Join(",\n", values) + @"
             ON DUPLICATE KEY UPDATE
                 StockName = VALUES(StockName),
                 StockType = VALUES(StockType),
+                lastDate = VALUES(lastDate),
                 OpenPriec = VALUES(OpenPriec),
                 StockPrice = VALUES(StockPrice),
                 HPrice = VALUES(HPrice),
@@ -490,6 +510,10 @@ public class ImportService : IImportService
     {
         int totalInserted = 0;
 
+        // 从 investbase 获取标准 lastDate
+        var lastDate = await dbContext.InvestBase
+            .MaxAsync(i => (DateTime?)i.LastDate, cancellationToken);
+
         foreach (var data in scrapedData)
         {
             var stockName = data.StockName ?? "";
@@ -504,8 +528,7 @@ public class ImportService : IImportService
             {
                 // 更新现有记录
                 existing.StockName = stockName;
-                existing.StockType = stockType;
-                existing.OpenPriec = data.OpenPrice;
+                existing.StockType = stockType;                existing.LastDate = lastDate;                existing.OpenPriec = data.OpenPrice;
                 existing.StockPrice = data.ClosePrice;  // tradedata 使用 StockPrice (注意與 weekall.EndPrice 不同)
                 existing.HPrice = data.HighPrice;
                 existing.LPrice = data.LowPrice;
@@ -521,6 +544,7 @@ public class ImportService : IImportService
                     StockName = stockName,
                     StockType = stockType,
                     TransDate = tradeDate,
+                    LastDate = lastDate,
                     OpenPriec = data.OpenPrice,
                     StockPrice = data.ClosePrice,  // tradedata 使用 StockPrice
                     HPrice = data.HighPrice,

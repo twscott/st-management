@@ -5,6 +5,17 @@
 
 ---
 
+## 🚀 新 Session 启动？
+
+**如果你是新的 AI agent**，请先执行：
+1. 阅读 [.github/copilot-instructions.md](.github/copilot-instructions.md) - 了解系统与业务规则（3 分钟）
+2. 按照 [Docs/SESSION_START.md](Docs/SESSION_START.md) 完成环境检查（2 分钟）
+3. 然后回到这里查询具体命令
+
+**如果你已经熟悉系统**，以下是常用命令速查表...
+
+---
+
 ## Build & Test Commands
 
 ### Build

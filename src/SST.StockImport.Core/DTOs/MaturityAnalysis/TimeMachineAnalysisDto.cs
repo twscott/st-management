@@ -157,6 +157,11 @@ public class HistoricalCandidate
     public decimal MaxGainPercent { get; set; }
 
     /// <summary>
+    /// 最高涨幅发生日期
+    /// </summary>
+    public DateTime? MaxGainDate { get; set; }
+
+    /// <summary>
     /// 最低跌幅百分比
     /// </summary>
     public decimal MaxDrawdownPercent { get; set; }
