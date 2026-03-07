@@ -21,7 +21,16 @@
         </div>
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-3">
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">信号源</label>
+                    <select class="form-select" @bind="SignalSource">
+                        <option value="0">量能爆发</option>
+                        <option value="1">大阳线(≥6%)</option>
+                        <option value="2">全部信号</option>
+                    </select>
+                    <small class="text-muted">选择热点信号类型</small>
+                </div>
+                <div class="col-md-2">
                     <label class="form-label fw-bold">分析日期</label>
                     <input type="date" class="form-control" @bind="AnalysisDate" 
                            min="@EarliestDate.ToString("yyyy-MM-dd")" 
@@ -52,13 +61,20 @@
                     <small class="text-muted">天</small>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label fw-bold">KD_K 范围</label>
+                    <label class="form-label fw-bold">
+                        KD_K 范围
+                        <button class="btn btn-link btn-sm text-decoration-none p-0 ms-1" 
+                                @onclick="ApplyRecommendedKD" 
+                                title="应用推荐值">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </label>
                     <div class="input-group">
                         <input type="number" class="form-control" @bind="MinKD" min="0" max="100" placeholder="最小" />
                         <span class="input-group-text">~</span>
                         <input type="number" class="form-control" @bind="MaxKD" min="0" max="100" placeholder="最大" />
                     </div>
-                    <small class="text-muted">留空为不限制</small>
+                    <small class="text-muted">@GetKDRecommendation()</small>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label fw-bold">布林带宽(%)</label>
@@ -275,6 +291,11 @@
                                 <thead class="table-light">
                                     <tr>
                                         <th>股票</th>
+                                        <th>类型</th>
+                                        <th>名称</th>
+                                        <th>信号</th>
+                                        <th>当前价</th>
+                                        <th>涨跌幅</th>
                                         <th>成熟度</th>
                                         <th>量能</th>
                                         <th>KD</th>
@@ -293,11 +314,23 @@
                                     <tr class="@GetRowClass(candidate.Status)">
                                         <td>
                                             <strong class="text-primary">@candidate.StockCode</strong>
-                                            <br/>
-                                            <small class="text-muted">
-                                                <span class="badge bg-secondary">@candidate.StockType</span>
-                                                @candidate.StockName
-                                            </small>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">@candidate.StockType</span>
+                                        </td>
+                                        <td>
+                                            <small>@candidate.StockName</small>
+                                        </td>
+                                        <td>
+                                            <span class="badge @(candidate.SignalType == "大阳线" ? "bg-warning text-dark" : "bg-info")">
+                                                @candidate.SignalType
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <strong>@candidate.CurrentPrice.ToString("F2")</strong>
+                                        </td>
+                                        <td class="@(candidate.PriceChangePercent >= 0 ? "text-success" : "text-danger")">
+                                            <strong>@candidate.PriceChangePercent.ToString("+0.00;-0.00;0.00")%</strong>
                                         </td>
                                         <td>
                                             <span class="badge bg-info">@candidate.MaturityScore.ToString("F0") 分</span>
@@ -334,7 +367,7 @@
                                     @if (SelectedFuture60Code == candidate.StockCode)
                                     {
                                         <tr>
-                                            <td colspan="11" class="bg-light">
+                                            <td colspan="16" class="bg-light">
                                                 <div class="p-3">
                                                     <h6 class="mb-3">
                                                         <i class="bi bi-arrow-right-circle"></i> 
@@ -430,7 +463,7 @@
                                     @if (SelectedStock60Code == candidate.StockCode)
                                     {
                                         <tr>
-                                            <td colspan="11" class="bg-light">
+                                            <td colspan="16" class="bg-light">
                                                 <div class="p-3">
                                                     <h6 class="mb-3">
                                                         <i class="bi bi-graph-up-arrow"></i> 
@@ -587,16 +620,19 @@
 
 @code {
     private DateTime AnalysisDate = DateTime.Now.AddDays(-30);
-    private int MinMaturityScore = 60;
-    private decimal MinVolumeRatio = 10;
-    private decimal MaxVolumeRatio = 50;
-    private int MinCoolingDays = 8;
-    private int MaxCoolingDays = 50;
-    private int TrackingDays = 60;
+    private int SignalSource = 2;  // 默认：全部信号
+    
+    // ⭐ 数据驱动参数 (基于 alertlist 成功模式分析 2025-08-12月)
+    private int MinMaturityScore = 65;      // 从 60 提高到 65 (成功案例平均)
+    private decimal MinVolumeRatio = 10;    // 维持 10x
+    private decimal MaxVolumeRatio = 30;    // 从 50 降到 30 (10-30x 成功率最高)
+    private int MinCoolingDays = 8;         // 维持 8 天
+    private int MaxCoolingDays = 30;        // 从 50 降到 30 (聚焦最佳时机)
+    private int TrackingDays = 60;          // 维持 60 天
 
-    private int MinKD = 30;
-    private int MaxKD = 60;
-    private decimal MinBandwidth = 30;
+    private int? MinKD = 50;                // 从 30 提高到 50 (成功案例 avg=65.69)
+    private int? MaxKD = 80;                // 从 60 提高到 80 (避免过滤高 KD)
+    private decimal MinBandwidth = 25;      // 从 30 降到 25 (稍微放宽)
 
     private DateTime EarliestDate = DateTime.Now.AddMonths(-6);
     private DateTime LatestDate = DateTime.Now;
@@ -702,8 +738,9 @@
                       $"&minVolumeRatio={MinVolumeRatio}" +
                       $"&maxVolumeRatio={MaxVolumeRatio}" +
                       $"&trackingDays={TrackingDays}" +
-                      $"&minKD={MinKD}" +
-                      $"&maxKD={MaxKD}" +
+                      $"&signalSource={SignalSource}" +
+                      (MinKD.HasValue ? $"&minKD={MinKD.Value}" : "") +
+                      (MaxKD.HasValue ? $"&maxKD={MaxKD.Value}" : "") +
                       $"&minBandwidth={MinBandwidth}";
 
             Logger.LogInformation("开始时光机分析: {Url}", url);
@@ -825,6 +862,36 @@
         if (returnPercent == 0) return "text-muted";
         if (returnPercent > -10) return "text-warning";
         return "text-danger fw-bold";
+    }
+
+    private string GetKDRecommendation()
+    {
+        return SignalSource switch
+        {
+            0 => "推荐: 50-80 (量能爆发)",
+            1 => "推荐: 可灵活设定",
+            2 => "推荐: 50-80 或留空",
+            _ => "留空为不限制"
+        };
+    }
+
+    private void ApplyRecommendedKD()
+    {
+        switch (SignalSource)
+        {
+            case 0:
+                MinKD = 50;
+                MaxKD = 80;
+                break;
+            case 1:
+                MinKD = null;
+                MaxKD = null;
+                break;
+            case 2:
+                MinKD = 50;
+                MaxKD = 80;
+                break;
+        }
     }
 
     private class DateRangeResponse

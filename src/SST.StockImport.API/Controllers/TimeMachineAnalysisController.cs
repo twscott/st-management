@@ -46,6 +46,7 @@ public class TimeMachineAnalysisController : ControllerBase
     /// 分析指定历史日期的推荐结果
     /// </summary>
     /// <param name="date">分析日期 (yyyy-MM-dd)</param>
+    /// <param name="signalSource">信号源类型 (0=量能爆发, 1=大阳线, 2=全部, 默认0)</param>
     /// <param name="minMaturityScore">最小成熟度评分 (默认60)</param>
     /// <param name="minCoolingDays">最小冷却天数 (默认8)</param>
     /// <param name="maxCoolingDays">最大冷却天数 (默认30)</param>
@@ -58,6 +59,7 @@ public class TimeMachineAnalysisController : ControllerBase
     [HttpGet("analyze/{date}")]
     public async Task<ActionResult<TimeMachineAnalysisResponse>> AnalyzeDate(
         string date,
+        [FromQuery] int signalSource = 0,
         [FromQuery] int minMaturityScore = 60,
         [FromQuery] int minCoolingDays = 8,
         [FromQuery] int maxCoolingDays = 30,
@@ -78,6 +80,7 @@ public class TimeMachineAnalysisController : ControllerBase
             var request = new TimeMachineAnalysisRequest
             {
                 AnalysisDate = analysisDate,
+                SignalSource = (SignalSource)signalSource,
                 MinMaturityScore = minMaturityScore,
                 MinCoolingDays = minCoolingDays,
                 MaxCoolingDays = maxCoolingDays,
@@ -89,7 +92,7 @@ public class TimeMachineAnalysisController : ControllerBase
                 MinBandwidth = minBandwidth
             };
 
-            _logger.LogInformation("开始时光机分析: {Date}", date);
+            _logger.LogInformation("开始时光机分析: {Date}, SignalSource={SignalSource}", date, (SignalSource)signalSource);
             var result = await _timeMachineService.AnalyzeHistoricalDateAsync(request);
             
             return Ok(result);

@@ -1,6 +1,27 @@
 namespace SST.StockImport.Core.DTOs.MaturityAnalysis;
 
 /// <summary>
+/// 信号源类型
+/// </summary>
+public enum SignalSource
+{
+    /// <summary>
+    /// 量能爆发（alertlist 中 maxPLVR 10-30x）
+    /// </summary>
+    VolumeSpike,
+    
+    /// <summary>
+    /// 大阳线（涨幅 >= 6%）
+    /// </summary>
+    BigCandle,
+    
+    /// <summary>
+    /// 全部信号源
+    /// </summary>
+    All
+}
+
+/// <summary>
 /// 时光机分析请求 - 查看历史某天系统会推荐什么
 /// </summary>
 public class TimeMachineAnalysisRequest
@@ -51,6 +72,11 @@ public class TimeMachineAnalysisRequest
     public bool OnlyPositiveMoney { get; set; } = true;
 
     /// <summary>
+    /// 信号源类型
+    /// </summary>
+    public SignalSource SignalSource { get; set; } = SignalSource.VolumeSpike;
+
+    /// <summary>
     /// 追踪天数（查看推荐后多少天的表现）
     /// </summary>
     public int TrackingDays { get; set; } = 60;
@@ -80,6 +106,21 @@ public class HistoricalCandidate
     /// 股票代码
     /// </summary>
     public string StockCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 股票名称
+    /// </summary>
+    public string StockName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 股票类型（上市/上櫃/興櫃）
+    /// </summary>
+    public string StockType { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 信号类型（量能爆发/大阳线）
+    /// </summary>
+    public string SignalType { get; set; } = string.Empty;
 
     /// <summary>
     /// 发热日期
@@ -117,7 +158,22 @@ public class HistoricalCandidate
     public decimal MaturityScore { get; set; }
 
     /// <summary>
-    /// 建议进场价格（分析日期当天的收盘价）
+    /// 热点日价格（发热当天的收盘价）
+    /// </summary>
+    public decimal HotspotPrice { get; set; }
+
+    /// <summary>
+    /// 当前价格（分析日期当天的收盘价）
+    /// </summary>
+    public decimal CurrentPrice { get; set; }
+
+    /// <summary>
+    /// 涨跌幅（从热点日到分析日的涨跌幅百分比）
+    /// </summary>
+    public decimal PriceChangePercent { get; set; }
+
+    /// <summary>
+    /// 建议进场价格（分析日期当天的收盘价，等同于 CurrentPrice）
     /// </summary>
     public decimal SuggestedEntryPrice { get; set; }
 

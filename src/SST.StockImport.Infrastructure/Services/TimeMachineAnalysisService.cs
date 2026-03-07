@@ -132,6 +132,38 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
         if (connection.State != ConnectionState.Open)
             await connection.OpenAsync();
 
+        // 根据信号源类型构建不同的查询
+        var candidates = new List<HistoricalCandidate>();
+        
+        if (request.SignalSource == Core.DTOs.MaturityAnalysis.SignalSource.VolumeSpike || 
+            request.SignalSource == Core.DTOs.MaturityAnalysis.SignalSource.All)
+        {
+            var volumeSpikeCandidates = await FindVolumeSpikeCandidatesAsync(request, connection);
+            candidates.AddRange(volumeSpikeCandidates);
+        }
+        
+        if (request.SignalSource == Core.DTOs.MaturityAnalysis.SignalSource.BigCandle || 
+            request.SignalSource == Core.DTOs.MaturityAnalysis.SignalSource.All)
+        {
+            var bigCandleCandidates = await FindBigCandleCandidatesAsync(request, connection);
+            candidates.AddRange(bigCandleCandidates);
+        }
+
+        // 去重（同一股票可能在不同信号源中出现）并按成熟度排序
+        var uniqueCandidates = candidates
+            .GroupBy(c => c.StockCode)
+            .Select(g => g.OrderByDescending(c => c.MaturityScore).First())
+            .OrderByDescending(c => c.MaturityScore)
+            .Take(50)
+            .ToList();
+
+        return uniqueCandidates;
+    }
+
+    private async Task<List<HistoricalCandidate>> FindVolumeSpikeCandidatesAsync(
+        TimeMachineAnalysisRequest request, 
+        System.Data.Common.DbConnection connection)
+    {
         using var command = connection.CreateCommand();
         command.CommandText = $@"
             SELECT * FROM (
@@ -143,6 +175,20 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                     a.panvolScore as volume_score,
                     a.panVol5CntPos as positive_money_days,
                     a.panVol5CntNeg as negative_money_days,
+                    -- ⭐ 新增：进货/出货指标 (基于成功模式分析)
+                    a.pLVRatePosCnt as buy_count,
+                    a.pLVRateNegCnt as sell_count,
+                    a.pApRatePosCnt as peak_buy_count,
+                    -- 进货/出货比率 (最关键指标！成功案例 avg=2.45)
+                    CASE 
+                        WHEN a.pLVRateNegCnt = 0 THEN 999  -- 无出货视为极高比率
+                        ELSE ROUND(a.pLVRatePosCnt / a.pLVRateNegCnt, 2)
+                    END as buy_sell_ratio,
+                    -- MA5/MA20 ratio (成功案例 avg=103.34%)
+                    CASE 
+                        WHEN s60.MA20 > 0 THEN ROUND((s60.MA5 / s60.MA20) * 100, 2)
+                        ELSE NULL
+                    END as ma_ratio,
                     -- 计算成熟度评分
                     (
                         -- 时间因子 (0-40分)
@@ -172,6 +218,17 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                             ELSE 0
                         END
                     ) * 1.0 as maturity_score,
+                    -- 获取股票基本信息
+                    si.name as stock_name,
+                    si.stype as stock_type,
+                    -- 热点日价格
+                    s_hotspot.EndPrice as hotspot_price,
+                    -- 当前价格（分析日期）
+                    s60.EndPrice as current_price,
+                    -- 涨跌幅（从热点日到分析日）
+                    ROUND(((s60.EndPrice - s_hotspot.EndPrice) / s_hotspot.EndPrice * 100), 2) as price_change_percent,
+                    -- 信号类型
+                    '量能爆发' as signal_type,
                     -- 获取建议进场价格
                     COALESCE(
                         (SELECT EndPrice FROM stock60days 
@@ -190,6 +247,11 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                 INNER JOIN stock60days s60 
                     ON s60.StockID = a.StockID 
                     AND s60.StockDate = @analysisDate
+                INNER JOIN stock60days s_hotspot
+                    ON s_hotspot.StockID = a.StockID
+                    AND s_hotspot.StockDate = a.alertDate
+                LEFT JOIN stockid si
+                    ON si.id = a.StockID
                 WHERE a.alertDate < @analysisDate
                   AND DATEDIFF(@analysisDate, a.alertDate) BETWEEN @minCoolingDays AND @maxCoolingDays
                   AND a.maxPLVR BETWEEN @minVolumeRatio AND @maxVolumeRatio
@@ -198,11 +260,19 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                   AND (@MaxKD IS NULL OR s60.KD_K <= @MaxKD)
                   AND (s60.boolkaikouDiffRate IS NOT NULL)
                   AND (s60.boolkaikouDiffRate >= @MinBandwidth OR @MinBandwidth IS NULL)
+                  -- ⭐ 新增筛选条件 (基于成功模式分析)
+                  AND a.pLVRateNegCnt <= 1                    -- 限制出货次数 (成功案例 avg=0.53)
+                  AND a.pApRatePosCnt >= 1                    -- 至少 1 次 10 倍盘量进货
+                  AND (
+                      a.pLVRateNegCnt = 0                     -- 无出货，或
+                      OR (a.pLVRatePosCnt / a.pLVRateNegCnt) >= 2.5  -- 进货优势比 >= 2.5x
+                  )
+                  AND (s60.MA20 IS NULL OR s60.MA20 = 0 OR (s60.MA5 / s60.MA20 * 100) >= 102)  -- 均线多头
             ) AS candidates
             WHERE maturity_score >= @minMaturityScore
               AND entry_price IS NOT NULL
             ORDER BY maturity_score DESC
-            LIMIT 50";
+            LIMIT 100";
 
         var param = command.CreateParameter();
         param.ParameterName = "@analysisDate";
@@ -257,9 +327,19 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
             var entryPrice = reader.GetDecimal(reader.GetOrdinal("entry_price"));
             var kdOrdinal = reader.GetOrdinal("kd_k");
             var bandwidthOrdinal = reader.GetOrdinal("bandwidth");
+            var stockNameOrdinal = reader.GetOrdinal("stock_name");
+            var stockTypeOrdinal = reader.GetOrdinal("stock_type");
+            var hotspotPriceOrdinal = reader.GetOrdinal("hotspot_price");
+            var currentPriceOrdinal = reader.GetOrdinal("current_price");
+            var priceChangeOrdinal = reader.GetOrdinal("price_change_percent");
+            var signalTypeOrdinal = reader.GetOrdinal("signal_type");
+            
             var candidate = new HistoricalCandidate
             {
                 StockCode = reader.GetString(reader.GetOrdinal("stock_code")),
+                StockName = reader.IsDBNull(stockNameOrdinal) ? "" : reader.GetString(stockNameOrdinal),
+                StockType = reader.IsDBNull(stockTypeOrdinal) ? "" : reader.GetString(stockTypeOrdinal),
+                SignalType = reader.IsDBNull(signalTypeOrdinal) ? "" : reader.GetString(signalTypeOrdinal),
                 HotspotDate = reader.GetDateTime(reader.GetOrdinal("hotspot_date")),
                 DaysSinceHotspotAtAnalysis = reader.GetInt32(reader.GetOrdinal("days_since_hotspot")),
                 PeakVolumeRatio = reader.GetDecimal(reader.GetOrdinal("peak_volume_ratio")),
@@ -267,6 +347,158 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                 Bandwidth = reader.IsDBNull(bandwidthOrdinal) ? null : reader.GetDecimal(bandwidthOrdinal),
                 VolumeScore = reader.GetInt32(reader.GetOrdinal("volume_score")),
                 MaturityScore = reader.GetDecimal(reader.GetOrdinal("maturity_score")),
+                HotspotPrice = reader.IsDBNull(hotspotPriceOrdinal) ? 0 : reader.GetDecimal(hotspotPriceOrdinal),
+                CurrentPrice = reader.IsDBNull(currentPriceOrdinal) ? 0 : reader.GetDecimal(currentPriceOrdinal),
+                PriceChangePercent = reader.IsDBNull(priceChangeOrdinal) ? 0 : reader.GetDecimal(priceChangeOrdinal),
+                SuggestedEntryPrice = entryPrice,
+                TargetPrice_20 = entryPrice * 1.20m,
+                TargetPrice_30 = entryPrice * 1.30m,
+                TargetPrice_50 = entryPrice * 1.50m,
+                PriceHistory = new List<PricePoint>()
+            };
+            
+            candidates.Add(candidate);
+        }
+
+        return candidates;
+    }
+
+    private async Task<List<HistoricalCandidate>> FindBigCandleCandidatesAsync(
+        TimeMachineAnalysisRequest request,
+        System.Data.Common.DbConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $@"
+            SELECT * FROM (
+                SELECT 
+                    t.StockID as stock_code,
+                    t.TransDate as hotspot_date,
+                    DATEDIFF(@analysisDate, t.TransDate) as days_since_hotspot,
+                    ROUND(t.StockDiffRate, 2) as peak_volume_ratio,
+                    50 as volume_score,
+                    3 as positive_money_days,
+                    0 as negative_money_days,
+                    1 as buy_count,
+                    0 as sell_count,
+                    1 as peak_buy_count,
+                    999 as buy_sell_ratio,
+                    CASE 
+                        WHEN s60.MA20 > 0 THEN ROUND((s60.MA5 / s60.MA20) * 100, 2)
+                        ELSE NULL
+                    END as ma_ratio,
+                    (
+                        CASE 
+                            WHEN DATEDIFF(@analysisDate, t.TransDate) BETWEEN 15 AND 30 THEN 40
+                            WHEN DATEDIFF(@analysisDate, t.TransDate) BETWEEN 31 AND 50 THEN 35
+                            WHEN DATEDIFF(@analysisDate, t.TransDate) BETWEEN 8 AND 14 THEN 25
+                            ELSE 15
+                        END +
+                        CASE 
+                            WHEN t.StockDiffRate >= 10 THEN 30
+                            WHEN t.StockDiffRate >= 8 THEN 25
+                            WHEN t.StockDiffRate >= 6 THEN 20
+                            ELSE 10
+                        END +
+                        20 +
+                        10
+                    ) * 1.0 as maturity_score,
+                    si.name as stock_name,
+                    si.stype as stock_type,
+                    t.StockPrice as hotspot_price,
+                    s60.EndPrice as current_price,
+                    ROUND(((s60.EndPrice - t.StockPrice) / t.StockPrice * 100), 2) as price_change_percent,
+                    '大阳线' as signal_type,
+                    s60.EndPrice as entry_price,
+                    s60.KD_K as kd_k,
+                    s60.boolkaikouDiffRate as bandwidth
+                FROM tradedata t
+                INNER JOIN stock60days s60 
+                    ON s60.StockID = t.StockID 
+                    AND s60.StockDate = @analysisDate
+                LEFT JOIN stockid si
+                    ON si.id = t.StockID
+                WHERE t.TransDate < @analysisDate
+                  AND DATEDIFF(@analysisDate, t.TransDate) BETWEEN @minCoolingDays AND @maxCoolingDays
+                  AND t.StockDiffRate >= 6.0
+                  AND t.Vol >= 1000
+                  AND (s60.KD_K IS NOT NULL)
+                  AND (@MinKD IS NULL OR s60.KD_K >= @MinKD)
+                  AND (@MaxKD IS NULL OR s60.KD_K <= @MaxKD)
+                  AND (s60.boolkaikouDiffRate IS NOT NULL)
+                  AND (s60.boolkaikouDiffRate >= @MinBandwidth OR @MinBandwidth IS NULL)
+                  AND (s60.MA20 IS NULL OR s60.MA20 = 0 OR (s60.MA5 / s60.MA20 * 100) >= 102)
+            ) AS candidates
+            WHERE maturity_score >= @minMaturityScore
+              AND entry_price IS NOT NULL
+            ORDER BY maturity_score DESC
+            LIMIT 100";
+
+        var param = command.CreateParameter();
+        param.ParameterName = "@analysisDate";
+        param.Value = request.AnalysisDate;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@minCoolingDays";
+        param.Value = request.MinCoolingDays;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@maxCoolingDays";
+        param.Value = request.MaxCoolingDays;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@minMaturityScore";
+        param.Value = request.MinMaturityScore;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@MinKD";
+        param.Value = (object?)request.MinKD ?? DBNull.Value;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@MaxKD";
+        param.Value = (object?)request.MaxKD ?? DBNull.Value;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@MinBandwidth";
+        param.Value = (object?)request.MinBandwidth ?? DBNull.Value;
+        command.Parameters.Add(param);
+
+        var candidates = new List<HistoricalCandidate>();
+        using var reader = await command.ExecuteReaderAsync();
+        
+        while (await reader.ReadAsync())
+        {
+            var entryPrice = reader.GetDecimal(reader.GetOrdinal("entry_price"));
+            var kdOrdinal = reader.GetOrdinal("kd_k");
+            var bandwidthOrdinal = reader.GetOrdinal("bandwidth");
+            var stockNameOrdinal = reader.GetOrdinal("stock_name");
+            var stockTypeOrdinal = reader.GetOrdinal("stock_type");
+            var hotspotPriceOrdinal = reader.GetOrdinal("hotspot_price");
+            var currentPriceOrdinal = reader.GetOrdinal("current_price");
+            var priceChangeOrdinal = reader.GetOrdinal("price_change_percent");
+            var signalTypeOrdinal = reader.GetOrdinal("signal_type");
+            
+            var candidate = new HistoricalCandidate
+            {
+                StockCode = reader.GetString(reader.GetOrdinal("stock_code")),
+                StockName = reader.IsDBNull(stockNameOrdinal) ? "" : reader.GetString(stockNameOrdinal),
+                StockType = reader.IsDBNull(stockTypeOrdinal) ? "" : reader.GetString(stockTypeOrdinal),
+                SignalType = reader.IsDBNull(signalTypeOrdinal) ? "" : reader.GetString(signalTypeOrdinal),
+                HotspotDate = reader.GetDateTime(reader.GetOrdinal("hotspot_date")),
+                DaysSinceHotspotAtAnalysis = reader.GetInt32(reader.GetOrdinal("days_since_hotspot")),
+                PeakVolumeRatio = reader.GetDecimal(reader.GetOrdinal("peak_volume_ratio")),
+                KD_K = reader.IsDBNull(kdOrdinal) ? null : reader.GetDecimal(kdOrdinal),
+                Bandwidth = reader.IsDBNull(bandwidthOrdinal) ? null : reader.GetDecimal(bandwidthOrdinal),
+                VolumeScore = reader.GetInt32(reader.GetOrdinal("volume_score")),
+                MaturityScore = reader.GetDecimal(reader.GetOrdinal("maturity_score")),
+                HotspotPrice = reader.IsDBNull(hotspotPriceOrdinal) ? 0 : reader.GetDecimal(hotspotPriceOrdinal),
+                CurrentPrice = reader.IsDBNull(currentPriceOrdinal) ? 0 : reader.GetDecimal(currentPriceOrdinal),
+                PriceChangePercent = reader.IsDBNull(priceChangeOrdinal) ? 0 : reader.GetDecimal(priceChangeOrdinal),
                 SuggestedEntryPrice = entryPrice,
                 TargetPrice_20 = entryPrice * 1.20m,
                 TargetPrice_30 = entryPrice * 1.30m,
