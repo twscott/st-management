@@ -211,6 +211,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
                     WHERE StockDate IS NOT NULL 
                       AND StockDate <= '{targetDateStr}'
                       AND EndPrice IS NOT NULL
+                      AND Vol IS NOT NULL
                 ) calc ON s.StockID = calc.StockID AND s.StockDate = calc.StockDate
                 SET s.MA{period} = ROUND(calc.ma_val, 2), s.MV{period} = CAST(calc.mv_val AS SIGNED)
                 WHERE s.StockDate = '{targetDateStr}' AND calc.data_points >= {period}";

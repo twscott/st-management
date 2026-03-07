@@ -20,6 +20,7 @@ public class Stock60DaysDetailDto
     
     // 涨跌幅
     public decimal? DailyChangePercent { get; set; }
+    public decimal? BaseChangePercent { get; set; }
     
     // 移动平均线（价格）
     public decimal? MA5 { get; set; }
@@ -77,3 +78,33 @@ public class Stock60DaysSummary
     public decimal? AvgPrice_20D { get; set; }
     public decimal? AvgPrice_60D { get; set; }
 }
+
+/// <summary>
+/// Future60Days 查询响应（未来60天表现）
+/// </summary>
+public class Future60DaysResponse
+{
+    public string StockID { get; set; } = string.Empty;
+    public string StockName { get; set; } = string.Empty;
+    public string StockType { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public List<Stock60DaysDetailDto> DailyData { get; set; } = new();
+    
+    // 未来表现统计摘要
+    public Future60Summary Summary { get; set; } = new();
+}
+
+/// <summary>
+/// 未来60天统计摘要
+/// </summary>
+public class Future60Summary
+{
+    public int TotalTradingDays { get; set; }
+    public decimal MaxGainPercent { get; set; }
+    public DateTime? MaxGainDate { get; set; }
+    public decimal MaxLossPercent { get; set; }
+    public DateTime? MaxLossDate { get; set; }
+    public decimal? FinalReturnPercent { get; set; }
+    public decimal? FinalPrice { get; set; }
+}
+

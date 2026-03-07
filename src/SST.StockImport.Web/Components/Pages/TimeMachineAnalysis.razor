@@ -291,7 +291,14 @@
                                     @foreach (var candidate in displayCandidates.OrderByDescending(c => c.MaturityScore))
                                     {
                                     <tr class="@GetRowClass(candidate.Status)">
-                                        <td><strong class="text-primary">@candidate.StockCode</strong></td>
+                                        <td>
+                                            <strong class="text-primary">@candidate.StockCode</strong>
+                                            <br/>
+                                            <small class="text-muted">
+                                                <span class="badge bg-secondary">@candidate.StockType</span>
+                                                @candidate.StockName
+                                            </small>
+                                        </td>
                                         <td>
                                             <span class="badge bg-info">@candidate.MaturityScore.ToString("F0") 分</span>
                                         </td>
@@ -311,10 +318,10 @@
                                         </td>
                                         <td>
                                             <div class="btn-group btn-group-sm" role="group">
-                                                <button class="btn btn-outline-primary" 
-                                                        @onclick="() => ToggleChart(candidate.StockCode)">
-                                                    <i class="bi bi-@(SelectedStockCode == candidate.StockCode ? "eye-slash" : "eye")"></i>
-                                                    @(SelectedStockCode == candidate.StockCode ? "隐藏" : "查看")
+                                                <button class="btn btn-outline-warning" 
+                                                        @onclick="() => ToggleFuture60(candidate.StockCode)">
+                                                    <i class="bi bi-arrow-right-circle"></i>
+                                                    F60
                                                 </button>
                                                 <button class="btn btn-outline-success" 
                                                         @onclick="() => ToggleStock60(candidate.StockCode)">
@@ -324,58 +331,96 @@
                                             </div>
                                         </td>
                                     </tr>
-                                    @if (SelectedStockCode == candidate.StockCode)
+                                    @if (SelectedFuture60Code == candidate.StockCode)
                                     {
                                         <tr>
-                                            <td colspan="9" class="bg-light">
+                                            <td colspan="11" class="bg-light">
                                                 <div class="p-3">
                                                     <h6 class="mb-3">
-                                                        <i class="bi bi-graph-up"></i> 
-                                                        @candidate.StockCode 价格走势 (后续 @TrackingDays 天)
+                                                        <i class="bi bi-arrow-right-circle"></i> 
+                                                        @candidate.StockCode 未来60天走势 (从 @AnalysisDate.ToString("yyyy-MM-dd") 往后)
                                                     </h6>
-                                                    @if (candidate.PriceHistory.Any())
+                                                    
+                                                    @if (IsLoadingFuture60)
                                                     {
-                                                        <div class="row">
+                                                        <div class="text-center py-4">
+                                                            <div class="spinner-border text-warning" role="status">
+                                                                <span class="visually-hidden">加载中...</span>
+                                                            </div>
+                                                            <p class="mt-2">加载未来表现数据中...</p>
+                                                        </div>
+                                                    }
+                                                    else if (Future60Data != null)
+                                                    {
+                                                        <!-- 统计摘要 -->
+                                                        <div class="row mb-3">
                                                             <div class="col-md-12">
-                                                                <div style="height: 300px; overflow-x: auto; font-family: monospace; font-size: 12px;">
-                                                                    <pre>@RenderPriceChart(candidate)</pre>
+                                                                <div class="alert alert-warning">
+                                                                    <strong>📈 未来表现摘要</strong> - 
+                                                                    股票: <strong>@Future60Data.StockName (@Future60Data.StockID)</strong> | 
+                                                                    类型: <strong>@Future60Data.StockType</strong> | 
+                                                                    交易日: <strong>@Future60Data.Summary.TotalTradingDays 天</strong> | 
+                                                                    最高涨幅: <strong class="text-success">@Future60Data.Summary.MaxGainPercent.ToString("F2")%</strong>
+                                                                    @if (Future60Data.Summary.MaxGainDate.HasValue)
+                                                                    {
+                                                                        <text> (@Future60Data.Summary.MaxGainDate.Value.ToString("MM/dd"))</text>
+                                                                    } | 
+                                                                    最终报酬: <strong class="@GetReturnColor(Future60Data.Summary.FinalReturnPercent ?? 0)">@(Future60Data.Summary.FinalReturnPercent?.ToString("F2") ?? "-")%</strong>
                                                                 </div>
                                                             </div>
                                                         </div>
-                                                        <div class="row mt-3">
+
+                                                        <!-- 每日详细数据表格 -->
+                                                        <div class="row">
                                                             <div class="col-md-12">
-                                                                <table class="table table-sm table-bordered">
-                                                                    <thead>
-                                                                        <tr>
-                                                                            <th>日期</th>
-                                                                            <th>价格</th>
-                                                                            <th>涨跌幅</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var point in candidate.PriceHistory.Take(10))
-                                                                        {
+                                                                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                                                                    <table class="table table-sm table-striped table-hover">
+                                                                        <thead class="table-warning sticky-top">
                                                                             <tr>
-                                                                                <td>@point.Date.ToString("yyyy-MM-dd")</td>
-                                                                                <td>@point.Price.ToString("F2")</td>
-                                                                                <td class="@GetReturnColor(point.ChangePercent)">
-                                                                                    @point.ChangePercent.ToString("F2")%
-                                                                                </td>
+                                                                                <th>日期</th>
+                                                                                <th>开盘</th>
+                                                                                <th>收盘</th>
+                                                                                <th>最高</th>
+                                                                                <th>最低</th>
+                                                                                <th>单日涨跌</th>
+                                                                                <th>累计报酬</th>
+                                                                                <th>成交量</th>
+                                                                                <th>KD_K</th>
+                                                                                <th>KD_D</th>
+                                                                                <th>布林带宽</th>
                                                                             </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                </table>
-                                                                @if (candidate.PriceHistory.Count > 10)
-                                                                {
-                                                                    <small class="text-muted">仅显示前 10 天，共 @candidate.PriceHistory.Count 天数据</small>
-                                                                }
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            @foreach (var day in Future60Data.DailyData)
+                                                                            {
+                                                                                <tr>
+                                                                                    <td><small>@day.StockDate.ToString("yyyy-MM-dd")</small></td>
+                                                                                    <td>@day.OpenPrice?.ToString("F2")</td>
+                                                                                    <td><strong>@day.EndPrice?.ToString("F2")</strong></td>
+                                                                                    <td class="text-success">@day.HighPrice?.ToString("F2")</td>
+                                                                                    <td class="text-danger">@day.LowPrice?.ToString("F2")</td>
+                                                                                    <td class="@GetReturnColor(day.DailyChangePercent ?? 0)">
+                                                                                        <small>@(day.DailyChangePercent?.ToString("F2") ?? "-")%</small>
+                                                                                    </td>
+                                                                                    <td class="@GetReturnColor(day.BaseChangePercent ?? 0)">
+                                                                                        <strong>@(day.BaseChangePercent?.ToString("F2") ?? "-")%</strong>
+                                                                                    </td>
+                                                                                    <td><small>@((day.Volume / 1000)?.ToString("N0")) 张</small></td>
+                                                                                    <td>@day.KD_K.ToString("F2")</td>
+                                                                                    <td>@day.KD_D.ToString("F2")</td>
+                                                                                    <td>@day.BoolkaikouDiffRate.ToString("F2")%</td>
+                                                                                </tr>
+                                                                            }
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     }
                                                     else
                                                     {
-                                                        <div class="alert alert-info">
-                                                            <i class="bi bi-info-circle"></i> 没有价格历史数据
+                                                        <div class="alert alert-warning">
+                                                            <i class="bi bi-exclamation-triangle"></i> 未能获取未来60天数据
                                                         </div>
                                                     }
                                                 </div>
@@ -430,7 +475,8 @@
                                                                                 <th>收盘</th>
                                                                                 <th>最高</th>
                                                                                 <th>最低</th>
-                                                                                <th>涨跌幅</th>
+                                                                                <th>单日涨跌</th>
+                                                                                <th>累计涨跌</th>
                                                                                 <th>成交量</th>
                                                                                 <th>KD_K</th>
                                                                                 <th>KD_D</th>
@@ -451,7 +497,10 @@
                                                                                     <td class="text-success">@day.HighPrice?.ToString("F2")</td>
                                                                                     <td class="text-danger">@day.LowPrice?.ToString("F2")</td>
                                                                                     <td class="@GetReturnColor(day.DailyChangePercent ?? 0)">
-                                                                                        @(day.DailyChangePercent?.ToString("F2") ?? "-")%
+                                                                                        <small>@(day.DailyChangePercent?.ToString("F2") ?? "-")%</small>
+                                                                                    </td>
+                                                                                    <td class="@GetReturnColor(day.BaseChangePercent ?? 0)">
+                                                                                        <strong>@(day.BaseChangePercent?.ToString("F2") ?? "-")%</strong>
                                                                                     </td>
                                                                                     <td><small>@((day.Volume / 1000)?.ToString("N0")) 张</small></td>
                                                                                     <td>@day.KD_K.ToString("F2")</td>
@@ -553,12 +602,15 @@
     private DateTime LatestDate = DateTime.Now;
 
     private TimeMachineAnalysisResponse? AnalysisResult;
-    private string? SelectedStockCode;
     private string? SelectedStock60Code;
     private Stock60DaysResponse? Stock60Data;
     private bool IsLoading = false;
     private bool IsLoadingStock60 = false;
     private bool ShowOnlySuccessful = false;
+
+    private string? SelectedFuture60Code;
+    private Future60DaysResponse? Future60Data;
+    private bool IsLoadingFuture60 = false;
 
     // 成功案例筛选（涨超 30%）
     private List<HistoricalCandidate> SuccessfulCandidates => 
@@ -639,7 +691,6 @@
     private async Task RunAnalysis()
     {
         IsLoading = true;
-        SelectedStockCode = null;
         StateHasChanged();
 
         try
@@ -668,11 +719,6 @@
         {
             IsLoading = false;
         }
-    }
-
-    private void ToggleChart(string stockCode)
-    {
-        SelectedStockCode = SelectedStockCode == stockCode ? null : stockCode;
     }
 
     private async Task ToggleStock60(string stockCode)
@@ -710,6 +756,41 @@
         }
     }
 
+    private async Task ToggleFuture60(string stockCode)
+    {
+        if (SelectedFuture60Code == stockCode)
+        {
+            SelectedFuture60Code = null;
+            Future60Data = null;
+            return;
+        }
+
+        SelectedFuture60Code = stockCode;
+        IsLoadingFuture60 = true;
+        Future60Data = null;
+        StateHasChanged();
+
+        try
+        {
+            var startDate = AnalysisDate.ToString("yyyy-MM-dd");
+            var url = $"/api/Stock60Days/{stockCode}/future?startDate={startDate}&days=60";
+            Logger.LogInformation("获取 Future60 数据: {Url}", url);
+            
+            Future60Data = await Http.GetFromJsonAsync<Future60DaysResponse>(url);
+            Logger.LogInformation("Future60 数据获取完成: {Days} 天", Future60Data?.DailyData.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "获取 Future60 数据失败");
+            await JS.InvokeVoidAsync("alert", $"获取 F60 数据失败: {ex.Message}");
+            SelectedFuture60Code = null;
+        }
+        finally
+        {
+            IsLoadingFuture60 = false;
+        }
+    }
+
     private string GetRowClass(ResultStatus status) => status switch
     {
         ResultStatus.Success => "table-success",
@@ -744,45 +825,6 @@
         if (returnPercent == 0) return "text-muted";
         if (returnPercent > -10) return "text-warning";
         return "text-danger fw-bold";
-    }
-
-    private string RenderPriceChart(HistoricalCandidate candidate)
-    {
-        if (!candidate.PriceHistory.Any()) return "无价格数据";
-
-        var maxChange = candidate.PriceHistory.Max(p => p.ChangePercent);
-        var minChange = candidate.PriceHistory.Min(p => p.ChangePercent);
-        var range = maxChange - minChange;
-        
-        var lines = new List<string>();
-        
-        // 绘制简单的 ASCII 图表
-        for (int i = 0; i <= 10; i++)
-        {
-            var value = maxChange - (range * i / 10);
-            var line = $"{value,6:F1}% │";
-            
-            foreach (var point in candidate.PriceHistory.Take(Math.Min(60, candidate.PriceHistory.Count)))
-            {
-                if (Math.Abs(point.ChangePercent - value) < range / 10)
-                {
-                    if (point.ChangePercent >= 20) line += "█";
-                    else if (point.ChangePercent >= 10) line += "▓";
-                    else if (point.ChangePercent >= 0) line += "░";
-                    else line += "▒";
-                }
-                else
-                {
-                    line += " ";
-                }
-            }
-            lines.Add(line);
-        }
-        
-        lines.Add($"       └{'─'.ToString().PadRight(Math.Min(60, candidate.PriceHistory.Count), '─')}");
-        lines.Add($"        建议进场 → 后续 {candidate.PriceHistory.Count} 天走势");
-        
-        return string.Join("\n", lines);
     }
 
     private class DateRangeResponse
