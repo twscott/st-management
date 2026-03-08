@@ -186,7 +186,7 @@ namespace SST.StockImport.Core.Scheduling
         /// <summary>
         /// 任務失敗時的通知
         /// </summary>
-        private async Task NotifyTaskFailureAsync(string taskName, Exception ex)
+        private Task NotifyTaskFailureAsync(string taskName, Exception ex)
         {
             try
             {
@@ -197,12 +197,13 @@ namespace SST.StockImport.Core.Scheduling
             {
                 _logger.LogError($"Failed to notify about task failure: {notifyEx}");
             }
+            return Task.CompletedTask;
         }
         
         /// <summary>
         /// 發送緊急郵件告警
         /// </summary>
-        private async Task SendEmailAlertAsync(Exception ex)
+        private Task SendEmailAlertAsync(Exception ex)
         {
             try
             {
@@ -213,6 +214,7 @@ namespace SST.StockImport.Core.Scheduling
             {
                 _logger.LogError($"Failed to send email alert: {emailEx}");
             }
+            return Task.CompletedTask;
         }
     }
     

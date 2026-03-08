@@ -165,7 +165,7 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
         
         // 使用 StockDate（资料入库日期）而不是 LastDate
         var tradingDates = await context.Stock60Days
-            .Where(s => s.StockDate != null && s.StockDate >= startLastDate)
+            .Where(s => s.StockDate >= startLastDate)
             .Select(s => s.StockDate)
             .Distinct()
             .OrderBy(d => d)
@@ -219,11 +219,11 @@ public class Stock60DaysRecalcService : IStock60DaysRecalcService
             try
             {
                 var rows = await context.Database.ExecuteSqlRawAsync(sql);
-                _logger.LogDebug("MA{Period}/MV{Period} 更新 {Rows} 筆記錄 for {Date}", period, rows, targetDateStr);
+                _logger.LogDebug("MA{Period}/MV{Period} 更新 {Rows} 筆記錄 for {Date}", period, period, rows, targetDateStr);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "MA{Period}/MV{Period} 計算失敗 for {Date}", period, targetLastDate);
+                _logger.LogError(ex, "MA{Period}/MV{Period} 計算失敗 for {Date}", period, period, targetLastDate);
             }
         }
     }

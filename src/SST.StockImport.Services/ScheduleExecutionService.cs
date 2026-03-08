@@ -423,6 +423,7 @@ public class ScheduleExecutionService : IScheduleExecutionService
 
     private async Task<ExecutionResultDto> CallExternalApiAsync(string taskName, string apiPath)
     {
+        await Task.CompletedTask;
         // 模拟调用外部 API（可以替换为实际的 HTTP 调用）
         _logger.LogInformation($"调用 {taskName} API: {apiPath}");
 
@@ -468,9 +469,9 @@ public class ScheduleExecutionService : IScheduleExecutionService
         return new ScheduleExecutionSlotDto
         {
             Time = scheduleSlot,
-            TaskChain = execution.TaskChain,
+            TaskChain = execution.TaskChain ?? string.Empty,
             Status = execution.Status,
-            ResultSummary = $"{statusEmoji} {execution.ResultMessage}",
+            ResultSummary = $"{statusEmoji} {execution.ResultMessage ?? string.Empty}",
             CompletedAt = execution.EndTime,
             DurationSeconds = execution.EndTime.HasValue && execution.StartTime.HasValue
                 ? (int)(execution.EndTime.Value - execution.StartTime.Value).TotalSeconds

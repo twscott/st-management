@@ -209,6 +209,7 @@ public class StatisticsService : IStatisticsService
         DateTime? tradeDate = null,
         CancellationToken cancellationToken = default)
     {
+        await Task.CompletedTask;
         var result = new StatisticsResultDto
         {
             StatisticsType = "盤量分析",
@@ -251,6 +252,7 @@ public class StatisticsService : IStatisticsService
         DateTime? tradeDate = null,
         CancellationToken cancellationToken = default)
     {
+        await Task.CompletedTask;
         var result = new StatisticsResultDto
         {
             StatisticsType = "日均分盤量",

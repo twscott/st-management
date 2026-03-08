@@ -16,6 +16,11 @@ public enum SignalSource
     BigCandle,
     
     /// <summary>
+    /// 长下影线（下影线 >= 实体2倍）
+    /// </summary>
+    LongLowerShadow,
+    
+    /// <summary>
     /// 全部信号源
     /// </summary>
     All

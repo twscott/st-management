@@ -32,6 +32,7 @@ public class VolumeStatisticsProcessor : IDataProcessor
     /// </summary>
     public async Task<ProcessorResultDto> ProcessAsync(DateTime targetDate)
     {
+        await Task.CompletedTask;
         var result = new ProcessorResultDto { ProcessorName = "成交量統計處理器" };
         var stopwatch = Stopwatch.StartNew();
 
@@ -77,34 +78,34 @@ public class VolumeStatisticsProcessor : IDataProcessor
     /// <summary>
     /// 更新成交量排名 (暫時停用)
     /// </summary>
-    private async Task<int> UpdateVolumeRankingAsync(DateTime targetDate)
+    private Task<int> UpdateVolumeRankingAsync(DateTime targetDate)
     {
         // Note: volume_rank and volume_percentile columns don't exist in current database schema
         // Skip this operation to prevent blocking other processors
         _logger.LogDebug("跳過成交量排名更新 - 目標欄位不存在於數據庫結構中");
-        return 1; // Return success to continue processing
+        return Task.FromResult(1); // Return success to continue processing
     }
 
     /// <summary>
     /// 計算成交量異常統計 (暫時停用)
     /// </summary>
-    private async Task<int> CalculateVolumeAnomalyAsync(DateTime targetDate)
+    private Task<int> CalculateVolumeAnomalyAsync(DateTime targetDate)
     {
         // Note: Required columns (volume_anomaly_flag, avg_volume_20d) don't exist in current schema
         // Skip this operation to prevent blocking other processors
         _logger.LogDebug("跳過成交量異常計算 - 目標欄位不存在於數據庫結構中");
-        return 1; // Return success to continue processing
+        return Task.FromResult(1); // Return success to continue processing
     }
 
     /// <summary>
     /// 更新量價關係分析 (暫時停用)
     /// </summary>
-    private async Task<int> UpdateVolumePriceAnalysisAsync(DateTime targetDate)
+    private Task<int> UpdateVolumePriceAnalysisAsync(DateTime targetDate)
     {
         // Note: Required columns (volume_price_pattern, volume_price_ratio, close_price, open_price) don't exist in current schema
         // Skip this operation to prevent blocking other processors  
         _logger.LogDebug("跳過量價關係分析 - 目標欄位不存在於數據庫結構中");
-        return 1; // Return success to continue processing
+        return Task.FromResult(1); // Return success to continue processing
     }
 
     /// <summary>
@@ -125,11 +126,11 @@ public class VolumeStatisticsProcessor : IDataProcessor
     /// <summary>
     /// 計算成交量集中度 (暫時停用)
     /// </summary>
-    private async Task<int> CalculateVolumeConcentrationAsync(DateTime targetDate)
+    private Task<int> CalculateVolumeConcentrationAsync(DateTime targetDate)
     {
         // Note: daily_market_stats table and related columns don't exist in current schema
         // Skip this operation to prevent blocking other processors
         _logger.LogDebug("跳過成交量集中度計算 - 目標資料表不存在於數據庫結構中");
-        return 1; // Return success to continue processing
+        return Task.FromResult(1); // Return success to continue processing
     }
 }

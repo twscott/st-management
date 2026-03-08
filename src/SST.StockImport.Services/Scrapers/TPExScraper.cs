@@ -39,7 +39,7 @@ public class TPExScraper : IStockDataScraper
     /// 批次取得上櫃/興櫃股票交易資料（從 CSV 檔案）
     /// 對應舊系統的 CommonApp.updateStockInfo() 方法
     /// </summary>
-    public async Task<List<StockDataDto>> ScrapeBatchAsync(
+    public Task<List<StockDataDto>> ScrapeBatchAsync(
         IEnumerable<string> stockCodes,
         DateTime tradeDate,
         int maxDegreeOfParallelism = 5,

@@ -46,7 +46,7 @@ public class TimeMachineAnalysisController : ControllerBase
     /// 分析指定历史日期的推荐结果
     /// </summary>
     /// <param name="date">分析日期 (yyyy-MM-dd)</param>
-    /// <param name="signalSource">信号源类型 (0=量能爆发, 1=大阳线, 2=全部, 默认0)</param>
+    /// <param name="signalSource">信号源类型 (0=量能爆发, 1=大阳线, 2=长下影线, 3=全部, 默认0)</param>
     /// <param name="minMaturityScore">最小成熟度评分 (默认60)</param>
     /// <param name="minCoolingDays">最小冷却天数 (默认8)</param>
     /// <param name="maxCoolingDays">最大冷却天数 (默认30)</param>
@@ -54,7 +54,7 @@ public class TimeMachineAnalysisController : ControllerBase
     /// <param name="maxVolumeRatio">最大量能倍数 (默认50)</param>
     /// <param name="trackingDays">追踪天数 (默认60)</param>
     /// <param name="minKD">KD指标最小值 (可选)</param>
-    /// <param name="maxKD">KD指标最大值 (可选)</param>
+    /// <param name="maxKD">KD指标最大值 (可选，控制事件发生时的最大KD)</param>
     /// <param name="minBandwidth">布林带宽最小值% (可选)</param>
     [HttpGet("analyze/{date}")]
     public async Task<ActionResult<TimeMachineAnalysisResponse>> AnalyzeDate(

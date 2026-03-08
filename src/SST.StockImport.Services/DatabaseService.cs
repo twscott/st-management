@@ -695,12 +695,12 @@ public class DatabaseService : IDatabaseService
                     
                     result.TablesImported = successCount;
                     
-                    // Report skipped Hangfire tables
+                    // Report skipped Hangfire tables (log only, no need to show as error)
                     if (skippedTables.Count > 0)
                     {
-                        _logger.LogInformation("Skipped {Count} Hangfire runtime tables: {Tables}", 
+                        _logger.LogInformation("✅ Skipped {Count} Hangfire runtime tables (will be auto-recreated): {Tables}", 
                             skippedTables.Count, string.Join(", ", skippedTables));
-                        result.Errors.Add($"ℹ️ INFO: Skipped {skippedTables.Count} Hangfire runtime tables (will be auto-recreated)");
+                        // Note: Not added to result.Errors since this is expected behavior
                     }
                     
                     // ✅ Check if any critical tables failed

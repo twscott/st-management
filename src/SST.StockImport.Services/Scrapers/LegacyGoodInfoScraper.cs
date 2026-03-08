@@ -530,6 +530,7 @@ namespace SST.StockImport.Services.Scrapers
         /// </summary>
         private async Task LogTableStructure(IWebDriver driver, IWebElement txtStockListData)
         {
+            await Task.CompletedTask;
             try
             {
                 _logger.LogInformation("=== 開始診斷表格結構 ===");

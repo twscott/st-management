@@ -640,7 +640,7 @@ public class ImportService : IImportService
     /// <summary>
     /// 重試失敗的股票匯入（未實作）
     /// </summary>
-    public async Task<ImportResultDto> RetryFailedStocksAsync(
+    public Task<ImportResultDto> RetryFailedStocksAsync(
         string? jobId,
         CancellationToken cancellationToken = default)
     {
@@ -650,7 +650,7 @@ public class ImportService : IImportService
     /// <summary>
     /// 取得匯入任務狀態（未實作）
     /// </summary>
-    public async Task<ImportResultDto?> GetImportStatusAsync(
+    public Task<ImportResultDto?> GetImportStatusAsync(
         string jobId,
         CancellationToken cancellationToken = default)
     {
@@ -660,7 +660,7 @@ public class ImportService : IImportService
     /// <summary>
     /// 執行兩階段匯入（未實作）
     /// </summary>
-    public async Task<TwoPhaseImportResultDto> ExecuteTwoPhaseImportAsync(
+    public Task<TwoPhaseImportResultDto> ExecuteTwoPhaseImportAsync(
         ImportRequestDto request,
         CancellationToken cancellationToken = default)
     {
@@ -670,7 +670,7 @@ public class ImportService : IImportService
     /// <summary>
     /// 執行三階段完整匯入流程（未實作）
     /// </summary>
-    public async Task<ThreePhaseImportResultDto> ExecuteThreePhaseCompleteImportAsync(
+    public Task<ThreePhaseImportResultDto> ExecuteThreePhaseCompleteImportAsync(
         DateTime tradeDate,
         bool includeGoodInfo = false,
         CancellationToken cancellationToken = default)

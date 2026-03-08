@@ -130,6 +130,7 @@ namespace SST.StockImport.Services.Scrapers
         /// </summary>
         private async Task AnalyzeTableStructure(IWebDriver driver)
         {
+            await Task.CompletedTask;
             try
             {
                 _logger.LogInformation("🔍 開始分析表格結構...");

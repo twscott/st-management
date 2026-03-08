@@ -105,12 +105,12 @@ public class PriceAnalysisProcessor : IDataProcessor
     /// 更新 lowest5rec 表 - 前5個最低點
     /// 計算指定日期前後5天的最低價格點
     /// </summary>
-    private async Task<int> UpdateLowest5RecordsAsync(DateTime targetDate)
+    private Task<int> UpdateLowest5RecordsAsync(DateTime targetDate)
     {
         // Note: The legacy database uses a different schema for lowest5rec table
         // For now, skip this operation and return success to prevent blocking other processors
         _logger.LogWarning("Skipping lowest5rec update due to schema mismatch - legacy table structure differs");
-        return 1; // Return success count to continue processing
+        return Task.FromResult(1); // Return success count to continue processing
     }
 
     /// <summary>

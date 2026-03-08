@@ -11,10 +11,7 @@ namespace SST.StockImport.Core.Scheduling
         /// <summary>
         /// 任務唯一標識
         /// </summary>
-        public string Name { get; set; }
-        
-        /// <summary>
-        /// 任務開始時間 (例: 08:45:00)
+    public string Name { get; set; } = string.Empty;
         /// </summary>
         public TimeSpan StartTime { get; set; }
         

@@ -189,6 +189,7 @@ public class GoodInfoDataValidator
         string targetValue,
         string pageName)
     {
+        await Task.CompletedTask;
         var result = new DropdownSelectionResult 
         { 
             PageName = pageName,

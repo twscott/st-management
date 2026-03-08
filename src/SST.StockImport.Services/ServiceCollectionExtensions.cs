@@ -20,6 +20,10 @@ public static class ServiceCollectionExtensions
                 var json = File.ReadAllText(configPath);
                 using var doc = System.Text.Json.JsonDocument.Parse(json);
                 _connectionString = doc.RootElement.GetProperty("ConnectionStrings").GetProperty("DefaultConnection").GetString();
+                if (_connectionString == null)
+                {
+                    throw new InvalidOperationException("配置文件中的 DefaultConnection 不可为空");
+                }
             }
             else
             {
