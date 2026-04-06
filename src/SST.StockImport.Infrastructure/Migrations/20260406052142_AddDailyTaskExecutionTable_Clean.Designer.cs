@@ -9,11 +9,11 @@ using SST.StockImport.Infrastructure.Data;
 
 #nullable disable
 
-namespace SST.StockImport.Infrastructure.Data.Migrations
+namespace SST.StockImport.Infrastructure.Migrations
 {
     [DbContext(typeof(StockImportDbContext))]
-    [Migration("20260406044852_AddDailyTaskExecutionTable")]
-    partial class AddDailyTaskExecutionTable
+    [Migration("20260406052142_AddDailyTaskExecutionTable_Clean")]
+    partial class AddDailyTaskExecutionTable_Clean
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
