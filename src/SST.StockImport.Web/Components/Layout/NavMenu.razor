@@ -76,6 +76,12 @@
         </div>
 
         <div class="nav-item px-3">
+            <NavLink class="nav-link" href="daily-task">
+                <span class="bi bi-clipboard-check" aria-hidden="true"></span> 📋 每日任務監控
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
             <NavLink class="nav-link" href="time-machine">
                 <span class="bi bi-clock-history" aria-hidden="true"></span> 🕰️ 时光机分析
             </NavLink>
@@ -115,7 +121,7 @@
 
 @code {
     private string currentDatabase = "";
-    private string selectedDatabase = "sstv2";
+    private string selectedDatabase = "sst";
     private bool isLoadingDatabase = true;
     private bool isSwitching = false;
 
@@ -130,21 +136,23 @@
         try
         {
             var result = await ApiService.GetCurrentConnectionAsync();
-            if (result != null)
+            if (result != null && !string.IsNullOrWhiteSpace(result.DatabaseName))
             {
                 currentDatabase = result.DatabaseName;
                 selectedDatabase = result.DatabaseName;
             }
             else
             {
-                currentDatabase = "unknown";
-                Logger.LogWarning("Failed to load current database connection");
+                currentDatabase = "sst";
+                selectedDatabase = "sst";
+                Logger.LogWarning("Failed to load current database connection. Fallback to sst.");
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error loading current database");
-            currentDatabase = "error";
+            currentDatabase = "sst";
+            selectedDatabase = "sst";
         }
         finally
         {

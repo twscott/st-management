@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using SST.StockImport.Infrastructure.Data;
 using SST.StockImport.Core.Interfaces;
 using System.Text.Json;
 
@@ -12,15 +14,18 @@ public class DatabaseController : ControllerBase
     private readonly ILogger<DatabaseController> _logger;
     private readonly IDatabaseService _databaseService;
     private readonly IConfiguration _configuration;
+    private readonly StockImportDbContext _dbContext;
 
     public DatabaseController(
         ILogger<DatabaseController> logger, 
         IDatabaseService databaseService,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        StockImportDbContext dbContext)
     {
         _logger = logger;
         _databaseService = databaseService;
         _configuration = configuration;
+        _dbContext = dbContext;
     }
 
     [HttpGet("test-connection")]
@@ -153,7 +158,16 @@ public class DatabaseController : ControllerBase
         try
         {
             var connectionString = _configuration.GetConnectionString("DefaultConnection");
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                connectionString = _dbContext.Database.GetDbConnection().ConnectionString;
+            }
+
             var databaseName = ExtractDatabaseName(connectionString);
+            if (string.IsNullOrWhiteSpace(databaseName))
+            {
+                databaseName = "sst";
+            }
             
             _logger.LogInformation("Current database: {DatabaseName}", databaseName);
             
@@ -191,7 +205,13 @@ public class DatabaseController : ControllerBase
                 return BadRequest(new { Success = false, Message = "Invalid database name. Only 'sst' or 'sstv2' allowed." });
             }
 
-            var currentDb = ExtractDatabaseName(_configuration.GetConnectionString("DefaultConnection"));
+            var activeConnection = _configuration.GetConnectionString("DefaultConnection");
+            if (string.IsNullOrWhiteSpace(activeConnection))
+            {
+                activeConnection = _dbContext.Database.GetDbConnection().ConnectionString;
+            }
+
+            var currentDb = ExtractDatabaseName(activeConnection) ?? "sst";
             
             if (request.DatabaseName.Equals(currentDb, StringComparison.OrdinalIgnoreCase))
             {

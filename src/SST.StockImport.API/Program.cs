@@ -7,6 +7,7 @@ using SST.StockImport.Core.Interfaces;
 using SST.StockImport.Infrastructure;
 using SST.StockImport.Infrastructure.Data;
 using SST.StockImport.Services;
+using SST.StockImport.Services.HostedServices;
 
 // 配置 Serilog（早期初始化，捕捉啟動錯誤）
 // 測試環境中跳過 Serilog 初始化，由 WebApplicationFactory 管理
@@ -23,6 +24,16 @@ try
     Log.Information("Starting SST Stock Import API");
     
     var builder = WebApplication.CreateBuilder(args);
+
+    // Windows Service 執行時，將工作目錄切回應用程式所在路徑，避免落在 C:\Windows\System32
+    if (OperatingSystem.IsWindows())
+    {
+        Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+        builder.Host.UseWindowsService(options =>
+        {
+            options.ServiceName = "SST.StockImport.API";
+        });
+    }
     
     // 配置 Kestrel 伺服器選項（延長所有類型的超時）
     builder.WebHost.ConfigureKestrel(options =>
@@ -68,6 +79,12 @@ Log.Information("Infrastructure Services added successfully");
 Log.Information("Adding Stock Import Services...");
 builder.Services.AddStockImportServices();
 Log.Information("Stock Import Services added successfully");
+
+// UC-DailyAutoTask 背景服務（18:30 自動執行）
+if (!builder.Environment.IsEnvironment("Testing"))
+{
+    builder.Services.AddHostedService<DailyTaskHostedService>();
+}
 
 // 註冊 Hangfire (暫時停用以解決啟動問題)
 /*

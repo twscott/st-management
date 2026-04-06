@@ -49,6 +49,9 @@ bld/
 logs/
 *.log
 
+## Deployment artifacts
+publish/
+
 ## Database
 *.db
 *.db-shm

@@ -7,6 +7,15 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (OperatingSystem.IsWindows())
+{
+    Directory.SetCurrentDirectory(AppContext.BaseDirectory);
+    builder.Host.UseWindowsService(options =>
+    {
+        options.ServiceName = "SST.StockImport.Web";
+    });
+}
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -74,7 +83,11 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+var enableHttpsRedirection = app.Configuration.GetValue<bool>("Web:EnableHttpsRedirection", false);
+if (enableHttpsRedirection)
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseStaticFiles();
 app.UseAntiforgery();

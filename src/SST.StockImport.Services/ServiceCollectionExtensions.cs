@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using SST.StockImport.Core.Interfaces;
 using SST.StockImport.Infrastructure.Data;
+using SST.StockImport.Services.Adapters;
 using SST.StockImport.Services.Scrapers;
 
 namespace SST.StockImport.Services;
@@ -72,6 +73,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<IImportService, ImportService>();
         services.AddScoped<IStatisticsService, StatisticsService>();
+        services.AddScoped<IDailyTaskRunner, DailyTaskRunner>();
         
         services.AddScoped<IDatabaseService, DatabaseService>();
         

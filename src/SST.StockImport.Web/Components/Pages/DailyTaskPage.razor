@@ -1,0 +1,44 @@
+@page "/daily-task"
+@using SST.StockImport.Web.Components.UC
+@rendermode InteractiveServer
+
+<PageTitle>每日任務監控 - SST</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">📋 每日任務監控</h1>
+        <div>
+            <a href="/" class="btn btn-outline-secondary btn-sm">
+                <span class="bi bi-house-door"></span> 返回首頁
+            </a>
+        </div>
+    </div>
+
+    <!-- UC8: 每日任務監控組件 -->
+    <div class="row">
+        <div class="col-12">
+            <UC8_DailyTaskMonitor />
+        </div>
+    </div>
+
+    <!-- 說明文檔 -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <h6 class="mb-0">
+                        <span class="bi bi-info-circle me-2"></span>使用說明
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <ul class="mb-0">
+                        <li><strong>今日任務狀態</strong>：顯示當天自動任務的執行狀態、開始時間、執行時長等資訊</li>
+                        <li><strong>最近執行記錄</strong>：查看近期任務執行歷史，可選擇顯示 5/10/20 筆記錄</li>
+                        <li><strong>重試失敗任務</strong>：若有失敗的任務（重試次數 &lt; 5），可手動觸發重試</li>
+                        <li><strong>自動刷新</strong>：頁面每 30 秒自動更新資料，也可手動點擊「重新整理」按鈕</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

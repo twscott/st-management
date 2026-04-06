@@ -1,0 +1,395 @@
+@using SST.StockImport.Core.Entities
+@inject HttpClient Http
+@inject ILogger<UC8_DailyTaskMonitor> Logger
+@implements IDisposable
+
+<!-- UC8: 每日任務監控 -->
+<div class="card">
+    <div class="card-header bg-primary text-white">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">📋 每日任務監控</h5>
+            <button class="btn btn-sm btn-light" @onclick="RefreshData" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                <span class="bi bi-arrow-clockwise"></span> 重新整理
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        @if (isLoading && todayStatus == null)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">載入中...</span>
+                </div>
+                <div class="mt-2 text-muted">載入任務資料...</div>
+            </div>
+        }
+        else if (errorMessage != null)
+        {
+            <div class="alert alert-danger" role="alert">
+                <span class="bi bi-exclamation-triangle-fill me-2"></span>
+                <strong>錯誤：</strong> @errorMessage
+            </div>
+        }
+        else
+        {
+            <!-- 今日任務狀態 -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <h6 class="border-bottom pb-2">📅 今日任務狀態 (@DateTime.Today.ToString("yyyy-MM-dd"))</h6>
+                    @if (todayStatus != null)
+                    {
+                        <div class="row mt-3">
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <div class="badge bg-@GetStatusBadgeClass(todayStatus.Status) fs-6 p-2">
+                                        @todayStatus.Status
+                                    </div>
+                                    <div class="small text-muted mt-1">執行狀態</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <div class="fs-6 fw-bold">@todayStatus.TaskType</div>
+                                    <div class="small text-muted">任務類型</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    @if (todayStatus.StartTime.HasValue)
+                                    {
+                                        <div class="fs-6">@todayStatus.StartTime.Value.ToString("HH:mm:ss")</div>
+                                        <div class="small text-muted">開始時間</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="fs-6 text-muted">未開始</div>
+                                        <div class="small text-muted">開始時間</div>
+                                    }
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    @if (todayStatus.EndTime.HasValue && todayStatus.StartTime.HasValue)
+                                    {
+                                        var duration = todayStatus.EndTime.Value - todayStatus.StartTime.Value;
+                                        <div class="fs-6">@duration.TotalSeconds.ToString("F1")s</div>
+                                        <div class="small text-muted">執行時長</div>
+                                    }
+                                    else if (todayStatus.StartTime.HasValue)
+                                    {
+                                        <div class="fs-6">
+                                            <span class="spinner-border spinner-border-sm text-primary"></span> 執行中
+                                        </div>
+                                        <div class="small text-muted">執行時長</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="fs-6 text-muted">-</div>
+                                        <div class="small text-muted">執行時長</div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                        
+                        @if (!string.IsNullOrEmpty(todayStatus.ErrorMessage))
+                        {
+                            <div class="alert alert-warning mt-3 mb-0" role="alert">
+                                <strong>錯誤訊息：</strong> @todayStatus.ErrorMessage
+                            </div>
+                        }
+                        
+                        @if (todayStatus.RetryCount > 0)
+                        {
+                            <div class="mt-2">
+                                <small class="text-muted">
+                                    <span class="bi bi-arrow-repeat"></span> 已重試 @todayStatus.RetryCount 次
+                                </small>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="alert alert-info mt-3" role="alert">
+                            <span class="bi bi-info-circle me-2"></span>
+                            今日尚未執行任務
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- 最近執行記錄 -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center border-bottom pb-2">
+                        <h6 class="mb-0">📊 最近執行記錄</h6>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn @(displayCount == 5 ? "btn-primary" : "btn-outline-primary")" 
+                                    @onclick="() => SetDisplayCount(5)">5筆</button>
+                            <button type="button" class="btn @(displayCount == 10 ? "btn-primary" : "btn-outline-primary")" 
+                                    @onclick="() => SetDisplayCount(10)">10筆</button>
+                            <button type="button" class="btn @(displayCount == 20 ? "btn-primary" : "btn-outline-primary")" 
+                                    @onclick="() => SetDisplayCount(20)">20筆</button>
+                        </div>
+                    </div>
+                    
+                    @if (recentExecutions != null && recentExecutions.Any())
+                    {
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>執行日期</th>
+                                        <th>任務類型</th>
+                                        <th>狀態</th>
+                                        <th>開始時間</th>
+                                        <th>結束時間</th>
+                                        <th>執行時長</th>
+                                        <th>重試次數</th>
+                                        <th>錯誤訊息</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var execution in recentExecutions)
+                                    {
+                                        <tr>
+                                            <td>@execution.ExecutionDate.ToString("yyyy-MM-dd")</td>
+                                            <td>@execution.TaskType</td>
+                                            <td>
+                                                <span class="badge bg-@GetStatusBadgeClass(execution.Status)">
+                                                    @execution.Status
+                                                </span>
+                                            </td>
+                                            <td>
+                                                @if (execution.StartTime.HasValue)
+                                                {
+                                                    @execution.StartTime.Value.ToString("HH:mm:ss")
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (execution.EndTime.HasValue)
+                                                {
+                                                    @execution.EndTime.Value.ToString("HH:mm:ss")
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (execution.EndTime.HasValue && execution.StartTime.HasValue)
+                                                {
+                                                    var duration = execution.EndTime.Value - execution.StartTime.Value;
+                                                    @duration.TotalSeconds.ToString("F1")<small>s</small>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (execution.RetryCount > 0)
+                                                {
+                                                    <span class="badge bg-warning text-dark">@execution.RetryCount</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">0</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (!string.IsNullOrEmpty(execution.ErrorMessage))
+                                                {
+                                                    <span class="text-danger small" title="@execution.ErrorMessage">
+                                                        @(execution.ErrorMessage.Length > 50 ? execution.ErrorMessage.Substring(0, 50) + "..." : execution.ErrorMessage)
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">-</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info mt-3" role="alert">
+                            <span class="bi bi-info-circle me-2"></span>
+                            無執行記錄
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- 操作按鈕 -->
+            <div class="row mt-3">
+                <div class="col-12">
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-warning" @onclick="RetryFailedTask" disabled="@(isRetrying || !HasRetryableTask())">
+                            @if (isRetrying)
+                            {
+                                <span class="spinner-border spinner-border-sm me-1"></span>
+                            }
+                            <span class="bi bi-arrow-repeat"></span> 重試失敗任務
+                        </button>
+                        <small class="text-muted align-self-center">
+                            @if (!HasRetryableTask())
+                            {
+                                <span>目前無待重試任務</span>
+                            }
+                        </small>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+    <div class="card-footer text-muted small">
+        @if (lastRefreshTime != default)
+        {
+            <span>最後更新：@lastRefreshTime.ToString("yyyy-MM-dd HH:mm:ss")</span>
+        }
+    </div>
+</div>
+
+@code {
+    private DailyTaskExecution? todayStatus;
+    private List<DailyTaskExecution>? recentExecutions;
+    private bool isLoading = true;
+    private bool isRetrying = false;
+    private string? errorMessage;
+    private DateTime lastRefreshTime;
+    private int displayCount = 10;
+    private Timer? refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        
+        // 每 30 秒自動刷新
+        refreshTimer = new Timer(async _ => 
+        {
+            await InvokeAsync(async () => await RefreshData());
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        errorMessage = null;
+        
+        try
+        {
+            // 載入今日任務狀態
+            var statusResponse = await Http.GetAsync("/api/dailytask/status");
+            if (statusResponse.StatusCode == System.Net.HttpStatusCode.NoContent)
+            {
+                todayStatus = null;
+            }
+            else if (statusResponse.IsSuccessStatusCode)
+            {
+                todayStatus = await statusResponse.Content.ReadFromJsonAsync<DailyTaskExecution>();
+            }
+            
+            // 載入最近執行記錄
+            var recentResponse = await Http.GetAsync($"/api/dailytask/recent?count={displayCount}");
+            if (recentResponse.IsSuccessStatusCode)
+            {
+                recentExecutions = await recentResponse.Content.ReadFromJsonAsync<List<DailyTaskExecution>>();
+            }
+            
+            lastRefreshTime = DateTime.Now;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入每日任務資料失敗");
+            errorMessage = $"載入失敗：{ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadData();
+        StateHasChanged();
+    }
+
+    private async Task SetDisplayCount(int count)
+    {
+        if (displayCount != count)
+        {
+            displayCount = count;
+            await RefreshData();
+        }
+    }
+
+    private async Task RetryFailedTask()
+    {
+        isRetrying = true;
+        errorMessage = null;
+        
+        try
+        {
+            var response = await Http.PostAsync("/api/dailytask/retry", null);
+            var result = await response.Content.ReadAsStringAsync();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                Logger.LogInformation("任務重試成功：{result}", result);
+                await RefreshData();
+            }
+            else
+            {
+                Logger.LogWarning("任務重試失敗：{status} - {result}", response.StatusCode, result);
+                errorMessage = $"重試失敗：{result}";
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "重試任務時發生錯誤");
+            errorMessage = $"重試失敗：{ex.Message}";
+        }
+        finally
+        {
+            isRetrying = false;
+        }
+    }
+
+    private bool HasRetryableTask()
+    {
+        return recentExecutions?.Any(e => 
+            (e.Status == "Failed" || e.Status == "Timeout") && 
+            e.RetryCount < 5) ?? false;
+    }
+
+    private string GetStatusBadgeClass(string status)
+    {
+        return status switch
+        {
+            "Success" or "Completed" => "success",
+            "Running" or "InProgress" => "primary",
+            "Failed" => "danger",
+            "Timeout" => "warning",
+            "Pending" => "secondary",
+            _ => "secondary"
+        };
+    }
+
+    public void Dispose()
+    {
+        refreshTimer?.Dispose();
+    }
+}
