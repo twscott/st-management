@@ -52,6 +52,9 @@ builder.Services.AddScoped(sp => new HttpClient
 builder.Services.AddTransient<IImportApiService>(provider => 
     provider.GetRequiredService<ImportApiService>());
 
+// =============== UC-DailyAutoTask - 註冊 DailyTaskRunner Adapter ===============
+builder.Services.AddScoped<SST.StockImport.Core.Interfaces.IDailyTaskRunner, SST.StockImport.Web.Adapters.DailyTaskRunner>();
+
 // Register refactored services
 builder.Services.AddSingleton<ISystemStatusService, SystemStatusService>();
 builder.Services.AddSingleton<IExecutionLogService, ExecutionLogService>();

@@ -49,6 +49,9 @@ public static class ServiceCollectionExtensions
         // =============== UC-ScheduleManagement Repository 註冊 ===============
         services.AddScoped<IScheduleRepository, ScheduleRepository>();
 
+        // =============== UC-DailyAutoTask - 每日自動任務執行記錄服務 ===============
+        services.AddScoped<IDailyTaskExecutionService, Services.DailyTaskExecutionService>();
+
         // =============== OnTimer_timerSysTray 重寫 - 定時調度服務 ===============
         services.AddSchedulingServices();
 
