@@ -19,7 +19,7 @@ namespace SST.StockImport.Sandbox
         private readonly string _downloadPath;
         private readonly string _chromeUserDataDir;
 
-        public MarginRatioScraper(string downloadPath = null, string chromeUserDataDir = null)
+        public MarginRatioScraper(string? downloadPath = null, string? chromeUserDataDir = null)
         {
             _downloadPath = downloadPath ?? Path.Combine(Path.GetTempPath(), "GoodInfoDownloads");
             _chromeUserDataDir = chromeUserDataDir ?? Path.Combine(Path.GetTempPath(), "ChromeUserData");
@@ -49,7 +49,7 @@ namespace SST.StockImport.Sandbox
                 var options = CreateChromeOptions();
 
                 // Step 4: Initialize Chrome driver
-                IWebDriver driver = null;
+                IWebDriver? driver = null;
                 try
                 {
                     driver = new ChromeDriver(options);
@@ -213,7 +213,7 @@ namespace SST.StockImport.Sandbox
         /// <summary>
         /// 取得下載的檔案路徑
         /// </summary>
-        public string GetDownloadedFilePath()
+        public string? GetDownloadedFilePath()
         {
             if (Directory.Exists(_downloadPath))
             {

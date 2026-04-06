@@ -1,6 +1,7 @@
 """
 时光机超快速优化 - 仅测试3个最优配置
-直接用1个月数据，只测试3种精选配置，快速得出结果
+直接用3个月数据，只测试3种精选配置，快速得出结果
+目标: 20% gain in 20 days
 """
 
 import pymysql
@@ -20,12 +21,12 @@ conn = pymysql.connect(
 print("\n" + "="*80)
 print("ULTRA-FAST OPTIMIZATION - Top 3 Configs Only")
 print("="*80)
-print("Using 1-month data for quick results\n")
+print("Using 3-month data for better accuracy\n")
 
-TARGET_GAIN = 30
-TRACKING_DAYS = 21
+TARGET_GAIN = 20
+TRACKING_DAYS = 20
 
-one_month_ago = (datetime.now() - timedelta(days=32)).strftime('%Y-%m-%d')
+one_month_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
 tracking_cutoff = (datetime.now() - timedelta(days=TRACKING_DAYS + 2)).strftime('%Y-%m-%d')
 
 print(f"Data range: {one_month_ago} to {tracking_cutoff}")

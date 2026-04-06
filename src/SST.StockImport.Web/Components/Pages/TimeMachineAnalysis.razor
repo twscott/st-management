@@ -34,7 +34,7 @@
             <div class="row g-3">
                 <div class="col-md-2">
                     <label class="form-label fw-bold">信号源</label>
-                    <select class="form-select" @bind="SignalSource">
+                    <select class="form-select" @bind="SignalSource" @bind:after="OnSignalSourceChanged">
                         <option value="0">量能爆发</option>
                         <option value="1">大阳线(≥6%)</option>
                         <option value="2">长下影线</option>
@@ -64,13 +64,40 @@
                     <small class="text-muted">倍数 (x)</small>
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label fw-bold">冷却天数</label>
+                    <label class="form-label fw-bold">
+                        进阶过滤 (Strategy A)
+                        <i class="bi bi-info-circle" title="MV10量能+KD_D+MA10突破"></i>
+                    </label>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="useAdvancedFilters" @bind="UseAdvancedFilters">
+                        <label class="form-check-label" for="useAdvancedFilters">
+                            启用 (准确率↑27.6%)
+                        </label>
+                    </div>
+                    @if (UseAdvancedFilters)
+                    {
+                        <small class="text-success">
+                            Vol≥MV10*0.7<br/>
+                            KD_D≥60<br/>
+                            Price>MA10
+                        </small>
+                    }
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label fw-bold">
+                        冷却天数
+                        <button class="btn btn-link btn-sm text-decoration-none p-0 ms-1" 
+                                @onclick="ApplyRecommendedCooling" 
+                                title="应用推荐值">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </label>
                     <div class="input-group">
                         <input type="number" class="form-control" @bind="MinCoolingDays" min="1" />
                         <span class="input-group-text">~</span>
                         <input type="number" class="form-control" @bind="MaxCoolingDays" min="1" />
                     </div>
-                    <small class="text-muted">天</small>
+                    <small class="text-muted">@GetCoolingRecommendation()</small>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label fw-bold">
@@ -213,22 +240,24 @@
                             <thead class="table-dark">
                                 <tr>
                                     <th>排名</th>
-                                    <th>股票</th>
+                                    <th>股票代码</th>
+                                    <th>股票名称</th>
+                                    <th>类型</th>
                                     <th>成熟度</th>
                                     <th>量能</th>
                                     <th>冷却期</th>
                                     <th class="bg-warning bg-opacity-75 text-dark">
                                         <i class="bi bi-cart-check"></i> 买入价<br/>
-                                        <small class="text-danger fw-bold">(涨跌幅基准)</small>
+                                        <small class="text-danger fw-bold">(分析日收盘价)</small>
                                     </th>
                                     <th class="bg-success bg-opacity-25">
                                         最高涨幅<br/>
-                                        <small class="text-white-50">(从买入价)</small>
+                                        <small class="text-white-50">(追踪期内最高价÷买入价-1)</small>
                                     </th>
                                     <th>达标天数</th>
                                     <th class="bg-info bg-opacity-25">
                                         最终涨幅<br/>
-                                        <small class="text-white-50">(从买入价)</small>
+                                        <small class="text-white-50">(追踪结束价÷买入价-1)</small>
                                     </th>
                                     <th>综合评分</th>
                                 </tr>
@@ -241,6 +270,8 @@
                                         <tr>
                                             <td><strong class="text-warning">@rank</strong></td>
                                             <td><strong class="text-primary">@candidate.StockCode</strong></td>
+                                            <td>@candidate.StockName</td>
+                                            <td><span class="badge bg-secondary">@candidate.StockType</span></td>
                                             <td><span class="badge bg-info">@candidate.MaturityScore.ToString("F0")</span></td>
                                             <td>@candidate.PeakVolumeRatio.ToString("F1")x</td>
                                             <td>@candidate.DaysSinceHotspotAtAnalysis 天</td>
@@ -650,19 +681,22 @@
 
 @code {
     private DateTime AnalysisDate = DateTime.Now.AddDays(-30);
-    private int SignalSource = 2;  // 默认：全部信号
+    private int SignalSource = 1;  // 🔥 默认：大阳线（最佳回测结果）
     
-    // ⭐ 数据驱动参数 (基于 alertlist 成功模式分析 2025-08-12月)
-    private int MinMaturityScore = 65;      // 从 60 提高到 65 (成功案例平均)
-    private decimal MinVolumeRatio = 10;    // 维持 10x
-    private decimal MaxVolumeRatio = 30;    // 从 50 降到 30 (10-30x 成功率最高)
-    private int MinCoolingDays = 8;         // 维持 8 天
-    private int MaxCoolingDays = 30;        // 从 50 降到 30 (聚焦最佳时机)
-    private int TrackingDays = 60;          // 维持 60 天
+    // 🔥 最佳默认值（根据 SignalSource 自动设置，可手动调整）
+    private int MinMaturityScore = 65;      
+    private decimal MinVolumeRatio = 10;    
+    private decimal MaxVolumeRatio = 100;    
+    private int MinCoolingDays = 15;        // 🔥 大阳线最佳：15-35天
+    private int MaxCoolingDays = 35;        // 🔥 大阳线最佳：15-35天
+    private int TrackingDays = 60;          
 
-    private int? MinKD = 50;                // 从 30 提高到 50 (成功案例 avg=65.69)
-    private int? MaxKD = 80;                // 从 60 提高到 80 (避免过滤高 KD)
-    private decimal MinBandwidth = 25;      // 从 30 降到 25 (稍微放宽)
+    private int? MinKD = 40;                // 🔥 大阳线最佳：40-85
+    private int? MaxKD = 85;                // 🔥 大阳线最佳：40-85
+    private decimal MinBandwidth = 0;       
+
+    // ⭐ Strategy A 过滤参数（回测准确率 27.6%）
+    private bool UseAdvancedFilters = false;  // 默认关闭，由用户手动启用
 
     private DateTime EarliestDate = DateTime.Now.AddMonths(-6);
     private DateTime LatestDate = DateTime.Now;
@@ -740,6 +774,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // 🔥 页面加载时自动应用当前信号源的最佳配置
+        ApplySmartRecommendation();
         await LoadAvailableDateRange();
     }
 
@@ -783,7 +819,11 @@
                       $"&signalSource={SignalSource}" +
                       (MinKD.HasValue ? $"&minKD={MinKD.Value}" : "") +
                       (MaxKD.HasValue ? $"&maxKD={MaxKD.Value}" : "") +
-                      $"&minBandwidth={MinBandwidth}";
+                      $"&minBandwidth={MinBandwidth}" +
+                      $"&useAdvancedFilters={UseAdvancedFilters.ToString().ToLower()}" +
+                      $"&minVolumeMVRatio=0.7" +  // Strategy A: Vol >= MV10 * 0.7
+                      $"&minKD_D=60" +             // Strategy A: KD_D >= 60
+                      $"&requirePriceAboveMA10={UseAdvancedFilters.ToString().ToLower()}";  // Strategy A: Price > MA10
 
             Logger.LogInformation("开始时光机分析: {Url}", url);
             AnalysisResult = await Http.GetFromJsonAsync<TimeMachineAnalysisResponse>(url);
@@ -911,7 +951,7 @@
         return SignalSource switch
         {
             0 => "推荐: 20-70 (量能爆发)",
-            1 => "推荐: 30-80 (大阳线)",
+            1 => "🔥 最佳: 40-85 (大阳线)",
             2 => "推荐: 20-70 (长下影线)",
             _ => "留空为不限制"
         };
@@ -925,9 +965,9 @@
                 MinKD = 20;
                 MaxKD = 70;
                 break;
-            case 1:  // 大阳线
-                MinKD = 30;
-                MaxKD = 80;
+            case 1:  // 大阳线 - 🔥 最佳参数（回测优化）
+                MinKD = 40;
+                MaxKD = 85;
                 break;
             case 2:  // 长下影线
                 MinKD = 20;
@@ -936,6 +976,40 @@
             default:
                 MinKD = null;
                 MaxKD = null;
+                break;
+        }
+    }
+
+    private string GetCoolingRecommendation()
+    {
+        return SignalSource switch
+        {
+            0 => "推荐: 5-20 (量能爆发)",
+            1 => "🔥 最佳: 15-35 (大阳线)",
+            2 => "推荐: 5-20 (长下影线)",
+            _ => "留空为不限制"
+        };
+    }
+
+    private void ApplyRecommendedCooling()
+    {
+        switch (SignalSource)
+        {
+            case 0:  // 量能爆发
+                MinCoolingDays = 5;
+                MaxCoolingDays = 20;
+                break;
+            case 1:  // 大阳线 - 🔥 最佳参数（回测优化）
+                MinCoolingDays = 15;
+                MaxCoolingDays = 35;
+                break;
+            case 2:  // 长下影线
+                MinCoolingDays = 5;
+                MaxCoolingDays = 20;
+                break;
+            default:
+                MinCoolingDays = 8;
+                MaxCoolingDays = 30;
                 break;
         }
     }
@@ -962,19 +1036,22 @@
                     "⚠️ 注意: 候选数会减少约88%，但质量显著提升(高胜率策略)";
                 break;
 
-            case 1:  // 大阳线（Big Candle）
+            case 1:  // 大阳线（Big Candle）⭐ 最佳参数（2026-02 回测优化）
                 MinMaturityScore = 65;
                 MinVolumeRatio = 10;  //  大阳线不使用量能过滤
                 MaxVolumeRatio = 100;
-                MinCoolingDays = 5;   // 优化！基于历史回测
-                MaxCoolingDays = 20;  // 优化！缩短冷却期
-                MinKD = 30;
-                MaxKD = 80;
+                MinCoolingDays = 15;  // 🔥 最佳值：15-35天（非5-20）
+                MaxCoolingDays = 35;  // 🔥 最佳值：15-35天
+                MinKD = 40;           // 🔥 最佳值：40-85（非30-80）
+                MaxKD = 85;           // 🔥 最佳值：40-85
                 MinBandwidth = 0;  // 不限制
-                RecommendationMessage = "✨ 已应用【大阳线 + 完整多头排列】最佳配置：\n" +
-                    "• KD=30-80, 冷却=5-20天, 涨幅≥6%, 成交量≥1000张\n" +
-                    "• 均线过滤: MA5>MA10>MA20>MA60 (新增！)\n" +
-                    "📊 基于历史回测优化，采用高胜率策略";
+                UseAdvancedFilters = false;  // 默认不启用，让用户手动开启
+                RecommendationMessage = "✨ 已应用【大阳线】最佳配置（回测准确率 27.6%）：\n" +
+                    "• KD_K=40-85, 冷却=15-35天, 涨幅≥6%, 成交量≥1000张\n" +
+                    "• 均线过滤: MA5>MA10>MA20>MA60\n" +
+                    "💡 建议启用 Strategy A：Vol≥MV10*0.7 + KD_D≥60 + Price>MA10\n" +
+                    "📊 基于 2025-12-08 至 2026-02-14 完整回测（90天数据）\n" +
+                    "🎯 目标：20%涨幅在20天内达成";
                 break;
 
             case 2:  // 长下影线（Long Lower Shadow）
@@ -1006,6 +1083,14 @@
         }
 
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// 信号源切换时自动应用对应的最佳参数
+    /// </summary>
+    private void OnSignalSourceChanged()
+    {
+        ApplySmartRecommendation();
     }
 
     private class DateRangeResponse

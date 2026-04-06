@@ -263,7 +263,7 @@ public class DatabaseController : ControllerBase
     /// <summary>
     /// 更新配置文件中的数据库连接字符串
     /// </summary>
-    private async Task UpdateConfigFileAsync(string configPath, string oldDbName, string newDbName)
+    private async Task UpdateConfigFileAsync(string configPath, string? oldDbName, string newDbName)
     {
         _logger.LogInformation("Updating config file: {Path}", configPath);
         

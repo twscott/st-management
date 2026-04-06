@@ -127,4 +127,70 @@ public class SmartRecommendationController : ControllerBase
             return StatusCode(500, new { error = "Failed to generate recommendations", detail = ex.Message });
         }
     }
+
+    /// <summary>
+    /// 获取分类推荐（量能、大阳线、下影线各3档）
+    /// </summary>
+    /// <param name="countPerCategory">每个分类返回数量（默认3）</param>
+    /// <returns>分类推荐结果</returns>
+    [HttpGet("category/today")]
+    [ProducesResponseType(typeof(CategoryRecommendationResponse), 200)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<CategoryRecommendationResponse>> GetCategoryRecommendationsToday(
+        [FromQuery] int countPerCategory = 3)
+    {
+        try
+        {
+            var request = new CategoryRecommendationRequest
+            {
+                RecommendationDate = DateTime.Today,
+                CountPerCategory = countPerCategory
+            };
+
+            var result = await _recommendationService.GetCategoryRecommendationsAsync(request);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating category recommendations");
+            return StatusCode(500, new { error = "Failed to generate category recommendations", detail = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// 获取指定日期的分类推荐（用于历史回测）
+    /// </summary>
+    /// <param name="date">推荐日期（格式：yyyy-MM-dd）</param>
+    /// <param name="countPerCategory">每个分类返回数量（默认3）</param>
+    /// <returns>分类推荐结果</returns>
+    [HttpGet("category/{date}")]
+    [ProducesResponseType(typeof(CategoryRecommendationResponse), 200)]
+    [ProducesResponseType(400)]
+    [ProducesResponseType(500)]
+    public async Task<ActionResult<CategoryRecommendationResponse>> GetCategoryRecommendationsByDate(
+        string date,
+        [FromQuery] int countPerCategory = 3)
+    {
+        try
+        {
+            if (!DateTime.TryParse(date, out var recommendationDate))
+            {
+                return BadRequest(new { error = "Invalid date format. Use yyyy-MM-dd" });
+            }
+
+            var request = new CategoryRecommendationRequest
+            {
+                RecommendationDate = recommendationDate,
+                CountPerCategory = countPerCategory
+            };
+
+            var result = await _recommendationService.GetCategoryRecommendationsAsync(request);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating category recommendations for {Date}", date);
+            return StatusCode(500, new { error = "Failed to generate category recommendations", detail = ex.Message });
+        }
+    }
 }

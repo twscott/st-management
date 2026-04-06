@@ -108,7 +108,9 @@ public class TimeoutFixValidationTests : IClassFixture<WebApplicationFactory<Pro
                 throw new Exception($"❌ 意外的超時！執行時間: {timeout}, 原始錯誤: {ex.Message}", ex);
             }
         }
+        #pragma warning disable CS0168
         catch (Exception ex)
+        #pragma warning restore CS0168
         {
             stopwatch.Stop();
             Console.WriteLine($"執行時間到異常發生: {stopwatch.Elapsed}");

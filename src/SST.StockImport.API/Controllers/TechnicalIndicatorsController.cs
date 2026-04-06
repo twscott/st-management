@@ -214,15 +214,19 @@ public class TechnicalIndicatorsController : ControllerBase
 
                 if (stock60 != null)
                 {
-                    var priceAboveMA20 = stock60.MA20 > 0 
-                        ? (double)((stock60.EndPrice - stock60.MA20) / stock60.MA20 * 100) 
-                        : (double?)null;
+                    double? priceAboveMA20 = null;
+                    if (stock60.MA20 > 0 && stock60.EndPrice.HasValue)
+                    {
+                        priceAboveMA20 = (double)((stock60.EndPrice.Value - stock60.MA20) / stock60.MA20 * 100);
+                    }
 
                     var maAlignment = DetermineMAAlignment(stock60.MA5, stock60.MA10, stock60.MA20);
                     
-                    var volumeRatio = stock60.MV20 > 0 && stock60.Vol.HasValue
-                        ? (double)stock60.Vol.Value / stock60.MV20
-                        : (double?)null;
+                    double? volumeRatio = null;
+                    if (stock60.MV20 > 0 && stock60.Vol.HasValue)
+                    {
+                        volumeRatio = (double)stock60.Vol.Value / (double)stock60.MV20;
+                    }
 
                     results.Add(new
                     {

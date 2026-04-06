@@ -2,7 +2,186 @@
 
 **Project**: Stock Import Timing Task Framework (SST)  
 **Stack**: .NET 8.0, C#, XUnit, Entity Framework Core, MySQL  
-**Version**: 1.0 (Feb 2026)
+**Version**: 1.0 (Feb 2026)  
+**规范版本**: v2.3 (2026-03-27)
+
+---
+
+## 📌 公司规范引用
+
+**本项目遵循公司级开发规范**：  
+详见 [AI Coding Standards](d:\vibeCoding\.company-conventions\AI-CODING-STANDARDS.md)
+
+**核心框架**：
+- [标准 Prompts](d:\vibeCoding\.company-conventions\STANDARD_PROMPTS.md) - 开工/收工/完工关键字
+- [UC 工作流](d:\vibeCoding\.company-conventions\UC-WORKFLOW\README.md) - UC 驱动开发
+- [Pre-Release Gate](d:\vibeCoding\.company-conventions\PRE-RELEASE-GATE.md) - 上线前强制关卡
+- [Agent Skills](d:\vibeCoding\.company-conventions\Agent-Skills\AGENT_SKILLS_USAGE_TIMING_GUIDE.md) - 质量保证技能
+
+---
+
+## 🔑 特殊关键字触发协议
+
+> **AI 同仁必读**：这是让你像真正同事的核心机制。
+
+### 听到「开工」👉 立即自动执行，不要等用户指示
+
+**在和用户打招呼之前，先完成以下动作**：
+
+1. **加载永久记忆**（如果目录存在）：
+   - `docs/permanent/BUSINESS_RULES.md`
+   - `docs/permanent/DATABASE_SCHEMA.md`
+   - `docs/permanent/DEPLOYMENT_ARCHITECTURE.md`
+   - `docs/permanent/COMMON_COMPONENTS.md`
+   - `docs/permanent/AUTHENTICATION_SYSTEM.md`
+
+2. **加载长期记忆**（如果目录存在）：
+   - `docs/long-term/` 目录下最新 3-5 个文件
+   - `Sandbox/Function_Map_*.md` 当前函数地图
+   - **⚠️ 检查即将到期的长期记忆**：若有文件建立日期超过 75 天（接近 90 天上限），主动列出并发起讨论：「以下长期记忆即将到期，请确认是否延长或升为永久记忆」
+
+3. **加载短期记忆**：
+   - 读取 `SESSION_INDEX.md` 最近 10 笔
+   - 读取本文件「当前 Session 上下文」区块
+
+4. **验证规范路径**（必须在版本检查前执行）：
+   - 尝试读取 `d:\vibeCoding\.company-conventions\CONVENTIONS_CHANGELOG.md`
+   - 如果读取失败或路径不存在，**立即停止开工流程**，并告知用户：
+     ```
+     ⚠️ 找不到公司规范！
+     
+     请先在此机器上执行：
+       git clone [规范 repo URL] d:\vibeCoding\.company-conventions
+     
+     完成后重新说「开工」。
+     ```
+   - 路径不存在时，**不得继续执行后续步骤**（含打招呼）
+
+5. **检查规范版本**：
+   - 读取本文件顶部的 `**规范版本**` 欄位（例如 `v2.3`）
+   - 读取 `d:\vibeCoding\.company-conventions\CONVENTIONS_CHANGELOG.md` 第一行取得最新版本
+   - 如果版本不同，在打招呼时补充提醒（见下方格式）
+
+6. **主动打招呼**（繁体中文，语气自然像同事）：
+
+```
+欢迎回来！✅
+
+📌 上次我们做到：[从 SESSION_INDEX + 上下文中整理]
+
+📚 已备妥背景知识：
+• 业务规则：[重点 1-2 条]
+• 架构/部署：[重点]
+• 数据库：[重点]
+
+🎯 今天建议先做：
+• [P0/P1 优先任务]
+
+⚠️ 规范版本提醒（如有版本差异才显示）：
+本项目用 vX.X，最新为 vY.Y
+新功能：[一句话描述新增了什么]
+升级说明：d:\vibeCoding\.company-conventions\CONVENTIONS_CHANGELOG.md
+
+准备好了，说吧！
+```
+
+**强制规定**：不得问「现在做到哪了？」、「这个项目是做什么的？」——我必须自己找到答案。
+
+---
+
+### 听到「收工」👉 立即自动执行，不要等用户指示
+
+**我会按顺序执行，然后向用户报告**：
+
+1. **整理今天工作** — 从对话记录提取完成项目和变更文件
+2. **更新 SESSION_INDEX.md** — 在最上方加一行 `- YYYY-MM-DD | [20-50字摘要]`
+3. **判断记忆更新** — 有新业务规则/架构/已知问题 → 提示更新对应记忆文件
+4. **清理暂存文件** — 扫描并提示删除以下类型：
+   - 一次性脚本（`fix_*.ps1`、`temp_*.py`、`test_manual_*.js` 等）
+   - 暂存文件（`*.tmp`、`*.bak`、`debug_*.*`）
+   - 临时输出（非 `.gitignore` 保护的 log、dump 文件）
+   - 若不确定是否可删，**列出清单让用户确认**，不要自行删除
+5. **Git 整理** — 执行 `git status`，建议符合规范的 commit 消息，询问是否 push
+6. **收工打招呼**：
+
+```
+收工了，今天辛苦了 ✅
+
+📝 今天完成：[工作摘要]
+💾 SESSION_INDEX 已更新：
+• YYYY-MM-DD | [摘要]
+
+🔀 Git 建议：
+git add .
+git commit -m "[建议消息]"
+
+🧠 记忆更新提醒：[如有新知识需要存入记忆，列出建议]
+
+下次说「开工」，我会记得我们做到哪了。掰掰！👋
+```
+
+---
+
+### 听到「完工」👉 立即自动执行，不要等用户指示
+
+触发条件：UC 真正做完（UAT 通过），准备 merge 到 main。
+
+我会按顺序执行：
+
+1. **确认完工条件** — 向用户确认以下全部通过：
+   - ✅ L1 / L2 / L3 测试全过
+   - ✅ 手动 UAT 通过
+   - ✅ 无待解 bug
+
+2. **写最终 Session Report** — 给 Reviewer 看的版本，记录完成的功能、测试结果、commit hash
+
+3. **更新 SESSION_INDEX.md** — 加一行 `- YYYY-MM-DD | UC-XXX 完工：[功能描述]`
+
+4. **Git commit + push feature branch**：
+   ```powershell
+   git add .
+   git commit -m "feat([scope]): [UC 标题] — UAT passed, ready for review"
+   git push origin [当前 branch]
+   ```
+
+5. **输出填好的 Reviewer Prompt** — 直接印在画面上，你复制去新 Chat 贴上（详见 STANDARD_PROMPTS.md Section 6）
+
+6. **完工打招呼**：
+
+```
+UC 完工 🎉
+
+✅ 测试：[L1: X/X, L2: X/X, L3: X/X, UAT: 通过]
+📦 Branch：[branch名称] 已 push
+📋 Reviewer Prompt 已输出（见上方）
+
+👉 你现在要做：
+  1. 开新 Chat
+  2. 贴上上方 Reviewer Prompt
+  3. Reviewer merge 后，这个 UC 正式完成 ✅
+
+這個 Session 可以關了。
+```
+
+---
+
+## 🧠 AI 记忆系统使用指南
+
+当你需要 AI 记住某个信息时，按照以下方式说：
+
+**永久记忆** (业务规则、架构、部署):
+- "把这个加到永久记忆" → AI 自动判断存到 docs/permanent/
+- 例：数据库架构变更、业务规则更新
+
+**长期记忆** (UC 设计、Function Map、已知坑):
+- "把这个加到长期记忆" → AI 自动判断存到 docs/long-term/
+- 例：完成了新的 UC、发现了性能问题
+
+**短期记忆** (每日工作日志):
+- AI 自动在收工时在 SESSION_INDEX.md 添加一行
+- 例：「2026-03-25 | 完成用户认证、修复 bug」
+
+📖 详细规则见：[MEMORY_CLASSIFICATION_GUIDE.md](d:\vibeCoding\.company-conventions\MEMORY_CLASSIFICATION_GUIDE.md)
 
 ---
 

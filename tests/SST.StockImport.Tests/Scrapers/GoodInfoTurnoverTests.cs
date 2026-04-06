@@ -53,7 +53,7 @@ public class GoodInfoTurnoverTests
         var scraperType = typeof(GoodInfoScraper);
         var method = scraperType.GetMethod("IsStockDetailPage", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        var result = (bool)method!.Invoke(null, new object[] { turnoverUrl });
+        var result = method!.Invoke(null, new object[] { turnoverUrl }) as bool? ?? false;
 
         // Assert
         Assert.False(result); // 週轉率不是個股詳細頁面，需要點擊下載按鈕
@@ -69,7 +69,7 @@ public class GoodInfoTurnoverTests
         var scraperType = typeof(GoodInfoScraper);
         var method = scraperType.GetMethod("IsStockDetailPage", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        var result = (bool)method!.Invoke(null, new object[] { stockDetailUrl });
+        var result = method!.Invoke(null, new object[] { stockDetailUrl }) as bool? ?? false;
 
         // Assert
         Assert.True(result); // 個股詳細頁面不需要點擊下載按鈕
@@ -102,7 +102,7 @@ public class GoodInfoTurnoverTests
         var scraperType = typeof(GoodInfoScraper);
         var method = scraperType.GetMethod("IsStockDetailPage", 
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        var result = (bool)method!.Invoke(null, new object[] { url });
+        var result = method!.Invoke(null, new object[] { url }) as bool? ?? false;
 
         // Assert
         Assert.Equal(expectedResult, result);

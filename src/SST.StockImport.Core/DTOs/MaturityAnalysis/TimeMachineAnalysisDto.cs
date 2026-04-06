@@ -100,6 +100,26 @@ public class TimeMachineAnalysisRequest
     /// 布林带宽最小值%（可选）
     /// </summary>
     public decimal? MinBandwidth { get; set; }
+
+    /// <summary>
+    /// 使用进阶过滤（Strategy A: MV10 + KD_D + MA10）
+    /// </summary>
+    public bool UseAdvancedFilters { get; set; } = false;
+
+    /// <summary>
+    /// 最小量能倍数（相对于 MV10）- Strategy A 默认 0.7
+    /// </summary>
+    public decimal? MinVolumeMVRatio { get; set; } = 0.7m;
+
+    /// <summary>
+    /// KD_D 最小值（Strategy A 默认 60）
+    /// </summary>
+    public decimal? MinKD_D { get; set; } = 60m;
+
+    /// <summary>
+    /// 要求价格突破 MA10（Strategy A）
+    /// </summary>
+    public bool RequirePriceAboveMA10 { get; set; } = true;
 }
 
 /// <summary>

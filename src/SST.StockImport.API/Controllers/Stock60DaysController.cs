@@ -25,7 +25,7 @@ public class Stock60DaysController : ControllerBase
     }
 
     [HttpPost("recalc")]
-    public async Task<ActionResult> Recalculate([FromBody] Stock60DaysRecalcRequest request)
+    public Task<ActionResult> Recalculate([FromBody] Stock60DaysRecalcRequest request)
     {
         try
         {
@@ -44,12 +44,12 @@ public class Stock60DaysController : ControllerBase
                 }
             });
 
-            return Ok(new { Message = "計算已啟動，請透過 /progress 查詢進度" });
+            return Task.FromResult<ActionResult>(Ok(new { Message = "計算已啟動，請透過 /progress 查詢進度" }));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Stock60Days 重算發生錯誤");
-            return StatusCode(500, new { Error = ex.Message });
+            return Task.FromResult<ActionResult>(StatusCode(500, new { Error = ex.Message }));
         }
     }
 

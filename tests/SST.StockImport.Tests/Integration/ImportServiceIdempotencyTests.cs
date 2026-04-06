@@ -41,8 +41,10 @@ public class ImportServiceIdempotencyTests : IAsyncLifetime
         
         // 清理测试数据（只删除 2026-02-24 的数据，保持数据库结构）
         // ⚠️ 注意：weekall, tradedata, stockid 表需要预先在 sstv2_test 数据库中创建
+        #pragma warning disable EF1002
         await _dbContext.Database.ExecuteSqlRawAsync($"DELETE FROM weekall WHERE StockDate = '{_testDate:yyyy-MM-dd}'");
         await _dbContext.Database.ExecuteSqlRawAsync($"DELETE FROM tradedata WHERE TransDate = '{_testDate:yyyy-MM-dd}'");
+        #pragma warning restore EF1002
 
         // 设置服务 - 每个 scope 创建新的 DbContext 实例
         var serviceCollection = new ServiceCollection();
@@ -78,8 +80,10 @@ public class ImportServiceIdempotencyTests : IAsyncLifetime
         if (_dbContext != null)
         {
             // 清理测试数据
+            #pragma warning disable EF1002
             await _dbContext.Database.ExecuteSqlRawAsync($"DELETE FROM weekall WHERE StockDate = '{_testDate:yyyy-MM-dd}'");
             await _dbContext.Database.ExecuteSqlRawAsync($"DELETE FROM tradedata WHERE TransDate = '{_testDate:yyyy-MM-dd}'");
+            #pragma warning restore EF1002
             await _dbContext.DisposeAsync();
             
             _output.WriteLine($"✅ Test data cleaned up for {_testDate:yyyy-MM-dd}");

@@ -438,6 +438,12 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
                   -- ⭐⭐⭐ 完整多头排列 (准确率提升46-50%)
                   AND s60.MA5 > 0 AND s60.MA10 > 0 AND s60.MA20 > 0 AND s60.MA60 > 0
                   AND s60.MA5 > s60.MA10 AND s60.MA10 > s60.MA20 AND s60.MA20 > s60.MA60
+                  -- 🔥🔥🔥 Strategy A: 最佳过滤条件 (准确率 27.6%, 回测 2025-12-08 至 2026-02-14)
+                  AND (@UseAdvancedFilters = 0 OR (
+                      t.Vol >= s60.MV10 * @MinVolumeMVRatio  -- Vol >= MV10 * 0.7
+                      AND s60.KD_D >= @MinKD_D                -- KD_D >= 60
+                      AND (@RequirePriceAboveMA10 = 0 OR s60.EndPrice > s60.MA10)  -- Price > MA10
+                  ))
             ) AS candidates
             WHERE maturity_score >= @minMaturityScore
               AND entry_price IS NOT NULL
@@ -477,6 +483,27 @@ public class TimeMachineAnalysisService : ITimeMachineAnalysisService
         param = command.CreateParameter();
         param.ParameterName = "@MinBandwidth";
         param.Value = (object?)request.MinBandwidth ?? DBNull.Value;
+        command.Parameters.Add(param);
+
+        // Strategy A 参数（回测最佳配置 - 准确率 27.6%）
+        param = command.CreateParameter();
+        param.ParameterName = "@UseAdvancedFilters";
+        param.Value = request.UseAdvancedFilters ? 1 : 0;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@MinVolumeMVRatio";
+        param.Value = (object?)request.MinVolumeMVRatio ?? 0.7m;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@MinKD_D";
+        param.Value = (object?)request.MinKD_D ?? 60m;
+        command.Parameters.Add(param);
+
+        param = command.CreateParameter();
+        param.ParameterName = "@RequirePriceAboveMA10";
+        param.Value = request.RequirePriceAboveMA10 ? 1 : 0;
         command.Parameters.Add(param);
 
         var candidates = new List<HistoricalCandidate>();

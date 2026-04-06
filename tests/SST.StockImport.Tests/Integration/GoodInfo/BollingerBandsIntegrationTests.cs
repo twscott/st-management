@@ -16,9 +16,9 @@ namespace SST.StockImport.Tests.Integration.GoodInfo;
 public class BollingerBandsIntegrationTests : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
-    private StockImportDbContext _dbContext;
-    private ITradeDataRepository _repository;
-    private BollingerBandsService _service;
+    private StockImportDbContext _dbContext = null!;
+    private ITradeDataRepository _repository = null!;
+    private BollingerBandsService _service = null!;
     private readonly string _testCsvPath;
 
     public BollingerBandsIntegrationTests(ITestOutputHelper output)

@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using MySqlConnector;
 using SST.StockImport.Core.DTOs.SmartRecommendation;
 using SST.StockImport.Core.Interfaces;
 using SST.StockImport.Infrastructure.Data;
@@ -886,4 +887,464 @@ public class SmartRecommendationService : ISmartRecommendationService
             }
         }
     }
+
+    #region 分类推荐（量能、大阳线、下影线各3档）
+
+    /// <summary>
+    /// 获取分类推荐（量能、大阳线、下影线各3档，应用最佳策略）
+    /// </summary>
+    public async Task<CategoryRecommendationResponse> GetCategoryRecommendationsAsync(CategoryRecommendationRequest request)
+    {
+        var recommendationDate = request.RecommendationDate ?? DateTime.Today;
+        _logger.LogInformation("生成分类推荐（各3档） - 日期: {Date}", recommendationDate);
+
+        var response = new CategoryRecommendationResponse
+        {
+            RecommendationDate = recommendationDate,
+            GeneratedAt = DateTime.Now,
+            IsHistoricalBacktest = (DateTime.Today - recommendationDate).TotalDays >= 20  // 20天后可回测
+        };
+
+        try
+        {
+            var connection = _context.Database.GetDbConnection();
+            if (connection.State != ConnectionState.Open)
+                await connection.OpenAsync();
+
+            // 1. 大阳线推荐 (Strategy A: KD 40-85, 冷却 15-35, 准确率 27.6%)
+            response.BigCandle = await GetBigCandleRecommendationsAsync(
+                connection, recommendationDate, request.CountPerCategory, response.IsHistoricalBacktest);
+
+            // 2. 量能爆发推荐 (基础过滤: KD 20-70, 冷却 5-20)
+            response.VolumeSpike = await GetVolumeSpikeRecommendationsAsync(
+                connection, recommendationDate, request.CountPerCategory, response.IsHistoricalBacktest);
+
+            // 3. 长下影线推荐 (基础过滤: KD 20-70, 冷却 5-20)
+            response.LongShadow = await GetLongShadowRecommendationsAsync(
+                connection, recommendationDate, request.CountPerCategory, response.IsHistoricalBacktest);
+
+            _logger.LogInformation("分类推荐完成 - 大阳线:{Big}, 量能:{Vol}, 下影线:{Shadow}", 
+                response.BigCandle.Recommendations.Count,
+                response.VolumeSpike.Recommendations.Count,
+                response.LongShadow.Recommendations.Count);
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "分类推荐生成失败");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 大阳线推荐（Strategy A: 最佳参数）
+    /// </summary>
+    private async Task<CategoryRecommendations> GetBigCandleRecommendationsAsync(
+        System.Data.Common.DbConnection connection, 
+        DateTime recommendationDate, 
+        int topCount,
+        bool isHistorical)
+    {
+        var category = new CategoryRecommendations
+        {
+            CategoryName = "大阳线",
+            Description = "涨幅≥6% + 成交量≥1000张",
+            ExpectedAccuracy = 27.6m,
+            StrategyDescription = "Strategy A: KD 40-85 + 冷却 15-35天 + Vol≥MV10×0.7 + KD_D≥60 + Price>MA10"
+        };
+
+        using var command = connection.CreateCommand();
+        // 🔥 应用最佳回测参数
+        command.CommandText = @"
+            SELECT 
+                t.StockID as stock_code,
+                t.TransDate as signal_date,
+                DATEDIFF(@recommendationDate, t.TransDate) as cooling_days,
+                CAST(t.StockDiffRate AS DECIMAL(10,2)) as volume_ratio,
+                CAST(t.StockPrice AS DECIMAL(10,2)) as signal_price,
+                CAST(t.Vol AS DECIMAL(15,2)) as signal_volume,
+                CAST(s60.EndPrice AS DECIMAL(10,2)) as current_price,
+                CAST(s60.KD_K AS DECIMAL(10,2)) as KD_K, 
+                CAST(s60.KD_D AS DECIMAL(10,2)) as KD_D,
+                CAST(s60.MA5 AS DECIMAL(10,2)) as MA5, 
+                CAST(s60.MA10 AS DECIMAL(10,2)) as MA10, 
+                CAST(s60.MA20 AS DECIMAL(10,2)) as MA20,
+                CAST(s60.MV10 AS DECIMAL(15,2)) as MV10,
+                si.name as stock_name,
+                si.stype as stock_type,
+                -- 成熟度评分
+                CAST((
+                    CASE WHEN DATEDIFF(@recommendationDate, t.TransDate) BETWEEN 15 AND 30 THEN 40
+                         WHEN DATEDIFF(@recommendationDate, t.TransDate) BETWEEN 31 AND 50 THEN 35
+                         ELSE 25 END +
+                    CASE WHEN t.StockDiffRate >= 10 THEN 30
+                         WHEN t.StockDiffRate >= 8 THEN 25
+                         ELSE 20 END +
+                    30
+                ) AS DECIMAL(10,2)) as maturity_score
+            FROM tradedata t
+            INNER JOIN stock60days s60 ON s60.StockID = t.StockID AND s60.StockDate = @recommendationDate
+            LEFT JOIN stockid si ON si.id = t.StockID
+            WHERE t.TransDate < @recommendationDate
+              AND DATEDIFF(@recommendationDate, t.TransDate) BETWEEN 15 AND 35  -- 🔥 最佳冷却期
+              AND t.StockDiffRate >= 6.0
+              AND t.Vol >= 1000
+              AND s60.KD_K BETWEEN 40 AND 85  -- 🔥 最佳 KD_K 范围
+              -- Strategy A 过滤
+              AND t.Vol >= s60.MV10 * 0.7     -- Vol >= MV10 × 0.7
+              AND s60.KD_D >= 60              -- KD_D >= 60
+              AND s60.EndPrice > s60.MA10     -- Price > MA10
+              -- 完整多头排列
+              AND s60.MA5 > s60.MA10 AND s60.MA10 > s60.MA20 AND s60.MA20 > s60.MA60
+            ORDER BY maturity_score DESC
+            LIMIT @topCount";
+
+        AddParameter(command, "@recommendationDate", recommendationDate);
+        AddParameter(command, "@topCount", topCount);
+
+        var candidates = await ExecuteCategoryQuery(command);
+        category.TotalCandidates = candidates.Count;
+
+        // 追踪后续表现（历史回测）
+        if (isHistorical)
+        {
+            foreach (var stock in candidates)
+            {
+                stock.Performance = await TrackCategoryPerformanceAsync(
+                    stock.StockCode, stock.SuggestedEntryPrice, recommendationDate);
+            }
+            category.BacktestStats = CalculateCategoryBacktestStats(candidates);
+        }
+
+        category.Recommendations = candidates.Take(topCount).ToList();
+        return category;
+    }
+
+    /// <summary>
+    /// 量能爆发推荐
+    /// </summary>
+    private async Task<CategoryRecommendations> GetVolumeSpikeRecommendationsAsync(
+        System.Data.Common.DbConnection connection,
+        DateTime recommendationDate,
+        int topCount,
+        bool isHistorical)
+    {
+        var category = new CategoryRecommendations
+        {
+            CategoryName = "量能爆发",
+            Description = "量能倍数 ≥10x",
+            ExpectedAccuracy = 13.1m,
+            StrategyDescription = "基础过滤: KD 20-70 + 冷却 5-20天 + MA5>MA10>MA20>MA60"
+        };
+
+        using var command = connection.CreateCommand();
+        command.CommandText = @"
+            SELECT 
+                a.StockID as stock_code,
+                a.alertDate as signal_date,
+                DATEDIFF(@recommendationDate, a.alertDate) as cooling_days,
+                CAST(a.maxPLVR AS DECIMAL(10,2)) as volume_ratio,
+                CAST(s60.EndPrice AS DECIMAL(10,2)) as signal_price,
+                CAST(0 AS DECIMAL(15,2)) as signal_volume,
+                CAST(s60.EndPrice AS DECIMAL(10,2)) as current_price,
+                CAST(s60.KD_K AS DECIMAL(10,2)) as KD_K,
+                CAST(s60.KD_D AS DECIMAL(10,2)) as KD_D,
+                CAST(s60.MA5 AS DECIMAL(10,2)) as MA5,
+                CAST(s60.MA10 AS DECIMAL(10,2)) as MA10,
+                CAST(s60.MA20 AS DECIMAL(10,2)) as MA20,
+                CAST(s60.MV10 AS DECIMAL(15,2)) as MV10,
+                si.name as stock_name,
+                si.stype as stock_type,
+                -- 成熟度评分
+                CAST((
+                    CASE WHEN DATEDIFF(@recommendationDate, a.alertDate) BETWEEN 8 AND 14 THEN 40
+                         WHEN DATEDIFF(@recommendationDate, a.alertDate) BETWEEN 15 AND 30 THEN 35
+                         ELSE 25 END +
+                    CASE WHEN a.maxPLVR >= 30 THEN 30
+                         WHEN a.maxPLVR >= 20 THEN 25
+                         ELSE 20 END +
+                    30
+                ) AS DECIMAL(10,2)) as maturity_score
+            FROM alertlist a
+            INNER JOIN stock60days s60 ON s60.StockID = a.StockID AND s60.StockDate = @recommendationDate
+            LEFT JOIN stockid si ON si.id = a.StockID
+            WHERE a.alertDate < @recommendationDate
+              AND DATEDIFF(@recommendationDate, a.alertDate) BETWEEN 5 AND 20
+              AND a.maxPLVR >= 10
+              AND s60.KD_K BETWEEN 20 AND 70
+              AND s60.MA5 > s60.MA10 AND s60.MA10 > s60.MA20 AND s60.MA20 > s60.MA60
+            ORDER BY maturity_score DESC
+            LIMIT @topCount";
+
+        AddParameter(command, "@recommendationDate", recommendationDate);
+        AddParameter(command, "@topCount", topCount);
+
+        var candidates = await ExecuteCategoryQuery(command);
+        category.TotalCandidates = candidates.Count;
+
+        if (isHistorical)
+        {
+            foreach (var stock in candidates)
+            {
+                stock.Performance = await TrackCategoryPerformanceAsync(
+                    stock.StockCode, stock.SuggestedEntryPrice, recommendationDate);
+            }
+            category.BacktestStats = CalculateCategoryBacktestStats(candidates);
+        }
+
+        category.Recommendations = candidates.Take(topCount).ToList();
+        return category;
+    }
+
+    /// <summary>
+    /// 长下影线推荐
+    /// </summary>
+    private async Task<CategoryRecommendations> GetLongShadowRecommendationsAsync(
+        System.Data.Common.DbConnection connection,
+        DateTime recommendationDate,
+        int topCount,
+        bool isHistorical)
+    {
+        var category = new CategoryRecommendations
+        {
+            CategoryName = "长下影线",
+            Description = "下影线 ≥ 实体2倍",
+            ExpectedAccuracy = 18.6m,
+            StrategyDescription = "基础过滤: KD 20-70 + 冷却 5-20天 + MA5>MA10>MA20>MA60"
+        };
+
+        using var command = connection.CreateCommand();
+        command.CommandText = @"
+            SELECT 
+                t.stockid as stock_code,
+                t.transDate as signal_date,
+                DATEDIFF(@recommendationDate, t.transDate) as cooling_days,
+                CAST(5.0 AS DECIMAL(10,2)) as volume_ratio,
+                CAST(s60.EndPrice AS DECIMAL(10,2)) as signal_price,
+                CAST(0 AS DECIMAL(15,2)) as signal_volume,
+                CAST(s60.EndPrice AS DECIMAL(10,2)) as current_price,
+                CAST(s60.KD_K AS DECIMAL(10,2)) as KD_K,
+                CAST(s60.KD_D AS DECIMAL(10,2)) as KD_D,
+                CAST(s60.MA5 AS DECIMAL(10,2)) as MA5,
+                CAST(s60.MA10 AS DECIMAL(10,2)) as MA10,
+                CAST(s60.MA20 AS DECIMAL(10,2)) as MA20,
+                CAST(s60.MV10 AS DECIMAL(15,2)) as MV10,
+                si.name as stock_name,
+                si.stype as stock_type,
+                CAST((
+                    CASE WHEN DATEDIFF(@recommendationDate, t.transDate) BETWEEN 8 AND 14 THEN 40
+                         ELSE 30 END +
+                    40
+                ) AS DECIMAL(10,2)) as maturity_score
+            FROM t_longshadowcover t
+            INNER JOIN stock60days s60 ON s60.StockID = t.stockid AND s60.StockDate = @recommendationDate
+            LEFT JOIN stockid si ON si.id = t.stockid
+            WHERE t.transDate < @recommendationDate
+              AND DATEDIFF(@recommendationDate, t.transDate) BETWEEN 5 AND 20
+              AND s60.KD_K BETWEEN 20 AND 70
+              AND s60.MA5 > s60.MA10 AND s60.MA10 > s60.MA20 AND s60.MA20 > s60.MA60
+            ORDER BY maturity_score DESC
+            LIMIT @topCount";
+
+        AddParameter(command, "@recommendationDate", recommendationDate);
+        AddParameter(command, "@topCount", topCount);
+
+        var candidates = await ExecuteCategoryQuery(command);
+        category.TotalCandidates = candidates.Count;
+
+        if (isHistorical)
+        {
+            foreach (var stock in candidates)
+            {
+                stock.Performance = await TrackCategoryPerformanceAsync(
+                    stock.StockCode, stock.SuggestedEntryPrice, recommendationDate);
+            }
+            category.BacktestStats = CalculateCategoryBacktestStats(candidates);
+        }
+
+        category.Recommendations = candidates.Take(topCount).ToList();
+        return category;
+    }
+
+    /// <summary>
+    /// 执行分类查询并映射结果
+    /// </summary>
+    private async Task<List<CategoryStock>> ExecuteCategoryQuery(System.Data.Common.DbCommand command)
+    {
+        var stocks = new List<CategoryStock>();
+        int rank = 1;
+
+        using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var currentPrice = reader.GetDecimal(reader.GetOrdinal("current_price"));
+            var stock = new CategoryStock
+            {
+                Rank = rank++,
+                StockCode = reader.GetString(reader.GetOrdinal("stock_code")),
+                StockName = reader.IsDBNull(reader.GetOrdinal("stock_name")) ? "" : reader.GetString(reader.GetOrdinal("stock_name")),
+                StockType = reader.IsDBNull(reader.GetOrdinal("stock_type")) ? "" : reader.GetString(reader.GetOrdinal("stock_type")),
+                SignalDate = reader.GetDateTime(reader.GetOrdinal("signal_date")),
+                CoolingDays = reader.GetInt32(reader.GetOrdinal("cooling_days")),
+                MaturityScore = reader.GetDecimal(reader.GetOrdinal("maturity_score")),
+                VolumeRatio = reader.GetDecimal(reader.GetOrdinal("volume_ratio")),
+                CurrentPrice = currentPrice,
+                KD_K = reader.IsDBNull(reader.GetOrdinal("KD_K")) ? null : reader.GetDecimal(reader.GetOrdinal("KD_K")),
+                KD_D = reader.IsDBNull(reader.GetOrdinal("KD_D")) ? null : reader.GetDecimal(reader.GetOrdinal("KD_D")),
+                MA5 = reader.IsDBNull(reader.GetOrdinal("MA5")) ? null : reader.GetDecimal(reader.GetOrdinal("MA5")),
+                MA10 = reader.IsDBNull(reader.GetOrdinal("MA10")) ? null : reader.GetDecimal(reader.GetOrdinal("MA10")),
+                MV10 = reader.IsDBNull(reader.GetOrdinal("MV10")) ? null : reader.GetDecimal(reader.GetOrdinal("MV10")),
+                SuggestedEntryPrice = currentPrice,
+                TargetPrice_20 = currentPrice * 1.20m,
+                TargetPrice_30 = currentPrice * 1.30m,
+                Reasons = GenerateCategoryReasons(
+                    reader.GetDecimal(reader.GetOrdinal("maturity_score")),
+                    reader.GetInt32(reader.GetOrdinal("cooling_days")),
+                    reader.GetDecimal(reader.GetOrdinal("volume_ratio"))
+                )
+            };
+            stocks.Add(stock);
+        }
+
+        return stocks;
+    }
+
+    /// <summary>
+    /// 追踪分类股票后续表现（复用时光机逻辑）
+    /// </summary>
+    private async Task<ActualPerformance> TrackCategoryPerformanceAsync(
+        string stockCode, decimal entryPrice, DateTime recommendationDate)
+    {
+        var endDate = recommendationDate.AddDays(60);
+        
+        // 创建新的独立连接，避免 "MySqlConnection is already in use" 错误
+        var connectionString = _context.Database.GetConnectionString();
+        await using var connection = new MySqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        using var command = connection.CreateCommand();
+        command.CommandText = @"
+            SELECT 
+                MAX(HPrice) as max_high,
+                MIN(LPrice) as min_low,
+                (SELECT EndPrice FROM stock60days 
+                 WHERE StockID = @stockCode 
+                 ORDER BY ABS(DATEDIFF(StockDate, @endDate)) 
+                 LIMIT 1) as final_price
+            FROM stock60days
+            WHERE StockID = @stockCode
+              AND StockDate > @recommendationDate
+              AND StockDate <= @endDate";
+
+        AddParameter(command, "@stockCode", stockCode);
+        AddParameter(command, "@recommendationDate", recommendationDate);
+        AddParameter(command, "@endDate", endDate);
+
+        using var reader = await command.ExecuteReaderAsync();
+        if (await reader.ReadAsync() && !reader.IsDBNull(0))
+        {
+            var maxHigh = reader.GetDecimal(0);
+            var finalPrice = reader.IsDBNull(2) ? entryPrice : reader.GetDecimal(2);
+
+            var maxGainPercent = ((maxHigh - entryPrice) / entryPrice) * 100;
+            var finalReturnPercent = ((finalPrice - entryPrice) / entryPrice) * 100;
+
+            // 关闭第一个 reader
+            await reader.CloseAsync();
+
+            // 计算达标天数（使用同一个独立连接）
+            int? daysToTarget = null;
+            var targetPrice = entryPrice * 1.20m;
+            
+            using var daysCommand = connection.CreateCommand();
+            daysCommand.CommandText = @"
+                SELECT DATEDIFF(StockDate, @recommendationDate) as days
+                FROM stock60days
+                WHERE StockID = @stockCode
+                  AND StockDate > @recommendationDate
+                  AND HPrice >= @targetPrice
+                ORDER BY StockDate
+                LIMIT 1";
+            
+            AddParameter(daysCommand, "@stockCode", stockCode);
+            AddParameter(daysCommand, "@recommendationDate", recommendationDate);
+            AddParameter(daysCommand, "@targetPrice", targetPrice);
+
+            using var daysReader = await daysCommand.ExecuteReaderAsync();
+            if (await daysReader.ReadAsync())
+            {
+                daysToTarget = daysReader.GetInt32(0);
+            }
+
+            return new ActualPerformance
+            {
+                MaxGainPercent = maxGainPercent,
+                DaysToTarget20 = daysToTarget,
+                FinalReturnPercent = finalReturnPercent,
+                IsSuccess = maxGainPercent >= 20
+            };
+        }
+
+        return new ActualPerformance { MaxGainPercent = 0, IsSuccess = false };
+    }
+
+    /// <summary>
+    /// 计算分类回测统计
+    /// </summary>
+    private CategoryBacktestStats CalculateCategoryBacktestStats(List<CategoryStock> stocks)
+    {
+        var validStocks = stocks.Where(s => s.Performance != null).ToList();
+        if (!validStocks.Any()) return new CategoryBacktestStats();
+
+        var success20 = validStocks.Count(s => s.Performance!.IsSuccess);
+        var success30 = validStocks.Count(s => s.Performance!.MaxGainPercent >= 30);
+
+        return new CategoryBacktestStats
+        {
+            SuccessCount_20 = success20,
+            SuccessCount_30 = success30,
+            SuccessRate_20 = (decimal)success20 / validStocks.Count * 100,
+            SuccessRate_30 = (decimal)success30 / validStocks.Count * 100,
+            AverageMaxGain = validStocks.Average(s => s.Performance!.MaxGainPercent),
+            AverageDaysToAchieve = validStocks
+                .Where(s => s.Performance!.DaysToTarget20.HasValue)
+                .Select(s => (decimal)s.Performance!.DaysToTarget20!.Value)
+                .DefaultIfEmpty(0)
+                .Average()
+        };
+    }
+
+    /// <summary>
+    /// 生成分类推荐理由
+    /// </summary>
+    private List<string> GenerateCategoryReasons(decimal maturityScore, int coolingDays, decimal volumeRatio)
+    {
+        var reasons = new List<string>();
+        
+        if (maturityScore >= 80)
+            reasons.Add($"成熟度评分 {maturityScore:F0} 分（优秀）");
+        else if (maturityScore >= 65)
+            reasons.Add($"成熟度评分 {maturityScore:F0} 分（良好）");
+        
+        reasons.Add($"冷却期 {coolingDays} 天（最佳时机）");
+        
+        if (volumeRatio >= 10)
+            reasons.Add($"量能倍数 {volumeRatio:F1}x");
+        
+        return reasons;
+    }
+
+    /// <summary>
+    /// 添加参数（辅助方法）
+    /// </summary>
+    private void AddParameter(System.Data.Common.DbCommand command, string name, object value)
+    {
+        var param = command.CreateParameter();
+        param.ParameterName = name;
+        param.Value = value;
+        command.Parameters.Add(param);
+    }
+
+    #endregion
 }

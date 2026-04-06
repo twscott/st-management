@@ -54,8 +54,10 @@
     private DateTime targetDate = DateTime.Today.AddDays(-1);
     private bool isExecuting = false;
     private string resultMessage = "";
+    #pragma warning disable CS0414
     private bool showAll4Status = false;
     private bool showStatsStatus = false;
+    #pragma warning restore CS0414
 
     private async Task ExecuteAll()
     {

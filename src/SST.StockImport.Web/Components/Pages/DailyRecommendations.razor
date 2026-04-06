@@ -1,0 +1,310 @@
+@page "/daily-recommendations"
+@rendermode InteractiveServer
+@using SST.StockImport.Core.DTOs.SmartRecommendation
+@inject HttpClient Http
+@inject ILogger<DailyRecommendations> Logger
+
+<PageTitle>每日智能推荐 - 分类推荐系统</PageTitle>
+
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">
+        <i class="bi bi-stars"></i> 每日智能推荐
+        <span class="badge bg-success ms-2">基于回测最佳策略</span>
+    </h1>
+    <p class="lead text-muted">量能、大阳线、下影线各3档推荐（应用最佳回测参数）</p>
+
+    <!-- 控制面板 -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="bi bi-calendar3"></i> 分析日期</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">选择日期</label>
+                    <input type="date" class="form-control" @bind="SelectedDate" 
+                           min="@EarliestDate.ToString("yyyy-MM-dd")" 
+                           max="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                    <small class="text-muted">选择查看历史推荐及实际表现</small>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-success w-100" @onclick="LoadRecommendations" disabled="@IsLoading">
+                        @if (IsLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-search"></i>
+                        }
+                        分析
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <h5 class="alert-heading"><i class="bi bi-exclamation-triangle-fill"></i> 错误</h5>
+            <p>@ErrorMessage</p>
+            <button type="button" class="btn-close" @onclick="() => ErrorMessage = null"></button>
+        </div>
+    }
+
+    @if (Result != null)
+    {
+        <!-- 统计摘要 -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card border-warning">
+                    <div class="card-header bg-warning text-dark">
+                        <h6 class="mb-0"><i class="bi bi-fire"></i> 大阳线（Strategy A）</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h3 class="text-warning mb-0">@Result.BigCandle.Recommendations.Count</h3>
+                                <small class="text-muted">推荐档数</small>
+                            </div>
+                            <div class="text-end">
+                                <div class="badge bg-success fs-6">@Result.BigCandle.ExpectedAccuracy.ToString("F1")% 准确率</div>
+                                @if (Result.BigCandle.BacktestStats != null)
+                                {
+                                    <div class="mt-2">
+                                        <small>实际: @Result.BigCandle.BacktestStats.SuccessRate_20.ToString("F1")%</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-info">
+                    <div class="card-header bg-info text-white">
+                        <h6 class="mb-0"><i class="bi bi-graph-up-arrow"></i> 量能爆发</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h3 class="text-info mb-0">@Result.VolumeSpike.Recommendations.Count</h3>
+                                <small class="text-muted">推荐档数</small>
+                            </div>
+                            <div class="text-end">
+                                <div class="badge bg-secondary fs-6">@Result.VolumeSpike.ExpectedAccuracy.ToString("F1")% 准确率</div>
+                                @if (Result.VolumeSpike.BacktestStats != null)
+                                {
+                                    <div class="mt-2">
+                                        <small>实际: @Result.VolumeSpike.BacktestStats.SuccessRate_20.ToString("F1")%</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-success">
+                    <div class="card-header bg-success text-white">
+                        <h6 class="mb-0"><i class="bi bi-arrow-down-circle"></i> 长下影线</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h3 class="text-success mb-0">@Result.LongShadow.Recommendations.Count</h3>
+                                <small class="text-muted">推荐档数</small>
+                            </div>
+                            <div class="text-end">
+                                <div class="badge bg-secondary fs-6">@Result.LongShadow.ExpectedAccuracy.ToString("F1")% 准确率</div>
+                                @if (Result.LongShadow.BacktestStats != null)
+                                {
+                                    <div class="mt-2">
+                                        <small>实际: @Result.LongShadow.BacktestStats.SuccessRate_20.ToString("F1")%</small>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 大阳线推荐 -->
+        @RenderCategoryRecommendations(Result.BigCandle, "大阳线", "warning")
+
+        <!-- 量能爆发推荐 -->
+        @RenderCategoryRecommendations(Result.VolumeSpike, "量能爆发", "info")
+
+        <!-- 长下影线推荐 -->
+        @RenderCategoryRecommendations(Result.LongShadow, "长下影线", "success")
+    }
+</div>
+
+@code {
+    private DateTime SelectedDate = new DateTime(2026, 1, 15);
+    private DateTime EarliestDate = new DateTime(2025, 12, 1);
+    private CategoryRecommendationResponse? Result;
+    private bool IsLoading = false;
+    private string? ErrorMessage;
+
+    private async Task LoadRecommendations()
+    {
+        IsLoading = true;
+        ErrorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var dateStr = SelectedDate.ToString("yyyy-MM-dd");
+            var url = $"/api/SmartRecommendation/category/{dateStr}?countPerCategory=3";
+            
+            Logger.LogInformation("加载分类推荐: {Url}, BaseAddress: {BaseAddress}", url, Http.BaseAddress);
+            
+            var response = await Http.GetAsync(url);
+            var content = await response.Content.ReadAsStringAsync();
+            
+            Logger.LogInformation("API 响应状态: {StatusCode}, 内容长度: {Length}", response.StatusCode, content.Length);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                ErrorMessage = $"API 调用失败: {response.StatusCode} - {content}";
+                Logger.LogError(ErrorMessage);
+                return;
+            }
+            
+            Result = await Http.GetFromJsonAsync<CategoryRecommendationResponse>(url);
+            Logger.LogInformation("分类推荐加载完成，大阳线: {Count} 档", Result?.BigCandle.Recommendations.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"加载分类推荐失败: {ex.Message}";
+            Logger.LogError(ex, "加载分类推荐失败");
+        }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private RenderFragment RenderCategoryRecommendations(CategoryRecommendations category, string title, string colorClass)
+    {
+        return@<div class="card mb-4">
+            <div class="card-header bg-@colorClass text-white">
+                <h5 class="mb-0">
+                    <i class="bi bi-bookmark-star-fill"></i> @title 推荐
+                    <span class="badge bg-light text-dark ms-2">@category.StrategyDescription</span>
+                </h5>
+            </div>
+            <div class="card-body">
+                @if (!category.Recommendations.Any())
+                {
+                    <div class="alert alert-warning">
+                        <i class="bi bi-info-circle"></i> 当日没有符合条件的@title候选
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>排名</th>
+                                    <th>股票代码</th>
+                                    <th>股票名称</th>
+                                    <th>类型</th>
+                                    <th>成熟度</th>
+                                    <th>冷却天数</th>
+                                    <th>KD_K / KD_D</th>
+                                    <th>建议买入价</th>
+                                    <th>目标价(+20%)</th>
+                                    @if (Result!.IsHistoricalBacktest)
+                                    {
+                                        <th class="bg-success bg-opacity-25">最高涨幅</th>
+                                        <th class="bg-info bg-opacity-25">达标天数</th>
+                                        <th class="bg-warning bg-opacity-25">最终涨幅</th>
+                                    }
+                                    <th>推荐理由</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var stock in category.Recommendations)
+                                {
+                                    <tr class="@GetRowClass(stock.Performance)">
+                                        <td><strong class="text-@colorClass">@stock.Rank</strong></td>
+                                        <td><strong>@stock.StockCode</strong></td>
+                                        <td>@stock.StockName</td>
+                                        <td><span class="badge bg-secondary">@stock.StockType</span></td>
+                                        <td><span class="badge bg-info">@stock.MaturityScore.ToString("F0")</span></td>
+                                        <td>@stock.CoolingDays 天</td>
+                                        <td>@stock.KD_K?.ToString("F0") / @stock.KD_D?.ToString("F0")</td>
+                                        <td>@stock.SuggestedEntryPrice.ToString("F2")</td>
+                                        <td>@stock.TargetPrice_20.ToString("F2")</td>
+                                        @if (Result!.IsHistoricalBacktest && stock.Performance != null)
+                                        {
+                                            <td class="@GetGainColor(stock.Performance.MaxGainPercent)">
+                                                <strong>+@stock.Performance.MaxGainPercent.ToString("F2")%</strong>
+                                            </td>
+                                            <td>
+                                                @if (stock.Performance.DaysToTarget20.HasValue)
+                                                {
+                                                    <span>@stock.Performance.DaysToTarget20 天</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">未达标</span>
+                                                }
+                                            </td>
+                                            <td class="@GetGainColor(stock.Performance.FinalReturnPercent ?? 0)">
+                                                @((stock.Performance.FinalReturnPercent ?? 0).ToString("F2"))%
+                                            </td>
+                                        }
+                                        <td>
+                                            @foreach (var reason in stock.Reasons)
+                                            {
+                                                <div><small>• @reason</small></div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @if (Result!.IsHistoricalBacktest && category.BacktestStats != null)
+                    {
+                        <div class="alert alert-info mt-3">
+                            <strong>📊 回测统计：</strong>
+                            成功率 @category.BacktestStats.SuccessRate_20.ToString("F1")% 
+                            (@category.BacktestStats.SuccessCount_20/@category.Recommendations.Count) |
+                            平均涨幅 @category.BacktestStats.AverageMaxGain.ToString("F2")% |
+                            平均达标天数 @(category.BacktestStats.AverageDaysToAchieve?.ToString("F0") ?? "-") 天
+                        </div>
+                    }
+                }
+            </div>
+        </div>;
+    }
+
+    private string GetRowClass(ActualPerformance? performance)
+    {
+        if (performance == null) return "";
+        return performance.IsSuccess ? "table-success" : "table-light";
+    }
+
+    private string GetGainColor(decimal gainPercent)
+    {
+        if (gainPercent >= 30) return "text-success fw-bold";
+        if (gainPercent >= 20) return "text-success";
+        if (gainPercent >= 10) return "text-primary";
+        if (gainPercent > 0) return "text-secondary";
+        return "text-danger";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadRecommendations();
+    }
+}

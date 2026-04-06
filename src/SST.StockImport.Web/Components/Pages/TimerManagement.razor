@@ -272,10 +272,10 @@
                                 : null,
                             Status = logElement.GetProperty("status").GetInt32(),
                             ResultDescription = logElement.TryGetProperty("resultDescription", out var desc) && desc.ValueKind != JsonValueKind.Null
-                                ? desc.GetString()
+                                ? desc.GetString() ?? ""
                                 : "",
                             ErrorMessage = logElement.TryGetProperty("errorMessage", out var err) && err.ValueKind != JsonValueKind.Null
-                                ? err.GetString()
+                                ? err.GetString() ?? ""
                                 : "",
                         };
                         Logs.Add(log);

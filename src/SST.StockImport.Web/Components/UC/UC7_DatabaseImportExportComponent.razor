@@ -178,7 +178,9 @@
     private DatabaseExportResult? backupResult;
     
     private List<BackupFolderInfo> backupFolders = new();
+    #pragma warning disable CS0414
     private bool isLoadingFolders = false;
+    #pragma warning restore CS0414
     
     private string restoreSourcePath = "";
     private string restoreTargetDatabase = "sstv2";
