@@ -3,17 +3,20 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SST.StockImport.Infrastructure.Data;
 
 #nullable disable
 
-namespace SST.StockImport.Infrastructure.Migrations
+namespace SST.StockImport.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(StockImportDbContext))]
-    partial class StockImportDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260406044852_AddDailyTaskExecutionTable")]
+    partial class AddDailyTaskExecutionTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

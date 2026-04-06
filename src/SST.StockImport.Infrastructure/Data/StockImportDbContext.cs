@@ -69,6 +69,11 @@ public class StockImportDbContext : DbContext
     /// </summary>
     public DbSet<ScheduleExecutionLog> ScheduleExecutionLogs { get; set; } = null!;
 
+    /// <summary>
+    /// 每日任务执行记录表（UC-DailyAutoTask）
+    /// </summary>
+    public DbSet<DailyTaskExecution> DailyTaskExecutions { get; set; } = null!;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
