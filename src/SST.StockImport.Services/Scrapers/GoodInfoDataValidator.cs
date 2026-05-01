@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using OpenQA.Selenium;
+using Microsoft.Playwright;
 using System.Text.RegularExpressions;
 
 namespace SST.StockImport.Services.Scrapers;
@@ -25,7 +25,7 @@ public class GoodInfoDataValidator
     /// <summary>
     /// 驗證頁面是否真正有資料（不僅是載入成功）
     /// </summary>
-    public async Task<DataValidationResult> ValidatePageDataAsync(IWebDriver driver, string url, string pageName)
+    public async Task<DataValidationResult> ValidatePageDataAsync(IPage page, string url, string pageName)
     {
         var result = new DataValidationResult 
         { 
@@ -40,7 +40,7 @@ public class GoodInfoDataValidator
             _logger.LogDebug("[{PageName}] 開始資料驗證: {Url}", pageName, url);
 
             // 1. 檢查頁面標題是否包含錯誤信息
-            var title = driver.Title;
+            var title = await page.TitleAsync();
             if (ContainsErrorKeywords(title))
             {
                 result.Issues.Add($"頁面標題包含錯誤關鍵字: {title}");
@@ -48,7 +48,7 @@ public class GoodInfoDataValidator
             }
 
             // 2. 檢查是否有錯誤訊息元素
-            var errorMessages = await DetectErrorMessagesAsync(driver);
+            var errorMessages = await DetectErrorMessagesAsync(page);
             if (errorMessages.Any())
             {
                 result.Issues.AddRange(errorMessages.Select(msg => $"錯誤訊息: {msg}"));
@@ -56,35 +56,26 @@ public class GoodInfoDataValidator
             }
 
             // 3. 檢查是否有資料表格
-            var hasDataTable = await ValidateDataTableAsync(driver);
+            var hasDataTable = await ValidateDataTableAsync(page);
             if (!hasDataTable.HasData)
             {
                 result.Issues.Add($"未發現資料表格: {hasDataTable.Reason}");
                 return result;
             }
 
-            // 4. 檢查資料表格是否為空或無效
-            var dataQuality = await AssessDataQualityAsync(driver);
+            // 4. 檢查資料表格品質
+            var dataQuality = await AssessDataQualityAsync(page);
             if (!dataQuality.IsQualityData)
             {
                 result.Issues.Add($"資料品質不佳: {dataQuality.Reason}");
                 result.HasLowQualityData = true;
-                // 不直接返回失敗，記錄但繼續
-            }
-
-            // 5. 檢查下載功能可用性
-            var downloadAvailable = await ValidateDownloadAvailabilityAsync(driver);
-            if (!downloadAvailable.IsAvailable)
-            {
-                result.Issues.Add($"下載功能不可用: {downloadAvailable.Reason}");
-                return result;
             }
 
             result.IsValid = true;
             result.DataRowCount = dataQuality.RowCount;
             result.DataColumnCount = dataQuality.ColumnCount;
-            
-            _logger.LogInformation("[{PageName}] ✅ 資料驗證通過: {RowCount} 行 x {ColumnCount} 列", 
+
+            _logger.LogInformation("[{PageName}] ✅ 資料驗證通過: {RowCount} 行 x {ColumnCount} 列",
                 pageName, result.DataRowCount, result.DataColumnCount);
 
             return result;
@@ -97,10 +88,7 @@ public class GoodInfoDataValidator
         }
     }
 
-    /// <summary>
-    /// 檢測廣告並嘗試移除，確保下載按鈕可點擊
-    /// </summary>
-    public async Task<AdHandlingResult> HandleAdvertisementsAsync(IWebDriver driver, string pageName)
+    public async Task<AdHandlingResult> HandleAdvertisementsAsync(IPage page, string pageName)
     {
         var result = new AdHandlingResult { PageName = pageName };
 
@@ -133,14 +121,13 @@ public class GoodInfoDataValidator
             {
                 try
                 {
-                    var elements = driver.FindElements(By.CssSelector(selector));
+                    var elements = await page.QuerySelectorAllAsync(selector);
                     foreach (var element in elements)
                     {
-                        if (element.Displayed && element.Size.Height > 0)
+                        if (await element.IsVisibleAsync())
                         {
-                            // 隱藏廣告元素
-                            ((IJavaScriptExecutor)driver).ExecuteScript(
-                                "arguments[0].style.display = 'none'; arguments[0].style.visibility = 'hidden';", 
+                            await page.EvaluateAsync(
+                                "el => { el.style.display = 'none'; el.style.visibility = 'hidden'; }",
                                 element);
                             removedAds++;
                         }
@@ -148,24 +135,21 @@ public class GoodInfoDataValidator
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug("[{PageName}] 處理廣告選擇器失敗 {Selector}: {Error}", 
+                    _logger.LogDebug("[{PageName}] 處理廣告選擇器失敗 {Selector}: {Error}",
                         pageName, selector, ex.Message);
                 }
             }
 
-            // 嘗試關閉彈出視窗
-            var closedPopups = await ClosePopupsAsync(driver, pageName);
-            
+            var closedPopups = await ClosePopupsAsync(page, pageName);
+
             result.Success = true;
             result.RemovedAdsCount = removedAds;
             result.ClosedPopupsCount = closedPopups;
 
             if (removedAds > 0 || closedPopups > 0)
             {
-                _logger.LogInformation("[{PageName}] 🧹 廣告處理完成: 移除 {AdCount} 個廣告, 關閉 {PopupCount} 個彈窗", 
+                _logger.LogInformation("[{PageName}] 🧹 廣告處理完成: 移除 {AdCount} 個廣告, 關閉 {PopupCount} 個彈窗",
                     pageName, removedAds, closedPopups);
-                
-                // 等待頁面重新排版
                 await Task.Delay(1500);
             }
 
@@ -180,21 +164,18 @@ public class GoodInfoDataValidator
         }
     }
 
-    /// <summary>
-    /// 智能下拉選單選擇 - 處理選項不存在的問題
-    /// </summary>
     public async Task<DropdownSelectionResult> SmartDropdownSelectionAsync(
-        IWebDriver driver, 
-        string dropdownSelector, 
+        IPage page,
+        string dropdownSelector,
         string targetValue,
         string pageName)
     {
         await Task.CompletedTask;
-        var result = new DropdownSelectionResult 
-        { 
+        var result = new DropdownSelectionResult
+        {
             PageName = pageName,
             TargetValue = targetValue,
-            Success = false 
+            Success = false
         };
 
         try
@@ -203,7 +184,7 @@ public class GoodInfoDataValidator
                 pageName, dropdownSelector, targetValue);
 
             // 1. 找到下拉選單
-            var dropdown = driver.FindElement(By.CssSelector(dropdownSelector));
+            var dropdown = await page.QuerySelectorAsync(dropdownSelector);
             if (dropdown == null)
             {
                 result.ErrorMessage = "找不到下拉選單";
@@ -211,26 +192,30 @@ public class GoodInfoDataValidator
             }
 
             // 2. 獲取所有選項
-            var options = dropdown.FindElements(By.TagName("option"));
-            if (!options.Any())
+            var optionsRaw = await page.EvaluateAsync<List<Dictionary<string, string>>>(
+                @"(sel) => Array.from(document.querySelector(sel)?.options ?? []).map(o => ({text: o.text.trim(), value: o.value}))",
+                dropdownSelector
+            );
+
+            if (optionsRaw == null || !optionsRaw.Any())
             {
                 result.ErrorMessage = "下拉選單沒有選項";
                 return result;
             }
 
             // 記錄可用選項
-            result.AvailableOptions = options.Select(o => o.Text.Trim()).ToList();
+            result.AvailableOptions = optionsRaw.Select(o => o["text"]).ToList();
 
             // 3. 嘗試精確匹配
-            var exactMatch = options.FirstOrDefault(o => 
-                o.Text.Trim().Equals(targetValue, StringComparison.OrdinalIgnoreCase) ||
-                (o.GetAttribute("value")?.Equals(targetValue, StringComparison.OrdinalIgnoreCase) ?? false));
+            var exactMatch = optionsRaw.FirstOrDefault(o => 
+                o["text"].Equals(targetValue, StringComparison.OrdinalIgnoreCase) ||
+                o["value"].Equals(targetValue, StringComparison.OrdinalIgnoreCase));
 
             if (exactMatch != null)
             {
-                exactMatch.Click();
+                await page.SelectOptionAsync(dropdownSelector, new SelectOptionValue { Value = exactMatch["value"] });
                 result.Success = true;
-                result.SelectedValue = exactMatch.Text.Trim();
+                result.SelectedValue = exactMatch["text"];
                 result.SelectionStrategy = "精確匹配";
                 _logger.LogInformation("[{PageName}] ✅ 精確匹配成功: {Selected}", 
                     pageName, result.SelectedValue);
@@ -238,14 +223,14 @@ public class GoodInfoDataValidator
             }
 
             // 4. 嘗試模糊匹配
-            var fuzzyMatch = options.FirstOrDefault(o => 
-                o.Text.Contains(targetValue, StringComparison.OrdinalIgnoreCase));
+            var fuzzyMatch = optionsRaw.FirstOrDefault(o => 
+                o["text"].Contains(targetValue, StringComparison.OrdinalIgnoreCase));
 
             if (fuzzyMatch != null)
             {
-                fuzzyMatch.Click();
+                await page.SelectOptionAsync(dropdownSelector, new SelectOptionValue { Value = fuzzyMatch["value"] });
                 result.Success = true;
-                result.SelectedValue = fuzzyMatch.Text.Trim();
+                result.SelectedValue = fuzzyMatch["text"];
                 result.SelectionStrategy = "模糊匹配";
                 _logger.LogWarning("[{PageName}] ⚠️ 模糊匹配: 目標 '{Target}' -> 實際 '{Selected}'", 
                     pageName, targetValue, result.SelectedValue);
@@ -253,16 +238,16 @@ public class GoodInfoDataValidator
             }
 
             // 5. 使用預設策略（第一個非空選項）
-            var defaultOption = options.FirstOrDefault(o => 
-                !string.IsNullOrWhiteSpace(o.Text) && 
-                !o.Text.Contains("請選擇", StringComparison.OrdinalIgnoreCase) &&
-                !o.Text.Contains("--", StringComparison.OrdinalIgnoreCase));
+            var defaultOption = optionsRaw.FirstOrDefault(o => 
+                !string.IsNullOrWhiteSpace(o["text"]) && 
+                !o["text"].Contains("請選擇", StringComparison.OrdinalIgnoreCase) &&
+                !o["text"].Contains("--", StringComparison.OrdinalIgnoreCase));
 
             if (defaultOption != null)
             {
-                defaultOption.Click();
+                await page.SelectOptionAsync(dropdownSelector, new SelectOptionValue { Value = defaultOption["value"] });
                 result.Success = true;
-                result.SelectedValue = defaultOption.Text.Trim();
+                result.SelectedValue = defaultOption["text"];
                 result.SelectionStrategy = "預設選擇";
                 result.IsDefaultSelection = true;
                 
@@ -295,12 +280,7 @@ public class GoodInfoDataValidator
             text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     }
 
-    private Task<List<string>> DetectErrorMessagesAsync(IWebDriver driver)
-    {
-        return Task.FromResult(DetectErrorMessages(driver));
-    }
-
-    private List<string> DetectErrorMessages(IWebDriver driver)
+    private async Task<List<string>> DetectErrorMessagesAsync(IPage page)
     {
         var errorMessages = new List<string>();
         var errorSelectors = new[]
@@ -315,10 +295,16 @@ public class GoodInfoDataValidator
         {
             try
             {
-                var elements = driver.FindElements(By.CssSelector(selector));
-                errorMessages.AddRange(elements
-                    .Where(e => e.Displayed && !string.IsNullOrWhiteSpace(e.Text))
-                    .Select(e => e.Text.Trim()));
+                var elements = await page.QuerySelectorAllAsync(selector);
+                foreach (var element in elements)
+                {
+                    if (await element.IsVisibleAsync())
+                    {
+                        var text = await element.InnerTextAsync();
+                        if (!string.IsNullOrWhiteSpace(text))
+                            errorMessages.Add(text.Trim());
+                    }
+                }
             }
             catch { /* 忽略選擇器錯誤 */ }
         }
@@ -326,28 +312,21 @@ public class GoodInfoDataValidator
         return errorMessages;
     }
 
-    private Task<(bool HasData, string Reason)> ValidateDataTableAsync(IWebDriver driver)
-    {
-        return Task.FromResult(ValidateDataTable(driver));
-    }
-
-    private (bool HasData, string Reason) ValidateDataTable(IWebDriver driver)
+    private async Task<(bool HasData, string Reason)> ValidateDataTableAsync(IPage page)
     {
         try
         {
-            // 尋找常見的資料表格
             var tableSelectors = new[] { "table", ".data-table", "#data_table", ".table" };
-            
+
             foreach (var selector in tableSelectors)
             {
-                var tables = driver.FindElements(By.CssSelector(selector));
-                var dataTable = tables.FirstOrDefault(t => 
-                    t.Displayed && 
-                    t.FindElements(By.TagName("tr")).Count > 1); // 至少有標題+1行資料
-
-                if (dataTable != null)
+                var tables = await page.QuerySelectorAllAsync(selector);
+                foreach (var table in tables)
                 {
-                    return (true, "找到有效資料表格");
+                    if (!await table.IsVisibleAsync()) continue;
+                    var rows = await table.QuerySelectorAllAsync("tr");
+                    if (rows.Count > 1)
+                        return (true, "找到有效資料表格");
                 }
             }
 
@@ -359,34 +338,35 @@ public class GoodInfoDataValidator
         }
     }
 
-    private Task<(bool IsQualityData, string Reason, int RowCount, int ColumnCount)> AssessDataQualityAsync(IWebDriver driver)
-    {
-        return Task.FromResult(AssessDataQuality(driver));
-    }
-
-    private (bool IsQualityData, string Reason, int RowCount, int ColumnCount) AssessDataQuality(IWebDriver driver)
+    private async Task<(bool IsQualityData, string Reason, int RowCount, int ColumnCount)> AssessDataQualityAsync(IPage page)
     {
         try
         {
-            var table = driver.FindElements(By.CssSelector("table")).FirstOrDefault(t => t.Displayed);
+            IElementHandle? table = null;
+            var tables = await page.QuerySelectorAllAsync("table");
+            foreach (var t in tables)
+            {
+                if (await t.IsVisibleAsync()) { table = t; break; }
+            }
+
             if (table == null)
                 return (false, "無表格資料", 0, 0);
 
-            var rows = table.FindElements(By.TagName("tr"));
-            var rowCount = Math.Max(0, rows.Count - 1); // 扣除標題行
+            var rows = await table.QuerySelectorAllAsync("tr");
+            var rowCount = Math.Max(0, rows.Count - 1);
             var columnCount = 0;
 
             if (rows.Any())
             {
                 var firstRow = rows.First();
-                columnCount = firstRow.FindElements(By.TagName("td")).Count +
-                             firstRow.FindElements(By.TagName("th")).Count;
+                var tds = await firstRow.QuerySelectorAllAsync("td");
+                var ths = await firstRow.QuerySelectorAllAsync("th");
+                columnCount = tds.Count + ths.Count;
             }
 
-            // 檢查資料品質
             if (rowCount == 0)
                 return (false, "表格無資料行", rowCount, columnCount);
-            
+
             if (rowCount < 3)
                 return (false, "資料行數過少", rowCount, columnCount);
 
@@ -401,46 +381,15 @@ public class GoodInfoDataValidator
         }
     }
 
-    private Task<(bool IsAvailable, string Reason)> ValidateDownloadAvailabilityAsync(IWebDriver driver)
+    private Task<(bool IsAvailable, string Reason)> ValidateDownloadAvailabilityAsync(IPage page)
     {
-        return Task.FromResult(ValidateDownloadAvailability(driver));
+        return Task.FromResult((true, "N/A - HTML table approach"));
     }
 
-    private (bool IsAvailable, string Reason) ValidateDownloadAvailability(IWebDriver driver)
-    {
-        var downloadSelectors = new[]
-        {
-            "input[type='button'][value*='匯出']",      // GoodInfo 主要按鈕
-            "input[type='button'][value*='CSV']",      // CSV 按鈕
-            "input[type='button'][value*='下載']",
-            "input[type='submit'][value*='下載']",
-            "input[value='下載EXCEL檔']",
-            ".btnDownload", "#btnDownload"
-        };
-
-        foreach (var selector in downloadSelectors)
-        {
-            try
-            {
-                var buttons = driver.FindElements(By.CssSelector(selector));
-                foreach (var button in buttons)
-                {
-                    if (button != null && button.Displayed && button.Enabled)
-                    {
-                        return (true, $"找到可用的下載按鈕: {selector}");
-                    }
-                }
-            }
-            catch { /* 繼續嘗試下個選擇器 */ }
-        }
-
-        return (false, "未找到可用的下載按鈕");
-    }
-
-    private async Task<int> ClosePopupsAsync(IWebDriver driver, string pageName)
+    private async Task<int> ClosePopupsAsync(IPage page, string pageName)
     {
         var closedCount = 0;
-        
+
         // 1. 先嘗試點擊關閉按鈕
         var closeSelectors = new[]
         {
@@ -448,20 +397,21 @@ public class GoodInfoDataValidator
             "[aria-label='Close'], [aria-label='關閉']",
             ".popup-close, .dialog-close",
             "button[title='關閉'], button[title='Close']",
-            "a[href='#'][onclick*='close']", // GoodInfo 特定關閉連結
-            "img[src*='close'], img[alt*='關閉']" // 圖片關閉按鈕
+            "a[href='#'][onclick*='close']",
+            "img[src*='close'], img[alt*='關閉']"
         };
 
         foreach (var selector in closeSelectors)
         {
             try
             {
-                var elements = driver.FindElements(By.CssSelector(selector));
-                foreach (var element in elements.Where(e => e.Displayed))
+                var elements = await page.QuerySelectorAllAsync(selector);
+                foreach (var element in elements)
                 {
-                    element.Click();
+                    if (!await element.IsVisibleAsync()) continue;
+                    await element.ClickAsync();
                     closedCount++;
-                    await Task.Delay(500); // 等待關閉動畫
+                    await Task.Delay(500);
                 }
             }
             catch (Exception ex)
@@ -471,16 +421,14 @@ public class GoodInfoDataValidator
             }
         }
 
-        // 2. 如果沒找到關閉按鈕，直接用 JavaScript 強制移除大型彈窗
+        // 2. 用 JavaScript 強制移除大型彈窗
         try
         {
             var script = @"
-                // 移除所有大型 fixed/absolute 元素（可能是廣告）
                 var elements = document.querySelectorAll('div[style*=""position: fixed""], div[style*=""position: absolute""]');
                 var removed = 0;
                 elements.forEach(function(el) {
                     var rect = el.getBoundingClientRect();
-                    // 只移除大型元素（寬高都超過 200px）
                     if (rect.width > 200 && rect.height > 200) {
                         el.remove();
                         removed++;
@@ -488,11 +436,11 @@ public class GoodInfoDataValidator
                 });
                 return removed;
             ";
-            
-            var removed = ((IJavaScriptExecutor)driver).ExecuteScript(script);
-            if (removed != null && Convert.ToInt32(removed) > 0)
+
+            var removed = await page.EvaluateAsync<int>(script);
+            if (removed > 0)
             {
-                closedCount += Convert.ToInt32(removed);
+                closedCount += removed;
                 _logger.LogDebug("[{PageName}] JavaScript 移除 {Count} 個大型彈窗", pageName, removed);
             }
         }

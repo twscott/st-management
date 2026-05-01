@@ -30,7 +30,7 @@ namespace SST.StockImport.Tests.Integration
             // Given
             var importLogger = new TestLogger<GoodInfoImportService>(_output);
             var importService = new GoodInfoImportService(null!, importLogger);
-            var scraper = new LegacyGoodInfoScraper(_logger, importService);
+            var scraper = new LegacyGoodInfoScraper(_logger, importService, null!);
             var url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%28%E7%95%B6%E6%97%A5%29%40%40%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%40%40%E7%95%B6%E6%97%A5";
             var cssSelector = "#txtStockListData > table > tbody > tr:nth-child(7) > td:nth-child(2) > input[type=button]:nth-child(2)";
 

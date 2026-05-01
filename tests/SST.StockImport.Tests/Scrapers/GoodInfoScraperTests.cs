@@ -90,7 +90,7 @@ public class GoodInfoScraperTests : IDisposable
         var requests = GoodInfoUrlConfig.GetAllRequests();
 
         // Assert
-        Assert.True(requests.Count >= 19, $"至少應該有 19 個連結，實際: {requests.Count}");
+        Assert.Equal(18, requests.Count);
         Assert.All(requests, r =>
         {
             Assert.NotEmpty(r.Name);
@@ -106,7 +106,7 @@ public class GoodInfoScraperTests : IDisposable
         var requests = GoodInfoUrlConfig.GetCommonAnalysisRequests();
 
         // Assert
-        Assert.Equal(19, requests.Count);
+        Assert.Equal(18, requests.Count);
         Assert.Contains(requests, r => r.Name == "MACD>0");
         Assert.Contains(requests, r => r.Name == "外資連買連賣轉折");
         Assert.Contains(requests, r => r.Name == "月季黃金");
@@ -119,9 +119,9 @@ public class GoodInfoScraperTests : IDisposable
         var requests = GoodInfoUrlConfig.GetMarginRequests();
 
         // Assert
-        Assert.Equal(19, requests.Count);
+        Assert.Equal(18, requests.Count);
         Assert.Contains(requests, r => r.Name == "券資比");
-        // 新配置包含所有19個項目，而不只是券資比相關
+        // 新配置包含所有18個項目（歷史成交量已移除）
     }
 
     [Fact]
@@ -132,8 +132,10 @@ public class GoodInfoScraperTests : IDisposable
         var urls = requests.Select(r => r.Url).ToList();
 
         // Assert
+        // MACD>0 和 OSC負轉正 刻意共用同一 GoodInfo filter URL (linkLabel11)，允許 1 個已知重複
         var distinctUrls = urls.Distinct().ToList();
-        Assert.Equal(urls.Count, distinctUrls.Count);
+        Assert.True(distinctUrls.Count >= urls.Count - 1,
+            $"大多數 URL 應唯一，允許最多1個已知重複 (MACD>0/OSC負轉正 共用)。URLs={urls.Count}，唯一={distinctUrls.Count}");
     }
 
     [Fact]
@@ -163,8 +165,8 @@ public class GoodInfoScraperTests : IDisposable
             "券資比", "周轉率", "MACD>0", "OSC負轉正", "EPS創新高",
             "投信連買", "超布林上軌", "外資連買連賣轉折", "投信連買連賣轉折",
             "五年新高", "外資連買", "外資連賣", "投信連賣", "外資、投信同步買超",
-            "月季黃金", "歷史成交量", "季營收創高", "財報評分", "外資、投信同步賣超"
-        };
+            "月季黃金", "季營收創高", "財報評分", "外資、投信同步賣超"
+        }; // 共18個，歷史成交量已從 GoodInfoUrlConfig 中移除
 
         foreach (var name in keyNames)
         {
@@ -179,10 +181,10 @@ public class GoodInfoScraperTests : IDisposable
         var config = new GoodInfoScraperConfig();
 
         // Assert
-        Assert.Equal(3000, config.PageLoadDelayMs);
-        Assert.Equal(15000, config.RequestDelayMs); // 更新為實際的預設值
+        Assert.Equal(1500, config.PageLoadDelayMs);
+        Assert.Equal(6000, config.RequestDelayMs);
         Assert.Equal(1000, config.DownloadWaitMs);
-        Assert.Equal(10000, config.RetryDelayMs);
+        Assert.Equal(30000, config.RetryDelayMs);
         Assert.False(config.UseHeadlessMode);
         Assert.NotEmpty(config.UserAgents);
         Assert.True(config.UserAgents.Count >= 4, "應該有多個 User-Agent 可輪替");

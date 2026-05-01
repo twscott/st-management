@@ -150,8 +150,6 @@ public class GoodInfoImportService
                 break;
                 
             case "五年新高":
-                if (fields.Count > 7 && decimal.TryParse(fields[7].Trim().Replace(",", ""), out var hp))
-                    tradeData.HPrice = hp;
                 break;
                 
             default:

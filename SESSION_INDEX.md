@@ -8,6 +8,9 @@
 
 ## 最近工作记录
 
+- 2026-05-01 | 创建 CLAUDE.md 通用 AI 助手指引（适配 VS Code/Cursor/OpenCode）：公司规范引用、开工/收工/完工关键字、记忆系统、SST 项目规范、10 条禁止规则、测试框架、跨编辑器兼容
+- 2026-04-07 | 建立標準部署腳本：redeploy-services.ps1（編譯→停服→複製→啟動→健康檢查）+ start-all-apps.ps1 互動選單；修復 UTF-8 BOM 編碼問題，兩個腳本 syntax OK，服務目錄自動偵測驗證通過
+- 2026-04-07 | Selenium → Playwright 完整遷移：7 個 Services 檔案 + 3 個測試檔，build 0 errors，92/92 tests pass，Chromium 安裝完成，兩個 Windows Service 均 Running
 - 2026-04-06 | 导入公司规范、设置开工/收工关键字、建立三层记忆系统
 - 2026-02-24 | 数据下载功能 SQL 修复完成、`investbase.LastDate` 自动更新修复
 - 2026-02-23 | BOM 编码问题修复、数据库切换器测试框架完成（92 tests passing）

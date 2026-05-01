@@ -96,12 +96,23 @@
                                         @if (isProcessingAll4 || isProcessingStatistics)
                                         {
                                             <span class="spinner-border spinner-border-sm me-2"></span>
+                                            @if (isProcessingAll4)
+                                            {
+                                                <text>Phase 1: All4 補充處理中...</text>
+                                            }
+                                            else
+                                            {
+                                                <text>Phase 2: 統計資料處理中...</text>
+                                            }
                                         }
-                                        執行 All4 + 統計
+                                        else
+                                        {
+                                            <text>執行 All4 + 統計</text>
+                                        }
                                     </button>
                                     @if (!string.IsNullOrEmpty(combinedMessage))
                                     {
-                                        <div class="alert alert-warning p-2">@combinedMessage</div>
+                                        <div class="alert @(combinedMessage.StartsWith("✅") ? "alert-success" : "alert-warning") p-2">@combinedMessage</div>
                                     }
                                 </div>
                             </div>
@@ -281,6 +292,10 @@
             // 先執行 All4
             AddLog("執行 All4 補充處理...");
             await ProcessAll4Supplements();
+
+            // All4 完成後執行 GoodInfo（tradedata 已就緒，統計尚未覆蓋）
+            AddLog("📊 All4 完成，執行 GoodInfo 更新...");
+            await DownloadGoodInfo();
 
             // 再執行統計
             AddLog("執行統計資料處理...");

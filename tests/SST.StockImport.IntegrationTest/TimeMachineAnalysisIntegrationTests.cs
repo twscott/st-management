@@ -11,9 +11,9 @@ using System.Threading.Tasks;
 namespace SST.StockImport.IntegrationTest
 {
     /// <summary>
-    /// L2: ?¶å??ºå??é??æ?è¯?
-    /// æµ‹è??ƒå›´ï¼šService + Database ?Ÿå?äº¤ä?
-    /// ?€è¦ï?MySQL ?°æ®åº“è?è¡Œä¸­ï¼Œå??«æ?è¯•æ•°??
+    /// L2: ?ï¿½ï¿½??ï¿½ï¿½??ï¿½ï¿½??ï¿½ï¿½?ï¿½?
+    /// æµ‹ï¿½??ï¿½å›´ï¼šService + Database ?ï¿½ï¿½?äº¤ï¿½?
+    /// ?ï¿½è¦ï¿½?MySQL ?ï¿½æ®åº“ï¿½?è¡Œä¸­ï¼Œï¿½??ï¿½ï¿½?è¯•æ•°??
     /// </summary>
     [Collection("Database")]
     public class TimeMachineAnalysisIntegrationTests : IClassFixture<DatabaseFixture>
@@ -64,12 +64,12 @@ namespace SST.StockImport.IntegrationTest
             Assert.NotNull(result.Candidates);
             Assert.NotNull(result.Statistics);
             
-            // éªŒè??™é€‰è‚¡ç¥¨å???
+            // éªŒï¿½??ï¿½é€‰è‚¡ç¥¨ï¿½???
             if (result.Candidates.Any())
             {
                 var firstCandidate = result.Candidates.First();
                 Assert.NotNull(firstCandidate.StockCode);
-                Assert.True(firstCandidate.MaturityScore >= 60); // ?³å?è¾¾åˆ°?€ä½è?æ±?
+                Assert.True(firstCandidate.MaturityScore >= 60); // ?ï¿½ï¿½?è¾¾åˆ°?ï¿½ä½ï¿½?ï¿½?
                 Assert.True(firstCandidate.PeakVolumeRatio >= 10 && firstCandidate.PeakVolumeRatio <= 50);
                 Assert.NotNull(firstCandidate.PriceHistory);
             }
@@ -107,7 +107,7 @@ namespace SST.StockImport.IntegrationTest
 
             // Assert
             Assert.True(lowResult.Candidates.Count >= highResult.Candidates.Count,
-                "è¾ƒä??„æ??Ÿåº¦?¨æ?åº”è¯¥è¿”å??´å??–ç›¸?Œæ•°?ç??™é€‰è‚¡ç¥?);
+                "è¼ƒä½é–€æª»æ‡‰è©²è¿”å›ä¸å°‘æ–¼è¼ƒé«˜é–€æª»çš„å€™é¸è‚¡æ•¸é‡");
         }
 
         [Fact]
@@ -134,7 +134,7 @@ namespace SST.StockImport.IntegrationTest
             Assert.True(result.Statistics.SuccessRate >= 0 && result.Statistics.SuccessRate <= 100);
             Assert.True(result.Statistics.AverageMaxGain >= 0);
             
-            // ç»Ÿè®¡?°å?åº”è¯¥ä¸€??
+            // ç»Ÿè®¡?ï¿½ï¿½?åº”è¯¥ä¸€??
             Assert.Equal(result.Candidates.Count, result.Statistics.TotalCandidates);
         }
 
@@ -163,9 +163,9 @@ namespace SST.StockImport.IntegrationTest
         }
 
         [Theory]
-        [InlineData(8, 14)]   // ?­æ??·å´
-        [InlineData(15, 30)]  // ä¸­æ??·å´
-        [InlineData(31, 50)]  // ?¿æ??·å´
+        [InlineData(8, 14)]   // ?ï¿½ï¿½??ï¿½å´
+        [InlineData(15, 30)]  // ä¸­ï¿½??ï¿½å´
+        [InlineData(31, 50)]  // ?ï¿½ï¿½??ï¿½å´
         public async Task AnalyzeHistoricalDateAsync_WithDifferentCoolingPeriods_ReturnsValidResults(
             int minDays, int maxDays)
         {
@@ -187,13 +187,13 @@ namespace SST.StockImport.IntegrationTest
             // Assert
             Assert.NotNull(result);
             
-            // éªŒè??·å´?Ÿåœ¨?ƒå›´??
+            // éªŒï¿½??ï¿½å´?ï¿½åœ¨?ï¿½å›´??
             foreach (var candidate in result.Candidates)
             {
                 Assert.True(candidate.DaysSinceHotspotAtAnalysis >= minDays,
-                    $"?™é€‰è‚¡ç¥?{candidate.StockCode} ?„å†·?´å¤©??{candidate.DaysSinceHotspotAtAnalysis} å°ä??€å°å€?{minDays}");
+                    $"?ï¿½é€‰è‚¡ï¿½?{candidate.StockCode} ?ï¿½å†·?ï¿½å¤©??{candidate.DaysSinceHotspotAtAnalysis} å°ï¿½??ï¿½å°ï¿½?{minDays}");
                 Assert.True(candidate.DaysSinceHotspotAtAnalysis <= maxDays,
-                    $"?™é€‰è‚¡ç¥?{candidate.StockCode} ?„å†·?´å¤©??{candidate.DaysSinceHotspotAtAnalysis} å¤§ä??€å¤§å€?{maxDays}");
+                    $"?ï¿½é€‰è‚¡ï¿½?{candidate.StockCode} ?ï¿½å†·?ï¿½å¤©??{candidate.DaysSinceHotspotAtAnalysis} å¤§ï¿½??ï¿½å¤§ï¿½?{maxDays}");
             }
         }
 
@@ -220,10 +220,10 @@ namespace SST.StockImport.IntegrationTest
             {
                 var candidate = result.Candidates.First();
                 
-                // ä»·æ ¼?†å²åº”è¯¥è¢«è¿½è¸?
+                // ä»·æ ¼?ï¿½å²åº”è¯¥è¢«è¿½ï¿½?
                 Assert.NotNull(candidate.PriceHistory);
                 
-                // å¦‚æ??‰ä»·?¼å??²ï?éªŒè??°æ®å®Œæ•´??
+                // å¦‚ï¿½??ï¿½ä»·?ï¿½ï¿½??ï¿½ï¿½?éªŒï¿½??ï¿½æ®å®Œæ•´??
                 if (candidate.PriceHistory.Any())
                 {
                     Assert.All(candidate.PriceHistory, point =>
@@ -232,7 +232,7 @@ namespace SST.StockImport.IntegrationTest
                         Assert.True(point.Price > 0);
                     });
                     
-                    // ä»·æ ¼?†å²åº”è¯¥?‰æ—¶?´æ?åº?
+                    // ä»·æ ¼?ï¿½å²åº”è¯¥?ï¿½æ—¶?ï¿½ï¿½?ï¿½?
                     var dates = candidate.PriceHistory.Select(p => p.Date).ToList();
                     Assert.Equal(dates.OrderBy(d => d).ToList(), dates);
                 }

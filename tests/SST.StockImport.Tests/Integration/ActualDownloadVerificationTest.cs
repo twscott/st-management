@@ -28,7 +28,7 @@ namespace SST.StockImport.Tests.Integration
             // Arrange
             var importLogger = new TestLogger<GoodInfoImportService>(_output);
             var importService = new GoodInfoImportService(null!, importLogger);
-            var scraper = new LegacyGoodInfoScraper(_logger, importService);
+            var scraper = new LegacyGoodInfoScraper(_logger, importService, null!);
             
             // 舊系統的確切配置
             var url = @"https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E7%86%B1%E9%96%80%E6%8E%92%E8%A1%8C&INDUSTRY_CAT=%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%28%E7%95%B6%E6%97%A5%29%40%40%E7%B4%AF%E8%A8%88%E6%88%90%E4%BA%A4%E9%87%8F%E9%80%B1%E8%BD%89%E7%8E%87%40%40%E7%95%B6%E6%97%A5";
@@ -107,7 +107,7 @@ namespace SST.StockImport.Tests.Integration
             // 檢查 Chrome 程序管理是否正常
             var importLogger = new TestLogger<GoodInfoImportService>(_output);
             var importService = new GoodInfoImportService(null!, importLogger);
-            var scraper = new LegacyGoodInfoScraper(_logger, importService);
+            var scraper = new LegacyGoodInfoScraper(_logger, importService, null!);
 
             // 檢查執行前的 Chrome 程序
             var beforeProcesses = Process.GetProcessesByName("chrome");

@@ -14,7 +14,7 @@
         <div class="col-12">
             <div class="btn-group me-3" role="group">
                 <button class="btn btn-success" @onclick="TestAll" disabled="@isTesting">
-                    <i class="bi bi-play-circle"></i> 執行整合測試 (19個)
+                    <i class="bi bi-play-circle"></i> 執行整合測試 (18個)
                 </button>
                 <button class="btn btn-primary" @onclick="ResetAll">
                     <i class="bi bi-arrow-clockwise"></i> 重置
@@ -48,7 +48,7 @@
                     <div class="d-flex gap-4 fw-bold">
                         <div><span class="text-success">✓ 成功: @successCount</span></div>
                         <div><span class="text-danger">✗ 失敗: @failCount</span></div>
-                        <div>總計: 19</div>
+                        <div>總計: 18</div>
                     </div>
                     @if (failedLinks.Any())
                     {
@@ -137,11 +137,10 @@
         new LinkInfo { Id = 12, Name = "投信連賣", Url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E6%8A%95..." },
         new LinkInfo { Id = 13, Name = "外資投信同步買超", Url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1..." },
         new LinkInfo { Id = 14, Name = "月季黃金", Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%9D%87..." },
-        new LinkInfo { Id = 15, Name = "歷史成交量", Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E6%97%A5..." },
-        new LinkInfo { Id = 16, Name = "季營收創高", Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%96%AE..." },
-        new LinkInfo { Id = 17, Name = "財報評分", Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%96%AE..." },
-        new LinkInfo { Id = 18, Name = "外資投信同步賣超", Url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1..." },
-        new LinkInfo { Id = 19, Name = "外資連買", Url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%A4%96..." }
+        new LinkInfo { Id = 15, Name = "季營收創高", Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%96%AE..." },
+        new LinkInfo { Id = 16, Name = "財報評分", Url = "https://goodinfo.tw/tw/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%96%AE..." },
+        new LinkInfo { Id = 17, Name = "外資投信同步賣超", Url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1..." },
+        new LinkInfo { Id = 18, Name = "外資連買", Url = "https://goodinfo.tw/tw2/StockList.asp?RPT_TIME=&MARKET_CAT=%E6%99%BA%E6%85%A7%E9%81%B8%E8%82%A1&INDUSTRY_CAT=%E5%A4%96..." }
     };
 
     protected override void OnInitialized()
@@ -161,9 +160,10 @@
         {
             using var httpClient = HttpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(10);
-            
+
+            var body = JsonContent.Create(new { LinkId = id });
             var response = await httpClient.PostAsync(
-                $"http://localhost:5008/api/goodinfo/test/link/{id}", null);
+                "http://localhost:5008/api/goodinfo/test/single", body);
             var result = await response.Content.ReadFromJsonAsync<SingleTestResult>();
 
             if (result?.Success == true)
@@ -202,7 +202,7 @@
             using var httpClient = HttpClientFactory.CreateClient();
             httpClient.Timeout = TimeSpan.FromMinutes(30);
             
-            var response = await httpClient.PostAsync("http://localhost:5008/api/goodinfo/test/all-links", null);
+            var response = await httpClient.PostAsync("http://localhost:5008/api/goodinfo/test/all", null);
             var data = await response.Content.ReadFromJsonAsync<AllTestResult>();
 
             if (data?.Results != null)
@@ -211,8 +211,8 @@
                 foreach (var result in data.Results)
                 {
                     index++;
-                    linkStatus[result.LinkId] = result.Success ? "success" : "fail";
-                    linkStatusText[result.LinkId] = result.Success 
+                    linkStatus[result.Id] = result.Success ? "success" : "fail";
+                    linkStatusText[result.Id] = result.Success 
                         ? $"✓ {result.Message} ({result.Duration}秒)"
                         : $"✗ {result.Message}";
                     
@@ -221,10 +221,10 @@
                     else
                     {
                         failCount++;
-                        failedLinks.Add($"{result.LinkId}. {result.LinkName}");
+                        failedLinks.Add($"{result.Id}. {result.Name}");
                     }
                     
-                    progress = ((double)index / 19) * 100;
+                    progress = ((double)index / 18) * 100;
                     StateHasChanged();
                 }
 
@@ -305,8 +305,8 @@
 
     private class TestResultItem
     {
-        public int LinkId { get; set; }
-        public string LinkName { get; set; } = "";
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
         public bool Success { get; set; }
         public string Message { get; set; } = "";
         public double Duration { get; set; }

@@ -1,17 +1,20 @@
+using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
-using OpenQA.Selenium;
-using OpenQA.Selenium.Chrome;
+using Microsoft.Playwright;
+using System.Net;
+using System.Text;
 
 namespace SST.StockImport.Services.Scrapers;
 
 /// <summary>
-/// GoodInfo.tw 爬蟲服務 - 使用 Selenium WebDriver 處理需要 JavaScript 的頁面
+/// GoodInfo.tw 爬蟲服務 - 使用 Playwright Chromium 處理需要 JavaScript 的頁面
 /// 注意：GoodInfo 有強力的反爬蟲機制，必須：
 /// 1. 控制請求速度 (8-10 秒間隔)
-/// 2. 隱藏自動化特徵
+/// 2. 隱藏自動化特徵（透過 stealth script patch navigator.webdriver）
 /// 3. 容忍部分連結失敗（資料不穩定是正常的）
+/// 策略：導航到頁面 → 解析 #txtStockListData HTML table → 寫出 CSV（不點下載按鈕）
 /// </summary>
-public class GoodInfoScraper : IDisposable
+public class GoodInfoScraper : IAsyncDisposable, IDisposable
 {
     private readonly ILogger<GoodInfoScraper> _logger;
     private readonly GoodInfoScraperConfig _config;
@@ -19,8 +22,21 @@ public class GoodInfoScraper : IDisposable
     private readonly GoodInfoSuccessRateMonitor _successMonitor;
     private readonly GoodInfoUrlManager _urlManager;
     private readonly IAntiCrawlerDetector _antiCrawlerDetector;
-    private IWebDriver? _driver;
+    private IPlaywright? _playwright;
+    private IBrowser? _browser;
+    private IBrowserContext? _context;
+    private IPage? _page;
     private readonly Random _random = new();
+
+    private const string StealthScript = """
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['zh-TW', 'zh', 'en-US', 'en']});
+        window.chrome = {runtime: {}};
+        Object.defineProperty(navigator, 'permissions', {
+            get: () => ({query: () => Promise.resolve({state: 'granted'})})
+        });
+        """;
 
     public GoodInfoScraper(
         ILogger<GoodInfoScraper> logger,
@@ -44,7 +60,7 @@ public class GoodInfoScraper : IDisposable
     public async Task<bool> DownloadDataAsync(GoodInfoDownloadRequest request)
     {
         var startTime = DateTime.Now;
-        var targetUrl = request.Url; // 初始化為原始 URL
+        var targetUrl = request.Url;
         var attempt = new DownloadAttempt
         {
             Url = request.Url,
@@ -54,7 +70,7 @@ public class GoodInfoScraper : IDisposable
 
         try
         {
-            // 0. 首先檢查是否在冷卻期 - 避免浪費時間
+            // 0. 冷卻期檢查
             if (_antiCrawlerDetector.IsInCooldown(request.Url))
             {
                 var remaining = _antiCrawlerDetector.GetRemainingCooldown(request.Url);
@@ -62,15 +78,13 @@ public class GoodInfoScraper : IDisposable
                 attempt.FailureReason = $"域名在冷卻期，剩餘: {remaining:hh\\:mm\\:ss}";
                 attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
                 _successMonitor.RecordAttempt(attempt);
-                
-                _logger.LogWarning("[{Name}] ❄️ 跳過請求，域名仍在冷卻期: {Remaining}", 
-                    request.Name, remaining);
+                _logger.LogWarning("[{Name}] ❄️ 跳過請求，域名仍在冷卻期: {Remaining}", request.Name, remaining);
                 return false;
             }
 
             _logger.LogInformation("開始下載 GoodInfo 資料: {Name} from {Url}", request.Name, request.Url);
 
-            // 1. 預先檢查 URL 健康狀態
+            // 1. URL 健康檢查
             var urlHealth = await _urlManager.CheckUrlHealthAsync(request.Url, request.Name);
             if (!urlHealth.IsHealthy && string.IsNullOrEmpty(urlHealth.AlternativeUrl))
             {
@@ -81,231 +95,110 @@ public class GoodInfoScraper : IDisposable
                 return false;
             }
 
-            // 使用替代 URL（如果有）
             targetUrl = urlHealth.AlternativeUrl ?? request.Url;
             if (targetUrl != request.Url)
-            {
                 _logger.LogInformation("[{Name}] 使用替代 URL: {NewUrl}", request.Name, targetUrl);
-            }
 
-            // 初始化 WebDriver (如果尚未初始化)
-            EnsureDriverInitialized();
-            
-            // 檢查 WebDriver 連線狀態
-            if (!IsDriverHealthy())
+            // 2. 初始化 Playwright Page
+            await EnsurePageInitializedAsync();
+
+            if (!IsPageHealthy())
             {
-                _logger.LogWarning("WebDriver 連線異常，重新初始化");
-                CloseDriver();
-                EnsureDriverInitialized();
+                _logger.LogWarning("Page 連線異常，重新初始化");
+                await ClosePageAsync();
+                await EnsurePageInitializedAsync();
             }
 
-            // 導航到目標頁面
-            _driver!.Navigate().GoToUrl(targetUrl);
-            _logger.LogDebug("已導航到: {Url}", targetUrl);
+            // 3. 導航到目標頁面
+            _logger.LogDebug("[{Name}] 導航到: {Url}", request.Name, targetUrl);
+            await _page!.GotoAsync(targetUrl, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60000
+            });
 
-            // 等待頁面載入
+            // 等待動態內容載入（goodinfo.tw 頁面廣告持續載入，NetworkIdle 會 timeout）
             await Task.Delay(_config.PageLoadDelayMs);
 
-            // 1. 先處理廣告和彈窗（在檢查之前就先移除，避免干擾）
-            var adResult = await _dataValidator.HandleAdvertisementsAsync(_driver, request.Name);
+            // 4. 處理廣告和彈窗
+            var adResult = await _dataValidator.HandleAdvertisementsAsync(_page, request.Name);
             if (adResult.Success && (adResult.RemovedAdsCount > 0 || adResult.ClosedPopupsCount > 0))
             {
-                _logger.LogInformation("[{Name}] 🧹 廣告清理完成: {AdCount} 廣告, {PopupCount} 彈窗", 
+                _logger.LogInformation("[{Name}] 🧹 廣告清理完成: {AdCount} 廣告, {PopupCount} 彈窗",
                     request.Name, adResult.RemovedAdsCount, adResult.ClosedPopupsCount);
             }
 
-            // 1.5. 反爬蟲檢測 - 優先檢查，一旦發現立即停止
-            var pageSource = _driver.PageSource;
+            // 5. 反爬蟲檢測
+            var pageSource = await _page.ContentAsync();
             var antiCrawlerResult = _antiCrawlerDetector.DetectAntiCrawlerSignals(pageSource, targetUrl);
-            
+
             if (antiCrawlerResult.IsBlocked)
             {
-                // 立即觸發冷卻期，停止後續嘗試
-                _antiCrawlerDetector.TriggerCooldown(targetUrl, antiCrawlerResult.Severity, 
+                _antiCrawlerDetector.TriggerCooldown(targetUrl, antiCrawlerResult.Severity,
                     $"檢測到反爬蟲信號: {string.Join("; ", antiCrawlerResult.BlockingSignals)}");
-                
                 attempt.Success = false;
                 attempt.FailureReason = $"反爬蟲檢測觸發: {string.Join("; ", antiCrawlerResult.BlockingSignals)}";
                 attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
                 _successMonitor.RecordAttempt(attempt);
-                
-                _logger.LogError("[{Name}] 🚫 反爬蟲檢測觸發，進入冷卻期: {Signals}", 
+                _logger.LogError("[{Name}] 🚫 反爬蟲檢測觸發，進入冷卻期: {Signals}",
                     request.Name, string.Join(", ", antiCrawlerResult.BlockingSignals));
                 return false;
             }
 
-            // 2. 智能資料驗證
-            var validationResult = await _dataValidator.ValidatePageDataAsync(_driver, targetUrl, request.Name);
+            // 6. 資料驗證
+            var validationResult = await _dataValidator.ValidatePageDataAsync(_page, targetUrl, request.Name);
             if (!validationResult.IsValid)
             {
                 attempt.Success = false;
                 attempt.FailureReason = $"資料驗證失敗: {string.Join("; ", validationResult.Issues)}";
                 attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
                 _successMonitor.RecordAttempt(attempt);
-                
-                _logger.LogWarning("[{Name}] ❌ 資料驗證失敗: {Issues}", 
+                _logger.LogWarning("[{Name}] ❌ 資料驗證失敗: {Issues}",
                     request.Name, string.Join(", ", validationResult.Issues));
                 return false;
             }
 
-            // 4. 判斷是個股詳細頁面還是需要下載的頁面
-            if (IsStockDetailPage(targetUrl))
-            {
-                // 個股詳細頁面：直接解析資料，無需點擊下載按鈕
-                _logger.LogInformation("[{Name}] 個股詳細頁面，直接解析資料", request.Name);
-                
-                // 等待頁面完全載入
-                await Task.Delay(_config.PageLoadDelayMs);
-                
-                // 記錄成功嘗試
-                attempt.Success = true;
-                attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
-                _successMonitor.RecordAttempt(attempt);
-                
-                _logger.LogInformation("成功訪問個股詳細頁面: {Name}", request.Name);
-                return true;
-            }
+            // 7. 解析 HTML table → 寫出 CSV（取代點擊下載按鈕）
+            var csvPath = GetCsvDownloadPath();
+            var rowsWritten = WriteTableToCsv(pageSource, csvPath);
 
-            // 分析頁面：需要點擊下載按鈕 (如週轉率、券資比等)
-            _logger.LogInformation("[{Name}] 分析頁面，尋找下載按鈕", request.Name);
-
-            // 尋找並點擊下載按鈕 - 使用多種策略嘗試 
-            IWebElement? button = null;
-            var buttonFound = false;
-            
-            // 策略1: 使用指定的 CSS Selector
-            if (!string.IsNullOrEmpty(request.CssSelector) && !buttonFound)
+            if (rowsWritten == 0)
             {
-                try
-                {
-                    button = _driver.FindElement(By.CssSelector(request.CssSelector));
-                    _logger.LogDebug("使用 CSS Selector 找到按鈕: {Selector}", request.CssSelector);
-                    buttonFound = true;
-                }
-                catch (NoSuchElementException)
-                {
-                    _logger.LogDebug("CSS Selector 未找到按鈕: {Selector}", request.CssSelector);
-                }
-            }
-            
-            // 策略2: 使用指定的 XPath
-            if (!string.IsNullOrEmpty(request.XPath) && !buttonFound)
-            {
-                try
-                {
-                    button = _driver.FindElement(By.XPath(request.XPath));
-                    _logger.LogDebug("使用 XPath 找到按鈕: {XPath}", request.XPath);
-                    buttonFound = true;
-                }
-                catch (NoSuchElementException)
-                {
-                    _logger.LogDebug("XPath 未找到按鈕: {XPath}", request.XPath);
-                }
-            }
-            
-            // 策略3: 嘗試常見的下載按鈕選擇器
-            if (!buttonFound)
-            {
-                var commonSelectors = new[]
-                {
-                    "input[type='button'][value*='下載']",
-                    "input[type='submit'][value*='下載']", 
-                    "input[value='下載EXCEL檔']",
-                    "input[value*='Excel']",
-                    ".btnDownload",
-                    "#btnDownload"
-                };
-                
-                foreach (var selector in commonSelectors)
-                {
-                    try
-                    {
-                        button = _driver.FindElement(By.CssSelector(selector));
-                        _logger.LogDebug("使用通用選擇器找到按鈕: {Selector}", selector);
-                        buttonFound = true;
-                        break;
-                    }
-                    catch (NoSuchElementException)
-                    {
-                        // 繼續嘗試下一個
-                    }
-                }
-            }
-            
-            if (!buttonFound || button == null)
-            {
-                _logger.LogWarning("所有策略都無法找到下載按鈕，跳過此頁面");
-                
                 attempt.Success = false;
-                attempt.FailureReason = "找不到下載按鈕";
+                attempt.FailureReason = "HTML 表格無資料，CSV 寫出 0 行";
                 attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
                 _successMonitor.RecordAttempt(attempt);
-                
+                _logger.LogWarning("[{Name}] ❌ 表格無資料，無法寫出 CSV", request.Name);
                 return false;
             }
 
-            // 點擊下載
-            button.Click();
-            _logger.LogDebug("已點擊下載按鈕");
+            _logger.LogInformation("[{Name}] ✅ 已將 {Rows} 行資料寫入 CSV: {Path}",
+                request.Name, rowsWritten, csvPath);
 
-            // 等待下載完成
-            await Task.Delay(_config.DownloadWaitMs);
-
-            // 記錄成功嘗試
             attempt.Success = true;
             attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
             _successMonitor.RecordAttempt(attempt);
-
             _logger.LogInformation("成功下載 GoodInfo 資料: {Name}", request.Name);
             return true;
         }
-        catch (NoSuchElementException ex)
+        catch (PlaywrightException ex) when (IsAntiCrawlerError(ex.Message))
         {
-            var errorMsg = $"找不到下載按鈕 (已嘗試多種策略): {ex.Message}";
-            
-            attempt.Success = false;
-            attempt.FailureReason = errorMsg;
-            attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
-            _successMonitor.RecordAttempt(attempt);
-            
-            _logger.LogInformation("[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, targetUrl);
-            return false;
-        }
-        catch (WebDriverException ex) when (IsAntiCrawlerError(ex))
-        {
-            // 檢測到反爬蟲相關錯誤，觸發冷卻期
-            var errorMsg = $"反爬蟲相關 WebDriver 錯誤: {ex.Message}";
+            var errorMsg = $"反爬蟲相關錯誤: {ex.Message}";
             _antiCrawlerDetector.TriggerCooldown(targetUrl, BlockingSeverity.High, errorMsg);
-            
             attempt.Success = false;
             attempt.FailureReason = errorMsg;
             attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
             _successMonitor.RecordAttempt(attempt);
-            
             _logger.LogError("[{Name}] 🚫 {Error} - 觸發冷卻期 | URL: {Url}", request.Name, errorMsg, targetUrl);
-            return false;
-        }
-        catch (WebDriverException ex)
-        {
-            var errorMsg = $"WebDriver 錯誤: {ex.Message}";
-            
-            attempt.Success = false;
-            attempt.FailureReason = errorMsg;
-            attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
-            _successMonitor.RecordAttempt(attempt);
-            
-            _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, targetUrl);
             return false;
         }
         catch (Exception ex)
         {
             var errorMsg = $"下載失敗: {ex.GetType().Name} - {ex.Message}";
-            
             attempt.Success = false;
             attempt.FailureReason = errorMsg;
             attempt.DownloadTimeMs = (int)(DateTime.Now - startTime).TotalMilliseconds;
             _successMonitor.RecordAttempt(attempt);
-            
             _logger.LogError(ex, "[{Name}] {Error} | URL: {Url}", request.Name, errorMsg, targetUrl);
             return false;
         }
@@ -417,164 +310,144 @@ public class GoodInfoScraper : IDisposable
         return result;
     }
 
-    /// <summary>
-    /// 確保 WebDriver 已初始化
-    /// </summary>
-    private void EnsureDriverInitialized()
+    private async Task EnsurePageInitializedAsync()
     {
-        if (_driver != null)
-            return;
+        if (_page != null) return;
 
-        _logger.LogInformation("初始化 Chrome WebDriver");
+        _logger.LogInformation("初始化 Playwright Chromium");
 
-        var options = new ChromeOptions();
-
-        // 設定下載路徑
-        if (!string.IsNullOrEmpty(_config.DownloadPath))
+        _playwright = await Playwright.CreateAsync();
+        _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
         {
-            options.AddUserProfilePreference("download.default_directory", _config.DownloadPath);
-            options.AddUserProfilePreference("download.prompt_for_download", false);
-            options.AddUserProfilePreference("download.directory_upgrade", true);
-            options.AddUserProfilePreference("safebrowsing.enabled", true);
-            _logger.LogDebug("設定下載路徑: {Path}", _config.DownloadPath);
-        }
+            Headless = _config.UseHeadlessMode,
+            Args = new[]
+            {
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-web-security",
+                "--disable-features=VizDisplayCompositor",
+            }
+        });
 
-        // 防止被偵測為自動化程式 - 增強版
-        options.AddArgument("--disable-blink-features=AutomationControlled");
-        options.AddExcludedArgument("enable-automation");
-        options.AddAdditionalOption("useAutomationExtension", false);
-        options.AddArgument("--disable-web-security");
-        options.AddArgument("--disable-features=VizDisplayCompositor");
-        
-        // 模擬真實瀏覽器行為
-        options.AddArgument("--no-first-run");
-        options.AddArgument("--no-default-browser-check");
-        options.AddArgument("--disable-default-apps");
-
-        // 設定 User-Agent (模擬真實瀏覽器)
         var userAgent = _config.UserAgents[_random.Next(_config.UserAgents.Count)];
-        options.AddArgument($"user-agent={userAgent}");
-        _logger.LogDebug("使用 User-Agent: {UserAgent}", userAgent);
-
-        // Headless 模式 (可選)
-        if (_config.UseHeadlessMode)
+        _context = await _browser.NewContextAsync(new BrowserNewContextOptions
         {
-            options.AddArgument("--headless=new");
-            options.AddArgument("--window-size=1920,1080");
-            _logger.LogDebug("使用 Headless 模式");
-        }
+            UserAgent = userAgent,
+            ViewportSize = new ViewportSize { Width = 1920, Height = 1080 }
+        });
 
-        // 其他優化設定
-        options.AddArgument("--disable-gpu");
-        options.AddArgument("--no-sandbox");
-        options.AddArgument("--disable-dev-shm-usage");
+        await _context.AddInitScriptAsync(StealthScript);
 
-        _driver = new ChromeDriver(options);
-        
-        // 設定超時時間 - 修復 60 秒超時問題
-        var timeouts = _driver.Manage().Timeouts();
-        timeouts.ImplicitWait = TimeSpan.FromSeconds(10);
-        timeouts.PageLoad = TimeSpan.FromMinutes(5); // 5 分鐘頁面載入超時
-        timeouts.AsynchronousJavaScript = TimeSpan.FromSeconds(30); // JS 執行超時
-        
-        _logger.LogInformation("設定 WebDriver 超時: PageLoad=5分鐘, ImplicitWait=10秒, JS=30秒");
+        _page = await _context.NewPageAsync();
+        _page.SetDefaultTimeout(60000);
+        _page.SetDefaultNavigationTimeout(60000);
 
-        // 隱藏 webdriver 屬性 - 增強版
-        var jsExecutor = (IJavaScriptExecutor)_driver;
-        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})");
-        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]})");
-        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']})");
-        jsExecutor.ExecuteScript("window.chrome = { runtime: {} }");
-        jsExecutor.ExecuteScript("Object.defineProperty(navigator, 'permissions', {get: () => ({query: () => Promise.resolve({state: 'granted'})})});");
-
-        _logger.LogInformation("Chrome WebDriver 初始化完成");
+        _logger.LogInformation("Playwright Chromium 初始化完成, UA: {UA}", userAgent);
     }
 
-    /// <summary>
-    /// 檢查 WebDriver 是否健康
-    /// </summary>
-    private bool IsDriverHealthy()
+    private bool IsPageHealthy()
     {
         try
         {
-            if (_driver == null) return false;
-            
-            // 嘗試獲取當前 URL 來測試連線
-            var currentUrl = _driver.Url;
-            return !string.IsNullOrEmpty(currentUrl);
+            if (_page == null) return false;
+            _ = _page.Url;
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug("WebDriver 健康檢查失敗: {Message}", ex.Message);
+            _logger.LogDebug("Page 健康檢查失敗: {Message}", ex.Message);
             return false;
         }
     }
 
-    /// <summary>
-    /// 關閉並清理 WebDriver
-    /// </summary>
-    private void CloseDriver()
+    private async Task ClosePageAsync()
     {
-        try
-        {
-            _driver?.Quit();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug("關閉 WebDriver 時發生錯誤: {Message}", ex.Message);
-        }
-        finally
-        {
-            _driver?.Dispose();
-            _driver = null;
-            _logger.LogInformation("WebDriver 已關閉並清理");
-        }
+        try { if (_context != null) await _context.CloseAsync(); } catch { }
+        try { if (_browser != null) await _browser.CloseAsync(); } catch { }
+        try { _playwright?.Dispose(); } catch { }
+        _page = null;
+        _context = null;
+        _browser = null;
+        _playwright = null;
+        _logger.LogInformation("Playwright 已關閉並清理");
     }
 
-    /// <summary>
-    /// 檢查是否為反爬蟲相關的 WebDriver 錯誤
-    /// </summary>
-    private bool IsAntiCrawlerError(WebDriverException ex)
+    private static bool IsAntiCrawlerError(string message)
     {
-        var message = ex.Message.ToLowerInvariant();
-        
-        // 常見的反爬蟲相關錯誤信號
-        var antiCrawlerErrorKeywords = new[]
+        var lower = message.ToLowerInvariant();
+        var keywords = new[]
         {
-            "access denied",        // 拒絕訪問
-            "forbidden",           // 禁止
-            "blocked",            // 封鎖
-            "rate limit",         // 速率限制
-            "too many requests",  // 請求過多
-            "captcha",           // 驗證碼
-            "verification",      // 驗證
-            "suspicious",        // 可疑活動
-            "bot",              // 機器人檢測
-            "crawler",          // 爬蟲檢測
-            "timeout",          // 超時（可能是故意的）
-            "connection reset", // 連接重置
-            "session expired",  // 會話過期
-            "invalid session"   // 無效會話
+            "access denied", "forbidden", "blocked", "rate limit",
+            "too many requests", "captcha", "verification", "bot",
+            "crawler", "connection reset", "session expired", "invalid session"
         };
-
-        return antiCrawlerErrorKeywords.Any(keyword => message.Contains(keyword));
+        return keywords.Any(k => lower.Contains(k));
     }
 
-    /// <summary>
-    /// 判斷是否為個股詳細頁面
-    /// </summary>
-    private static bool IsStockDetailPage(string url)
+    private static bool IsStockDetailPage(string url) =>
+        url.Contains("StockDetail.asp", StringComparison.OrdinalIgnoreCase) ||
+        url.Contains("StockInfo/StockDetail", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetCsvDownloadPath()
     {
-        return url.Contains("StockDetail.asp", StringComparison.OrdinalIgnoreCase) ||
-               url.Contains("StockInfo/StockDetail", StringComparison.OrdinalIgnoreCase);
+        var downloads = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        Directory.CreateDirectory(downloads);
+        return Path.Combine(downloads, "StockList.csv");
     }
 
-    /// <summary>
-    /// 釋放資源
-    /// </summary>
+    private int WriteTableToCsv(string html, string csvPath)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        var tableNode =
+            doc.DocumentNode.SelectSingleNode("//*[@id='txtStockListData']//table") ??
+            doc.DocumentNode.SelectSingleNode("//div[@id='txtStockListData']/table") ??
+            doc.DocumentNode.SelectSingleNode("//table[contains(@id,'StockList')]") ??
+            doc.DocumentNode.SelectSingleNode("//table");
+
+        if (tableNode == null)
+        {
+            _logger.LogWarning("找不到 #txtStockListData 表格");
+            return 0;
+        }
+
+        var rows = tableNode.SelectNodes(".//tr");
+        if (rows == null) return 0;
+
+        var lines = new List<string>();
+        foreach (var row in rows)
+        {
+            var cells = row.SelectNodes(".//td|.//th");
+            if (cells == null) continue;
+
+            var values = cells.Select(c =>
+            {
+                var text = WebUtility.HtmlDecode(c.InnerText.Trim())
+                    .Replace("\r", "").Replace("\n", " ").Trim();
+                if (text.Contains(',') || text.Contains('"'))
+                    text = $"\"{text.Replace("\"", "\"\"")}\"";
+                return text;
+            });
+
+            lines.Add(string.Join(",", values));
+        }
+
+        File.WriteAllLines(csvPath, lines, Encoding.UTF8);
+        _logger.LogDebug("寫出 CSV: {Path} ({Rows} 行)", csvPath, lines.Count);
+        return Math.Max(0, lines.Count - 1); // 扣除標題行
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await ClosePageAsync();
+    }
+
     public void Dispose()
     {
-        CloseDriver();
+        ClosePageAsync().GetAwaiter().GetResult();
     }
 }
 

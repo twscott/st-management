@@ -1,62 +1,92 @@
-# SST Stock Import - API + Web Startup Script
-# Starts both API and Web servers
+﻿# SST Stock Import - Management Menu
+# Central launcher for service management
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  SST Stock Import - Startup Script" -ForegroundColor Cyan
-Write-Host "  API: http://localhost:5008" -ForegroundColor Cyan
-Write-Host "  Web: http://localhost:5089" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
+$Root = $PSScriptRoot
 
-# Kill existing dotnet processes
-Write-Host "Step 1: Clearing existing dotnet processes..." -ForegroundColor Yellow
-Get-Process dotnet -ErrorAction SilentlyContinue | ForEach-Object {
-    Write-Host "  Stopping: $($_.ProcessName)" -ForegroundColor Gray
-    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-}
-Start-Sleep -Seconds 2
+function Show-Status {
+    Write-Host ""
+    Write-Host "  [Current Status]" -ForegroundColor Yellow
 
-# Verify ports are free
-Write-Host "Step 2: Verifying ports are available..." -ForegroundColor Yellow
-foreach ($port in 5008, 5089) {
-    $conn = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-    if ($conn) {
-        Write-Host "  Warning: Port $port is still in use!" -ForegroundColor Red
-    } else {
-        Write-Host "  OK: Port $port is available" -ForegroundColor Green
+    foreach ($svc in @("SST.StockImport.API", "SST.StockImport.Web")) {
+        $s = Get-Service $svc -ErrorAction SilentlyContinue
+        if ($s) {
+            $color = if ($s.Status -eq "Running") { "Green" } else { "Red" }
+            Write-Host ("  {0,-28} {1}" -f $svc, $s.Status) -ForegroundColor $color
+        } else {
+            Write-Host ("  {0,-28} {1}" -f $svc, "Not Installed") -ForegroundColor DarkGray
+        }
     }
+
+    foreach ($entry in @(@{Port=5008;Name="API"}, @{Port=5089;Name="Web"})) {
+        $conn = Get-NetTCPConnection -LocalPort $entry.Port -ErrorAction SilentlyContinue | Where-Object State -eq "Listen" | Select-Object -First 1
+        if ($conn) {
+            Write-Host ("  Port {0} ({1})  LISTENING  PID {2}" -f $entry.Port, $entry.Name, $conn.OwningProcess) -ForegroundColor Green
+        } else {
+            Write-Host ("  Port {0} ({1})  Not listening" -f $entry.Port, $entry.Name) -ForegroundColor DarkGray
+        }
+    }
+    Write-Host ""
+}
+
+while ($true) {
+    Clear-Host
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "   SST Stock Import - Management Menu" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  1. Redeploy API + Web  (build + copy)" -ForegroundColor White
+    Write-Host "  2. Redeploy API only" -ForegroundColor White
+    Write-Host "  3. Redeploy Web only" -ForegroundColor White
+    Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  4. Start services  (sc start)" -ForegroundColor White
+    Write-Host "  5. Stop services   (sc stop)" -ForegroundColor White
+    Write-Host "  ----------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  6. Check status" -ForegroundColor White
+    Write-Host "  Q. Quit" -ForegroundColor DarkGray
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    Show-Status
+
+    $choice = Read-Host "Select"
+
+    switch ($choice.Trim().ToUpper()) {
+        "1" {
+            & "$Root\redeploy-services.ps1"
+            Read-Host "Press Enter to continue"
+        }
+        "2" {
+            & "$Root\redeploy-services.ps1" -Api
+            Read-Host "Press Enter to continue"
+        }
+        "3" {
+            & "$Root\redeploy-services.ps1" -Web
+            Read-Host "Press Enter to continue"
+        }
+        "4" {
+            Write-Host "Starting services..." -ForegroundColor Yellow
+            Start-Process powershell -ArgumentList "-NoProfile -Command `"sc.exe start SST.StockImport.API; sc.exe start SST.StockImport.Web`"" -Verb RunAs -Wait
+            Write-Host "Done" -ForegroundColor Green
+            Read-Host "Press Enter to continue"
+        }
+        "5" {
+            Write-Host "Stopping services..." -ForegroundColor Yellow
+            Start-Process powershell -ArgumentList "-NoProfile -Command `"sc.exe stop SST.StockImport.Web; sc.exe stop SST.StockImport.API`"" -Verb RunAs -Wait
+            Write-Host "Done" -ForegroundColor Green
+            Read-Host "Press Enter to continue"
+        }
+        "6" {
+            Show-Status
+            Read-Host "Press Enter to continue"
+        }
+        "Q" {
+            Write-Host "Goodbye!" -ForegroundColor Cyan
+            break
+        }
+        default {
+            Write-Host "Invalid option, try again" -ForegroundColor Red
+            Start-Sleep 1
+        }
+    }
+
+    if ($choice.Trim().ToUpper() -eq "Q") { break }
 }
 Write-Host ""
-
-# Start API
-Write-Host "Step 3: Starting API on port 5008..." -ForegroundColor Yellow
-$apiDir = "D:\vibeCoding\sst\src\SST.StockImport.API"
-Push-Location $apiDir
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c dotnet run --urls http://localhost:5008" -WindowStyle Normal
-Start-Sleep -Seconds 8
-Pop-Location
-Write-Host "  API started" -ForegroundColor Green
-Write-Host ""
-
-# Start Web
-Write-Host "Step 4: Starting Web on port 5089..." -ForegroundColor Yellow
-$webDir = "D:\vibeCoding\sst\src\SST.StockImport.Web"
-Push-Location $webDir
-Start-Process -FilePath "cmd.exe" -ArgumentList "/c dotnet run --urls http://localhost:5089" -WindowStyle Normal
-Start-Sleep -Seconds 8
-Pop-Location
-Write-Host "  Web started" -ForegroundColor Green
-Write-Host ""
-
-# Summary
-Write-Host "========================================" -ForegroundColor Green
-Write-Host "  Both applications are running!" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "Access UC-Schedule Management UI:" -ForegroundColor Cyan
-Write-Host "  http://localhost:5089/uc-schedule-management" -ForegroundColor White
-Write-Host ""
-Write-Host "API Documentation:" -ForegroundColor Cyan
-Write-Host "  http://localhost:5008/swagger" -ForegroundColor White
-Write-Host ""
-Write-Host "Press Ctrl+C in each command window to stop the services" -ForegroundColor Yellow

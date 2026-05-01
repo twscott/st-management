@@ -70,7 +70,13 @@ builder.Services.AddSingleton<IExecutionLogService, ExecutionLogService>();
 builder.Services.AddScoped<OperationExecutorService>();
 builder.Services.AddScoped<ErrorHandlingService>();
 
-// Register LegacyGoodInfoScraper for GoodInfo downloads
+// Register services required by GoodInfoScraper and LegacyGoodInfoScraper
+builder.Services.AddSingleton<GoodInfoDataValidator>();
+builder.Services.AddSingleton<GoodInfoSuccessRateMonitor>();
+builder.Services.AddScoped<GoodInfoUrlManager>();
+builder.Services.AddSingleton<IAntiCrawlerDetector, AntiCrawlerDetector>();
+builder.Services.AddSingleton(new GoodInfoScraperConfig());
+builder.Services.AddScoped<GoodInfoScraper>();
 builder.Services.AddScoped<LegacyGoodInfoScraper>();
 
 var app = builder.Build();
